@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Overview · Org Apps</title>
+<meta name="description" content="What Fabric org apps are, how they differ from workspace apps, when to use them, which capabilities are GA or preview, and a map of this playbook on building, governing and promoting them.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="11-org-apps" data-page="index.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 11 · Organizational Apps</p>
+      <h1>Organizational apps in Microsoft Fabric</h1>
+      <p class="lede">An org app packages reports, notebooks, real-time dashboards and other Fabric items into a branded, audience-aware experience for people who never open the workspace. This playbook covers what you need before you start, how to build and govern an app, how access flows from the app to the items beneath it, and how to promote it through environments.</p>
+      <ul class="chips"><li><b>Audience</b> BI developers, Fabric and Power BI admins, analytics architects</li><li><b>Level</b> Intermediate</li><li><b>Reading time</b> 65 min</li></ul>
+    </header>
+
+    <h2 id="what-is">What an org app is</h2>
+    <p>An org app is a Fabric item type that content creators use to package content for consumers in their organization. You create it inside a workspace (<strong>New &gt; Org app</strong>), pick items from that same workspace, arrange them into a navigation structure, brand it and share it. The people who open the app do not need a role in the workspace: access to the app item grants them what they need on the included items and on the semantic models behind the reports.</p>
+    <p>Three properties separate an org app from the classic workspace app (the experience formerly called a Power BI app):</p>
+    <ul>
+      <li><strong>Many apps per workspace.</strong> A workspace can host as many org apps as you need, each with its own navigation, branding and audiences. A workspace app is limited to one per workspace.</li>
+      <li><strong>Live references, not versioned copies.</strong> Included items stay where they are. When you save the app, the change is visible to viewers immediately, and edits to an included item are visible as soon as that item is saved. There is no publish or update step for the app.</li>
+      <li><strong>Access is item access.</strong> Adding a person to an app grants Read on the included items and on the underlying semantic models; removing the person revokes the access that the app granted. Consumers find the app like any other item, with no install step.</li>
+    </ul>
+
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 880 380" role="img" aria-label="One workspace holds items; two org apps include those items by reference; each org app has audiences; Entra security groups are assigned to audiences">
+        <defs>
+          <marker id="fig-idx-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-idx-1-ag" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <text class="t-b" x="16" y="20">Workspace PRD_SALES_CNSM</text>
+        <text class="t-b" x="350" y="20">Org apps</text>
+        <text class="t-b" x="716" y="20">Entra security groups</text>
+        <rect class="zone" x="16" y="30" width="262" height="332" rx="12"/>
+        <rect class="box blue" x="32" y="60" width="230" height="34" rx="8"/>
+        <text class="t-m" x="147" y="82" text-anchor="middle">RPT_SALES_CNSM_Executive</text>
+        <rect class="box blue" x="32" y="108" width="230" height="34" rx="8"/>
+        <text class="t-m" x="147" y="130" text-anchor="middle">NB_SALES_CNSM_Methodology</text>
+        <rect class="box blue" x="32" y="200" width="230" height="34" rx="8"/>
+        <text class="t-m" x="147" y="222" text-anchor="middle">RPT_SALES_CNSM_RegionOps</text>
+        <rect class="box blue" x="32" y="248" width="230" height="34" rx="8"/>
+        <text class="t-m" x="147" y="270" text-anchor="middle">RTD_SALES_CNSM_StoreTraffic</text>
+        <rect class="box blue" x="32" y="296" width="230" height="34" rx="8"/>
+        <text class="t-m" x="147" y="318" text-anchor="middle">SM_SALES_CNSM_Core</text>
+
+        <rect class="box green" x="350" y="40" width="240" height="120" rx="12"/>
+        <text class="t-h" x="470" y="64" text-anchor="middle">Org app: Executive</text>
+        <text class="t-s" x="470" y="82" text-anchor="middle">Overview · report · notebook</text>
+        <rect class="box plain" x="366" y="96" width="208" height="52" rx="8"/>
+        <text class="t-b" x="470" y="118" text-anchor="middle">Audience: Executives</text>
+        <text class="t-s" x="470" y="136" text-anchor="middle">all elements visible</text>
+
+        <rect class="box green" x="350" y="176" width="240" height="186" rx="12"/>
+        <text class="t-h" x="470" y="200" text-anchor="middle">Org app: Regional operations</text>
+        <text class="t-s" x="470" y="218" text-anchor="middle">Sections · report · live dashboard</text>
+        <rect class="box plain" x="366" y="232" width="208" height="50" rx="8"/>
+        <text class="t-b" x="470" y="254" text-anchor="middle">Audience: Managers</text>
+        <text class="t-s" x="470" y="270" text-anchor="middle">all elements visible</text>
+        <rect class="box plain" x="366" y="292" width="208" height="50" rx="8"/>
+        <text class="t-b" x="470" y="314" text-anchor="middle">Audience: Analysts</text>
+        <text class="t-s" x="470" y="330" text-anchor="middle">live dashboard hidden</text>
+
+        <rect class="box gray" x="716" y="105" width="148" height="34" rx="8"/>
+        <text class="t-m" x="790" y="127" text-anchor="middle">sg-sales-exec</text>
+        <rect class="box gray" x="716" y="240" width="148" height="34" rx="8"/>
+        <text class="t-m" x="790" y="262" text-anchor="middle">sg-sales-managers</text>
+        <rect class="box gray" x="716" y="300" width="148" height="34" rx="8"/>
+        <text class="t-m" x="790" y="322" text-anchor="middle">sg-sales-analysts</text>
+
+        <path class="ln green" d="M262 77H348" marker-end="url(#fig-idx-1-ag)"/>
+        <path class="ln green" d="M262 125H348" marker-end="url(#fig-idx-1-ag)"/>
+        <path class="ln green" d="M300 125V190H348" marker-end="url(#fig-idx-1-ag)"/>
+        <path class="ln green" d="M262 217H348" marker-end="url(#fig-idx-1-ag)"/>
+        <path class="ln green" d="M262 265H348" marker-end="url(#fig-idx-1-ag)"/>
+        <rect class="pill-bg" x="284" y="60" width="64" height="14"/>
+        <text class="t-s" x="316" y="71" text-anchor="middle">includes</text>
+
+        <path class="ln" d="M716 122H576" marker-end="url(#fig-idx-1-a)"/>
+        <path class="ln" d="M716 257H576" marker-end="url(#fig-idx-1-a)"/>
+        <path class="ln" d="M716 317H576" marker-end="url(#fig-idx-1-a)"/>
+        <rect class="pill-bg" x="608" y="104" width="84" height="14"/>
+        <text class="t-s" x="650" y="115" text-anchor="middle">assigned to</text>
+      </svg>
+      <figcaption><b>One workspace, several products.</b> The notebook is included in both apps by reference, not copied. Each audience is a child item of its app and maps to an Entra group; access to the underlying items and models follows the app, not the workspace role.</figcaption>
+    </figure>
+
+    <p>Org apps do not replace workspace apps. Both coexist, and existing workspace apps are not renamed, upgraded or migrated automatically. If you want org app features for existing content, you build a new org app (see <a href="concepts.html#migration">the migration steps</a>).</p>
+
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p>
+      <p>The org app item is documented as generally available, but the pieces around it move at different speeds: inclusion of Fabric Apps is a preview feature, and the Git and deployment-pipeline entries for org apps carry a preview label in the supported-items lists. Before committing to a design, re-read <a href="https://learn.microsoft.com/power-bi/explore-reports/org-app-items">Get started with org apps</a> and the supported-items lists in <a href="https://learn.microsoft.com/fabric/cicd/git-integration/intro-to-git-integration">Git integration</a> and <a href="https://learn.microsoft.com/fabric/cicd/deployment-pipelines/intro-to-deployment-pipelines">deployment pipelines</a>.</p></div>
+
+    <h2 id="why-adopt">Why teams adopt org apps</h2>
+    <table>
+      <thead><tr><th>Capability</th><th>What changes for you</th><th>Watch for</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Multiple apps per workspace</strong></td><td>Targeted apps from one set of items, instead of duplicating content or shipping one monolithic app</td><td>Every app needs an owner and a naming standard</td></tr>
+        <tr><td><strong>Wider content mix</strong></td><td>Reports, paginated reports, notebooks, real-time dashboards, maps and links in one navigation; Fabric Apps (preview)</td><td>Classic dashboards and scorecards cannot be included</td></tr>
+        <tr><td><strong>Branding and navigation</strong></td><td>Custom icon and theme color, sections, an overview landing page with a header</td><td>The app icon is a .jpg or .png of up to 45 KB</td></tr>
+        <tr><td><strong>Access propagation and revocation</strong></td><td>Read is granted on included items and on the semantic models behind reports, even models in other workspaces, and removed when the person is removed</td><td>The author needs write and reshare rights on those items; some dependencies are not covered</td></tr>
+        <tr><td><strong>Item lifecycle</strong></td><td>The app is a workspace item that Git integration and deployment pipelines can handle</td><td>Preview label on the CI/CD support; no service principal deployment</td></tr>
+        <tr><td><strong>Install-free discovery</strong></td><td>The app appears on the Apps page, in Home recents and favorites, and in the OneLake catalog</td><td>The My apps list on Home does not show org apps</td></tr>
+      </tbody>
+    </table>
+    <p>The trade-off that comes with live references is governance. Because nothing is staged inside the app, a saved change to a report is immediately in front of every consumer. That is why the playbook treats separate development, test and production workspaces as part of the design, not an optional extra (see <a href="access-alm.html#alm">ALM</a>).</p>
+
+    <h2 id="when-to-use">When to use an org app, and when not to</h2>
+    <div class="pros-cons">
+      <div class="pros"><h4>Use an org app when</h4><ul>
+        <li>You are curating content for people outside the workspace, inside your tenant</li>
+        <li>One set of items must serve several audiences with different views</li>
+        <li>You want notebooks, real-time dashboards or maps next to reports</li>
+        <li>Reports depend on semantic models in other workspaces and you want access handled for you</li>
+        <li>You want Git and pipeline-based promotion for the app itself</li>
+      </ul></div>
+      <div class="cons"><h4>Prefer something else when</h4><ul>
+        <li>The consumers are external customers or an application (embedding)</li>
+        <li>You need classic dashboards or scorecards (workspace app)</li>
+        <li>You depend on a staged publish-and-update step inside one workspace (workspace app)</li>
+        <li>You distribute a packaged solution to many tenants (template app)</li>
+        <li>You need custom front-end logic (a Fabric App, which you can then include)</li>
+      </ul></div>
+    </div>
+    <p>The full decision table, with licensing and access consequences, is on <a href="concepts.html#comparison">Concepts and choosing an app model</a>.</p>
+
+    <h2 id="status">Status of the capabilities this playbook relies on</h2>
+    <p>Status labels change. The table records what the documentation says and where this playbook covers it; confirm on Microsoft Learn before you rely on a label.</p>
+    <table>
+      <thead><tr><th>Capability</th><th>Documented status</th><th>Covered in</th></tr></thead>
+      <tbody>
+        <tr><td>Org app item: create, share, edit, delete</td><td><span class="badge ga">GA</span></td><td><a href="build.html">Build</a></td></tr>
+        <tr><td>Audiences (child items of an org app)</td><td><span class="badge info">Supported</span> in new org apps only</td><td><a href="access-alm.html#audiences">Audiences</a></td></tr>
+        <tr><td>Power BI reports, paginated reports, notebooks, Real-Time Dashboards, Maps as included items</td><td><span class="badge info">Supported</span> (verify the notebook page, see below)</td><td><a href="content.html">Content</a></td></tr>
+        <tr><td>Fabric Apps as included items</td><td><span class="badge preview">Preview</span></td><td><a href="content.html#fabric-apps">Content</a></td></tr>
+        <tr><td>Git integration and deployment pipelines for org apps</td><td><span class="badge preview">Preview</span> label in the supported-items lists</td><td><a href="access-alm.html#alm">ALM</a></td></tr>
+        <tr><td>The org app tenant setting</td><td>Label may still read "(preview)"</td><td><a href="prerequisites.html#tenant">Prerequisites</a></td></tr>
+      </tbody>
+    </table>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p>
+      <p>The article <a href="https://learn.microsoft.com/fabric/data-engineering/notebook-in-app">How to integrate notebooks with Org app</a> still carries a preview banner, while the main org app article lists notebooks as an included item without a preview label. Confirm the notebook status in your tenant and on Learn before you promise notebook-based apps to stakeholders.</p></div>
+
+    <h2 id="prereq-glance">Prerequisites at a glance</h2>
+    <ul>
+      <li><strong>Tenant.</strong> The org app tenant setting is on for the creators, and "Users can create Fabric items" is on if you include non-Power BI items.</li>
+      <li><strong>Workspace type.</strong> The workspace is a Pro, Fabric trial, Premium capacity or Fabric capacity workspace; notebooks and Real-Time Dashboards need a Fabric or trial capacity workspace.</li>
+      <li><strong>Creator license.</strong> Power BI Pro or Premium Per User, because org apps are Power BI items.</li>
+      <li><strong>Role.</strong> Contributor, Member or Admin to create; write and reshare on the included items and models to change access.</li>
+      <li><strong>Consumer license.</strong> Depends on the capacity size; free-license viewing is tied to F64 or larger, P or trial capacity.</li>
+    </ul>
+    <p>Details, owners and a pre-flight checklist are on <a href="prerequisites.html">Prerequisites and governance</a>.</p>
+
+    <h2 id="outcomes">What you will be able to do</h2>
+    <ul>
+      <li>Choose between an org app, a workspace app, direct sharing, embedding and a template app, and justify the choice.</li>
+      <li>Configure the tenant, capacity, license and role layers so creation and distribution do not fail late.</li>
+      <li>Design an app around its audience, then build, brand and test it.</li>
+      <li>Include each supported item type and know exactly where access is, and is not, handled for you.</li>
+      <li>Share through audiences and groups, revoke cleanly, and explain why a removed user may still see something.</li>
+      <li>Version the app in Git, promote it through development, test and production, and retire it safely.</li>
+    </ul>
+
+    <h2 id="map">Map of this playbook</h2>
+    <div class="cards">
+      <a class="card blue" href="concepts.html"><span class="card-num">02</span><h3>Concepts and choosing an app model</h3><p>Anatomy, live references, access propagation and a decision table against the alternatives.</p><div class="card-meta"><span>Concepts</span><span>Decisions</span></div></a>
+      <a class="card purple" href="prerequisites.html"><span class="card-num">03</span><h3>Prerequisites and governance</h3><p>Tenant settings, workspace types, licenses, roles and a pre-flight checklist.</p><div class="card-meta"><span>Admin</span><span>Checklist</span></div></a>
+      <a class="card green" href="build.html"><span class="card-num">04</span><h3>Build and customize an org app</h3><p>Audience-first design, creation, navigation, overview page, branding, preview and save.</p><div class="card-meta"><span>Step by step</span></div></a>
+      <a class="card teal" href="content.html"><span class="card-num">05</span><h3>Integrating Fabric and Power BI items</h3><p>What each item type grants consumers, identity models and the gaps you must close yourself.</p><div class="card-meta"><span>Reference</span></div></a>
+      <a class="card orange" href="access-alm.html"><span class="card-num">06</span><h3>Access, ALM and lifecycle</h3><p>Sharing, audiences, Git, deployment pipelines, updates and deletion.</p><div class="card-meta"><span>Operations</span></div></a>
+      <a class="card silver" href="practices.html"><span class="card-num">07</span><h3>Practices, pitfalls and roadmap</h3><p>Best practices, troubleshooting, tracking capability changes and the final checklist.</p><div class="card-meta"><span>Reference</span><span>Checklist</span></div></a>
+    </div>
+
+    <h2 id="related">How this fits with other playbooks</h2>
+    <ul>
+      <li><a href="../07-deployment/index.html">Deployment Pipelines and Promotion</a> and <a href="../05-github-integration/index.html">GitHub Integration and Branching</a> describe the mechanics that the ALM section of this playbook applies to org apps.</li>
+      <li><a href="../12-power-bi-report-development/index.html">Power BI Report Development Standards</a> and <a href="../13-paginated-report-migration/index.html">Paginated Report Migration</a> cover the content you put inside an app.</li>
+      <li><a href="../16-tenant-settings/index.html">Tenant Settings Reference</a> is the place to cross-check the admin settings named here.</li>
+      <li><a href="../01-powerbi-to-fabric-migration/index.html">Power BI to Fabric Migration</a> covers moving existing Power BI content, including workspace apps, into Fabric workspaces.</li>
+      <li><a href="../14-deployment-checklist/index.html">Deployment Checklist</a> and <a href="../15-qa-validation/index.html">QA Validation Frameworks</a> give you release and testing gates to reuse for app promotion.</li>
+      <li>Terms such as semantic model, workspace type and item are defined in the <a href="../../glossary.html">glossary</a>; the <a href="../../reference-architecture.html">reference architecture</a> shows where an app sits in the wider platform.</li>
+    </ul>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p><ul>
+      <li>An org app is a Fabric item that references items in its workspace; saving the app or an included item is immediately visible to consumers.</li>
+      <li>Use several small, audience-specific apps from one workspace instead of one app for everyone.</li>
+      <li>Access follows the app: adding or removing a person grants or revokes Read on included items and their semantic models, with documented exceptions.</li>
+      <li>Org apps coexist with workspace apps; there is no automatic migration, and some workspace app features have no org app equivalent.</li>
+      <li>Treat status labels, tenant setting names and CI/CD support as facts to re-check, not facts to remember.</li>
+    </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/power-bi/explore-reports/org-app-items">Get started with org apps</a></li>
+        <li><a href="https://learn.microsoft.com/power-bi/developer/embedded/org-app-cicd">CI/CD for org apps in Fabric</a></li>
+        <li><a href="https://learn.microsoft.com/power-bi/collaborate-share/service-create-distribute-apps">Publish a workspace app in Power BI</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/enterprise/licenses">Understand Microsoft Fabric licenses and capacity</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/admin/service-admin-portal-microsoft-fabric-tenant-settings">Microsoft Fabric tenant settings</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

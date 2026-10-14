@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Concepts and anatomy · Variable Libraries</title>
+<meta name="description" content="Variable types, default and alternative value sets, why the active value set is workspace state, naming rules, limits and the permission model of a Fabric variable library.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="09-variable-libraries" data-page="concepts.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 09 · Variable Libraries</p>
+      <h1>Concepts and anatomy</h1>
+      <p class="lede">Before you build anything, get four ideas straight: what types a variable can have, how default and alternative value sets resolve to one set of values, why the active value set belongs to the workspace and not to the item, and who is allowed to change what. Most variable-library incidents come from misunderstanding one of these.</p>
+    </header>
+
+    <h2 id="anatomy">Anatomy of a library</h2>
+    <p>A variable library is a single item that stores everything needed to configure its consumers in every stage. In its definition it has three kinds of content: the <strong>variables</strong> (name, type, optional note and the default value), one <strong>value set</strong> file per alternative set (holding only the values that differ from the default), and a small <strong>settings</strong> part that records the order in which value sets are listed. A platform file with the item's metadata is generated as for any Fabric item. How these parts look in Git is covered in <a href="cicd-promotion.html#git">the Git section</a>.</p>
+    <p>What a consumer sees is always the result of one selection: take the active value set, and for every variable use that set's override if it has one, otherwise the default.</p>
+
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 300" role="img" aria-label="A grid with variables as rows and the Default, TST and PRD value sets as columns. Override cells are stored values; the other cells inherit the default. With the PRD value set active, the right-hand column shows the values a consumer reads: PRD for the stage name, 500000 for batch size, false for full reload and the PRD connection">
+        <defs>
+          <marker id="fig-concepts-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <text class="t-h" x="20" y="36">Variable · type</text>
+        <rect class="box gray" x="200" y="16" width="150" height="34" rx="6"/>
+        <text class="t-b" x="275" y="38" text-anchor="middle">Default value set</text>
+        <rect class="box purple" x="364" y="16" width="130" height="34" rx="6"/>
+        <text class="t-b" x="429" y="38" text-anchor="middle">TST</text>
+        <rect class="box green" x="508" y="16" width="130" height="34" rx="6"/>
+        <text class="t-b" x="573" y="38" text-anchor="middle">PRD (active)</text>
+        <rect class="box teal" x="716" y="16" width="164" height="34" rx="6"/>
+        <text class="t-b" x="798" y="38" text-anchor="middle">Consumers read</text>
+
+        <text class="t-b" x="20" y="88">StageName · String</text>
+        <rect class="box" x="200" y="64" width="150" height="36" rx="6"/><text class="t-s" x="275" y="87" text-anchor="middle">DEV</text>
+        <rect class="box blue" x="364" y="64" width="130" height="36" rx="6"/><text class="t-s" x="429" y="87" text-anchor="middle">TST</text>
+        <rect class="box blue" x="508" y="64" width="130" height="36" rx="6"/><text class="t-s" x="573" y="87" text-anchor="middle">PRD</text>
+        <rect class="box green" x="716" y="64" width="164" height="36" rx="6"/><text class="t-b" x="798" y="87" text-anchor="middle">PRD</text>
+
+        <text class="t-b" x="20" y="136">BatchSize · Integer</text>
+        <rect class="box" x="200" y="112" width="150" height="36" rx="6"/><text class="t-s" x="275" y="135" text-anchor="middle">10000</text>
+        <rect class="box gray dashed" x="364" y="112" width="130" height="36" rx="6"/><text class="t-s" x="429" y="135" text-anchor="middle">inherits</text>
+        <rect class="box blue" x="508" y="112" width="130" height="36" rx="6"/><text class="t-s" x="573" y="135" text-anchor="middle">500000</text>
+        <rect class="box green" x="716" y="112" width="164" height="36" rx="6"/><text class="t-b" x="798" y="135" text-anchor="middle">500000</text>
+
+        <text class="t-b" x="20" y="184">FullReload · Boolean</text>
+        <rect class="box" x="200" y="160" width="150" height="36" rx="6"/><text class="t-s" x="275" y="183" text-anchor="middle">false</text>
+        <rect class="box gray dashed" x="364" y="160" width="130" height="36" rx="6"/><text class="t-s" x="429" y="183" text-anchor="middle">inherits</text>
+        <rect class="box gray dashed" x="508" y="160" width="130" height="36" rx="6"/><text class="t-s" x="573" y="183" text-anchor="middle">inherits</text>
+        <rect class="box green" x="716" y="160" width="164" height="36" rx="6"/><text class="t-b" x="798" y="183" text-anchor="middle">false</text>
+
+        <text class="t-b" x="20" y="232">OrdersApi · Connection ref.</text>
+        <rect class="box" x="200" y="208" width="150" height="36" rx="6"/><text class="t-s" x="275" y="231" text-anchor="middle">connection DEV</text>
+        <rect class="box blue" x="364" y="208" width="130" height="36" rx="6"/><text class="t-s" x="429" y="231" text-anchor="middle">connection TST</text>
+        <rect class="box blue" x="508" y="208" width="130" height="36" rx="6"/><text class="t-s" x="573" y="231" text-anchor="middle">connection PRD</text>
+        <rect class="box green" x="716" y="208" width="164" height="36" rx="6"/><text class="t-b" x="798" y="231" text-anchor="middle">connection PRD</text>
+
+        <path class="ln green" d="M638 33H714" marker-end="url(#fig-concepts-1-a)"/>
+        <rect class="pill-bg" x="650" y="24" width="52" height="16"/>
+        <text class="t-s" x="676" y="36" text-anchor="middle">selects</text>
+
+        <rect class="box blue" x="200" y="266" width="22" height="16" rx="3"/><text class="t-s" x="230" y="278">override stored in the value set</text>
+        <rect class="box gray dashed" x="452" y="266" width="22" height="16" rx="3"/><text class="t-s" x="482" y="278">falls back to the default value</text>
+      </svg>
+      <figcaption><b>Resolution of values.</b> Blue cells are stored overrides, dashed cells fall back to the default value set, and the right-hand column is what consumers read when PRD is the active set. Activating TST instead would change that column without touching any consumer.</figcaption>
+    </figure>
+
+    <h2 id="types">Variable types</h2>
+    <p>Each variable has a name, a type, a default value and an optional note (up to 2,048 characters). The type decides how the value is validated and which consumers can use it.</p>
+    <table>
+      <thead><tr><th>Type</th><th>Category</th><th>Holds</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td>Boolean</td><td>Basic</td><td><code>true</code> or <code>false</code></td><td>Appears as <code>Bool</code> in pipelines.</td></tr>
+        <tr><td>Integer</td><td>Basic</td><td>Whole numbers</td><td>Appears as <code>Int</code> in pipelines.</td></tr>
+        <tr><td>Number</td><td>Basic</td><td>Decimals</td><td>Not supported in pipelines.</td></tr>
+        <tr><td>String</td><td>Basic</td><td>Text</td><td>The safest type for IDs you hand to consumers that expect text, and the required type for values used in a notebook <code>%%configure</code> block.</td></tr>
+        <tr><td>DateTime</td><td>Basic</td><td>A UTC timestamp in ISO 8601 form, <code>yyyy-MM-ddTHH:mm:ss.xxxZ</code></td><td>Appears as <code>String</code> in pipelines.</td></tr>
+        <tr><td>Guid</td><td>Basic</td><td>A globally unique identifier</td><td>Appears as <code>String</code> in pipelines.</td></tr>
+        <tr><td>Item reference <span class="badge preview">Preview</span></td><td>Advanced</td><td>A pair of GUIDs: the workspace ID and the item ID of a Fabric item</td><td>A static pointer. Needs Read permission on the item when you set it.</td></tr>
+        <tr><td>Connection reference <span class="badge preview">Preview</span></td><td>Advanced</td><td>The ID of an external data connection (a connection you can read)</td><td>A static pointer. Does not bind itself to a stage on deployment.</td></tr>
+      </tbody>
+    </table>
+    <div class="callout note"><p class="callout-title">Changing a type resets the values</p><p>Once a variable has a value, changing its type triggers a consent dialog: all of the variable's values are reset, and consumers that depended on the old type can break. Decide types before consumers exist, and add a new variable instead of repurposing one.</p></div>
+
+    <h3 id="choosing-types">Choosing a type for the thing you want to vary</h3>
+    <table>
+      <thead><tr><th>You want to vary</th><th>Prefer</th><th>Fall back to</th></tr></thead>
+      <tbody>
+        <tr><td>The lakehouse, notebook or pipeline an item points at</td><td>Item reference, where the consumer supports it</td><td>A String holding the item ID (and one for the workspace ID)</td></tr>
+        <tr><td>The external connection an activity uses</td><td>Connection reference, where the consumer supports it</td><td>A String holding the connection ID</td></tr>
+        <tr><td>A table name, folder or endpoint host</td><td>String</td><td>None needed</td></tr>
+        <tr><td>A lookback window, batch size or retry count</td><td>Integer</td><td>None needed</td></tr>
+        <tr><td>A threshold with decimals</td><td>Number (not available in pipelines)</td><td>Integer in minor units, or a String you parse in a notebook</td></tr>
+        <tr><td>A switch that changes behavior (full reload, debug logging)</td><td>Boolean</td><td>None needed</td></tr>
+        <tr><td>Which stage the workspace is</td><td>String</td><td>None needed; see the <a href="example-and-operations.html#guard">stage guard</a></td></tr>
+      </tbody>
+    </table>
+    <h3 id="reference-types">Reference types are static pointers</h3>
+    <p>An item reference stores raw workspace and item IDs. It does not follow the item when you deploy: after a deployment to a new stage, the reference still points at the original workspace until you change it. The same holds for a connection reference, which never auto-binds on deployment. That is exactly why they belong in a variable library: the value set for each stage holds that stage's target.</p>
+    <ul>
+      <li>The values across value sets should refer to the same <em>kind</em> of item (a lakehouse in each stage, not a lakehouse in DEV and a warehouse in PRD). Fabric recommends it but does not enforce it.</li>
+      <li>The picker only lists items and connections you have at least Read permission on. Only Fabric items and semantic models can be referenced; Dataflow Gen1 and other Power BI items cannot.</li>
+      <li>Only IDs are stored. Names and metadata are resolved at run time.</li>
+    </ul>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>The permissions article labels the item reference and connection reference types as preview. The articles on the two types and on pipeline integration list slightly different sets of consumers. Check <a href="https://learn.microsoft.com/fabric/cicd/variable-library/variable-types">Variable types</a>, <a href="https://learn.microsoft.com/fabric/cicd/variable-library/item-reference-variable-type">Item reference</a> and <a href="https://learn.microsoft.com/fabric/cicd/variable-library/connection-reference-variable-type">Connection reference</a> before you depend on either in production.</p></div>
+
+    <h2 id="value-sets">Value sets</h2>
+    <p>Every library has a <strong>default value set</strong>. It always exists, holds every variable's baseline value and cannot be renamed. You add <strong>alternative value sets</strong> for the stages or scenarios you need. An alternative set is stored as a collection of pointers to the default values, with overrides where you changed them, so a set only records the differences.</p>
+    <ul>
+      <li>Value set names are unique within a library, follow the variable naming rules, and can have a description of up to 2,048 characters.</li>
+      <li>You can rename and delete alternative value sets. You cannot delete the active one: activate another set first.</li>
+      <li>Sets appear in the order you added them. The UI cannot reorder them; reorder in the item's JSON (through Git or the update-definition API).</li>
+      <li>A reset button next to a value returns an override to the default value.</li>
+      <li>Value sets support scenarios beyond stages (A/B tests, switching a data source within one workspace), but stage configuration is the dominant use.</li>
+    </ul>
+    <h3 id="default-choice">What belongs in the default value set</h3>
+    <p>Because every workspace starts with the default set active, the content of the default set decides what an unconfigured stage does. There are two defensible conventions:</p>
+    <table>
+      <thead><tr><th>Convention</th><th>Strength</th><th>Risk</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Default holds the DEV values.</strong> Alternative sets <code>TST</code> and <code>PRD</code> override what differs.</td><td>Smallest library; DEV works with no extra step; fewest cells against the 10,000 limit</td><td>A stage where nobody activated its set silently runs with DEV values. Mitigate with the <a href="example-and-operations.html#guard">stage guard</a> and an activation step in every release.</td></tr>
+        <tr><td><strong>Default is a neutral baseline;</strong> every stage, including DEV, is an alternative set that is activated explicitly.</td><td>No stage gets values by accident; the activation step is uniform for all stages</td><td>More cells to maintain, and DEV needs its own activation like any other stage</td></tr>
+      </tbody>
+    </table>
+    <p>This playbook's examples use the first convention with a guard. Pick one per organization, and name the alternative sets with the same stage names (<code>TST</code>, <code>PRD</code>) in every library so one script can activate them all.</p>
+
+    <h2 id="active-set">The active value set is workspace state</h2>
+    <p>This is the single most important behavior to understand. The active value set is <strong>not</strong> stored in the library's definition. It is a workspace-level setting of the item. Consequences:</p>
+    <ul>
+      <li><strong>Deployment does not overwrite it.</strong> Deploying a library from TST to PRD copies variables and value sets; the PRD workspace keeps whichever set it had active.</li>
+      <li><strong>It does not appear in comparisons.</strong> Changing the active set does not make the item "different from source" in a deployment pipeline.</li>
+      <li><strong>Git does not carry it.</strong> A commit contains the definition, not the choice. Syncing a branch into a workspace does not change the active set.</li>
+      <li><strong>The first arrival defaults.</strong> When a library is first deployed or committed into a workspace, the default value set is active until someone changes it.</li>
+      <li><strong>Each stage chooses independently,</strong> and can change its choice at any time. There is always exactly one active set per library.</li>
+    </ul>
+    <div class="callout important"><p class="callout-title">Activation is part of the release</p><p>Because nothing in the deployment sets the active value set for you, an empty stage that receives a library runs on the default value set until you select the stage's own. Make activation an explicit, ideally scripted, step of the first deployment into each stage. <a href="cicd-promotion.html#after-deployment">The promotion page</a> shows how.</p></div>
+
+    <h2 id="naming-limits">Naming rules and limits</h2>
+    <table>
+      <thead><tr><th>Item</th><th>Rules</th></tr></thead>
+      <tbody>
+        <tr><td>Library name</td><td>Not empty; no leading or trailing spaces; starts with a letter; letters, numbers, underscores, hyphens and spaces; at most 256 characters</td></tr>
+        <tr><td>Variable name</td><td>Not empty; no leading or trailing spaces; starts with a letter or underscore; letters, numbers, underscores and hyphens; at most 256 characters; unique within the library</td></tr>
+        <tr><td>Value set name</td><td>Same rules as a variable name; unique within the library</td></tr>
+        <tr><td>Variables per library</td><td>Up to 1,000</td></tr>
+        <tr><td>Value sets per library</td><td>Up to 1,000, with fewer than 10,000 cells in total across the alternative sets and an item size of at most 1 MB (validated when you save)</td></tr>
+        <tr><td>Note and value set description</td><td>Up to 2,048 characters each</td></tr>
+      </tbody>
+    </table>
+    <p>The same variable name can exist in two different libraries in a workspace; consumers address a variable by library and variable name together.</p>
+    <div class="callout learn"><p class="callout-title">Case sensitivity</p><p>The naming-rules articles say names are not case sensitive, while the NotebookUtils article says library and variable names are case sensitive when you retrieve them. Treat names as case sensitive everywhere: copy the exact casing into every consumer and keep one casing convention. See <a href="https://learn.microsoft.com/fabric/data-engineering/notebookutils/notebookutils-variable-library">NotebookUtils variable library utilities</a>.</p></div>
+
+    <h2 id="permissions">Permissions and trust</h2>
+    <p>A variable library is a Fabric item, so it follows workspace roles or direct sharing:</p>
+    <table>
+      <thead><tr><th>Workspace role</th><th>What it can do with the library</th></tr></thead>
+      <tbody>
+        <tr><td>Viewer</td><td>View the item (and therefore read every value)</td></tr>
+        <tr><td>Contributor</td><td>View, add, edit and delete</td></tr>
+        <tr><td>Member</td><td>View, add, edit, delete and reshare</td></tr>
+        <tr><td>Admin</td><td>View, add, edit, delete and reshare</td></tr>
+      </tbody>
+    </table>
+    <ul>
+      <li>There is no permission at the level of a single variable: permission on a variable equals permission on the item.</li>
+      <li>If you share a library with someone who has no workspace access but does have access to a consumer item such as a pipeline, the library is not visible or usable from that pipeline.</li>
+      <li>To point a variable at an item or a connection you need at least Read permission on that item or connection. When the library is updated, every item or connection referenced by the <em>active</em> value set must exist and be readable by the caller.</li>
+      <li>When a consumer resolves a reference that the caller cannot read, resolution does not fail; the value is returned without the extended metadata.</li>
+    </ul>
+
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 270" role="img" aria-label="A user with write access to the variable library but no access to the pipeline edits a variable value. The pipeline reads the changed value on its next run and loads the wrong amount of data although the pipeline itself was never edited. Controls beneath the library limit write access, review changes in Git and reference trusted libraries only">
+        <defs>
+          <marker id="fig-concepts-2-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-concepts-2-b" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar red" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box gray" x="20" y="50" width="170" height="76" rx="8"/>
+        <text class="t-b" x="105" y="82" text-anchor="middle">Library writer</text>
+        <text class="t-s" x="105" y="102" text-anchor="middle">no access to the pipeline</text>
+        <rect class="box blue" x="255" y="50" width="170" height="76" rx="8"/>
+        <text class="t-b" x="340" y="78" text-anchor="middle">Variable library</text>
+        <text class="t-s" x="340" y="98" text-anchor="middle">BatchSize</text>
+        <text class="t-s" x="340" y="114" text-anchor="middle">500000 → 5</text>
+        <rect class="box teal" x="490" y="50" width="170" height="76" rx="8"/>
+        <text class="t-b" x="575" y="82" text-anchor="middle">Pipeline</text>
+        <text class="t-s" x="575" y="102" text-anchor="middle">owned by another team</text>
+        <rect class="box red" x="725" y="50" width="155" height="76" rx="8"/>
+        <text class="t-b" x="802" y="82" text-anchor="middle">Wrong run</text>
+        <text class="t-s" x="802" y="102" text-anchor="middle">no item was edited</text>
+        <path class="ln" d="M190 88H253" marker-end="url(#fig-concepts-2-a)"/>
+        <rect class="pill-bg" x="201" y="64" width="44" height="16"/>
+        <text class="t-s" x="223" y="76" text-anchor="middle">edits</text>
+        <path class="ln" d="M490 88H427" marker-end="url(#fig-concepts-2-a)"/>
+        <rect class="pill-bg" x="438" y="64" width="44" height="16"/>
+        <text class="t-s" x="460" y="76" text-anchor="middle">reads</text>
+        <path class="ln red" d="M660 88H723" marker-end="url(#fig-concepts-2-b)"/>
+        <rect class="pill-bg" x="671" y="64" width="44" height="16"/>
+        <text class="t-s" x="693" y="76" text-anchor="middle">runs</text>
+        <rect class="box purple" x="225" y="170" width="230" height="78" rx="8"/>
+        <text class="t-b" x="340" y="194" text-anchor="middle">Controls</text>
+        <text class="t-s" x="340" y="212" text-anchor="middle">restrict write; review in Git</text>
+        <text class="t-s" x="340" y="228" text-anchor="middle">reference trusted libraries only</text>
+        <path class="ln dash" d="M340 170V128" marker-end="url(#fig-concepts-2-a)"/>
+        <rect class="pill-bg" x="348" y="140" width="58" height="16"/>
+        <text class="t-s" x="377" y="152" text-anchor="middle">govern</text>
+      </svg>
+      <figcaption><b>The library is a control surface.</b> Write access to a library can change the behavior of items the writer cannot open. Review libraries like code and keep write access narrow.</figcaption>
+    </figure>
+
+    <h3 id="security-practices">Governance practices</h3>
+    <ul>
+      <li>Grant write on a library only to people and automation you already trust with the consumers' behavior. Audit the assignments regularly.</li>
+      <li>Have items reference only libraries that are designated as trusted, and enforce that by review of the item definitions in Git.</li>
+      <li>Do not store secrets in variables. Because Viewers can see values, store connection references or key vault references instead.</li>
+      <li>Track changes to libraries through the Git history of the library folder. See <a href="../05-github-integration/index.html">GitHub Integration and Branching</a> for review rules, including <a href="../17-pr-notifications-codeowners/index.html">CODEOWNERS for configuration paths</a>.</li>
+    </ul>
+
+    <h2 id="design">How to structure your libraries</h2>
+    <table>
+      <thead><tr><th>Question</th><th>Recommendation</th></tr></thead>
+      <tbody>
+        <tr><td>How many libraries per workspace?</td><td>One per concern: for example one config library per domain and layer (<code>VL_SALES_SLV_Config</code>). A single library for everything couples unrelated teams, widens write access and approaches the size limits.</td></tr>
+        <tr><td>What goes in?</td><td>Values that differ by stage: IDs, connection references, endpoints, sizes, windows and flags, and a stage name for guards.</td></tr>
+        <tr><td>What stays out?</td><td>Secrets, per-run values (use parameters), constants that never differ by stage (keep them in code), and business rules.</td></tr>
+        <tr><td>How to name variables?</td><td>Short, stable, descriptive, one casing convention (for example PascalCase). Variable names are part of every consumer's contract, so renaming one is a breaking change.</td></tr>
+        <tr><td>How to name value sets?</td><td>Use the stage names exactly (<code>TST</code>, <code>PRD</code>) in every library.</td></tr>
+        <tr><td>Where does the library live in the workspace?</td><td>In the same workspace as its consumers, one copy per stage, deployed with the same pipeline as the items that use it.</td></tr>
+      </tbody>
+    </table>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p><ul>
+      <li>Value sets store only overrides; consumers always see the active set's override or the default.</li>
+      <li>The active value set is workspace state: deployment and Git do not carry it.</li>
+      <li>Reference types are static pointers to IDs, which is why each stage needs its own value.</li>
+      <li>Treat the library as a control surface: narrow write access, review changes, no secrets.</li>
+    </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/fabric/cicd/variable-library/variable-types">Variable types in variable libraries</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/cicd/variable-library/value-sets">Value sets in variable libraries</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/cicd/variable-library/item-reference-variable-type">Variable library item reference</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/cicd/variable-library/connection-reference-variable-type">Variable library connection reference</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/cicd/variable-library/variable-library-permissions">Variable library permissions</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/cicd/variable-library/get-started-variable-libraries">Get started with variable libraries</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

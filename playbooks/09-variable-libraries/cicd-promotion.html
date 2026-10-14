@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Promotion, Git and automation · Variable Libraries</title>
+<meta name="description" content="How Fabric variable libraries behave in deployment pipelines and Git, the activation step after the first deployment, deployment rules compared, and the REST API with a scripted activation.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="09-variable-libraries" data-page="cicd-promotion.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 09 · Variable Libraries</p>
+      <h1>Promotion, Git and automation</h1>
+      <p class="lede">A variable library is only useful if it travels well. This page explains what a deployment pipeline and Git do and do not carry, the activation step that follows the first deployment into a stage, how variable libraries compare with deployment rules, and how to script activation through the REST API.</p>
+    </header>
+
+    <h2 id="pipelines">Variable libraries in deployment pipelines</h2>
+    <p>The variable library is a deployable item type, so a deployment pipeline copies the library, with all its variables and value sets, from one stage to the next like any other item. The behavior that matters:</p>
+    <ul>
+      <li><strong>Every value set travels to every stage,</strong> but only one is active in a stage. The active set is chosen independently per stage and can be changed at any time.</li>
+      <li><strong>The first arrival defaults.</strong> When a library first lands in a stage (or first reaches a repository), its active value set is the default value set. Change it by opening the new library in the target stage.</li>
+      <li><strong>Deployments do not touch the active choice,</strong> although you can keep updating values: the consumers in that stage pick up the right value from the active set automatically.</li>
+      <li><strong>Consumers resolve independently of their own deployment.</strong> A consumer reads whatever is active in its workspace when it runs; the order of deployment between a library and its consumers matters less than activating before the first run.</li>
+    </ul>
+    <h3 id="compare">What shows up as a difference</h3>
+    <table>
+      <thead><tr><th>Change in one stage</th><th>Registers as "different from source" in a comparison?</th></tr></thead>
+      <tbody>
+        <tr><td>Variable added, deleted or edited</td><td class="yes">Yes</td></tr>
+        <tr><td>Value set added or deleted</td><td class="yes">Yes</td></tr>
+        <tr><td>Variable name changed</td><td class="yes">Yes</td></tr>
+        <tr><td>Order of variables changed</td><td class="yes">Yes</td></tr>
+        <tr><td>Active value set changed</td><td class="no">No: it is part of the item configuration, not the definition</td></tr>
+      </tbody>
+    </table>
+    <p>The practical consequence is that a stage whose library was edited in place (a value tweaked in PRD) shows as different from TST, which is a useful drift detector, while a stage running the wrong active set shows nothing. Detecting the second case is the job of the <a href="example-and-operations.html#guard">stage guard</a>.</p>
+
+    <h2 id="after-deployment">The step after the first deployment</h2>
+    <p>The first time a library is deployed into a stage, activate that stage's value set before anything that reads a variable runs. This is the only step that is not carried by the deployment and the one most often missed.</p>
+
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 250" role="img" aria-label="Timeline of the first deployment into a stage: the deployment copies the definition and leaves the default value set active, which is a risky state in which consumers would read the DEV values; the release step then activates the stage value set, and only then do consumers read the stage values and the guard passes">
+        <defs>
+          <marker id="fig-cicd-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box blue" x="30" y="40" width="170" height="64" rx="8"/>
+        <text class="t-b" x="115" y="68" text-anchor="middle">Deploy library</text>
+        <text class="t-s" x="115" y="88" text-anchor="middle">definition copied</text>
+        <rect class="box red" x="255" y="40" width="170" height="64" rx="8"/>
+        <text class="t-b" x="340" y="68" text-anchor="middle">Default set active</text>
+        <text class="t-s" x="340" y="88" text-anchor="middle">risky state</text>
+        <rect class="box green accent" x="480" y="40" width="170" height="64" rx="8"/>
+        <text class="t-b t-w" x="565" y="68" text-anchor="middle">Activate stage set</text>
+        <text class="t-s t-w" x="565" y="88" text-anchor="middle">UI or REST call</text>
+        <rect class="box teal" x="705" y="40" width="170" height="64" rx="8"/>
+        <text class="t-b" x="790" y="68" text-anchor="middle">First run</text>
+        <text class="t-s" x="790" y="88" text-anchor="middle">reads stage values</text>
+        <path class="ln" d="M200 72H253" marker-end="url(#fig-cicd-1-a)"/>
+        <path class="ln" d="M425 72H478" marker-end="url(#fig-cicd-1-a)"/>
+        <path class="ln" d="M650 72H703" marker-end="url(#fig-cicd-1-a)"/>
+        <rect class="pill-bg" x="206" y="46" width="44" height="16"/>
+        <text class="t-s" x="228" y="58" text-anchor="middle">lands</text>
+        <rect class="pill-bg" x="432" y="46" width="40" height="16"/>
+        <text class="t-s" x="452" y="58" text-anchor="middle">you</text>
+        <rect class="pill-bg" x="656" y="46" width="44" height="16"/>
+        <text class="t-s" x="678" y="58" text-anchor="middle">then</text>
+        <text class="t-s" x="115" y="138" text-anchor="middle">active set is not</text>
+        <text class="t-s" x="115" y="154" text-anchor="middle">part of the deployment</text>
+        <text class="t-s c-red" x="340" y="138" text-anchor="middle">a run here would read</text>
+        <text class="t-s c-red" x="340" y="154" text-anchor="middle">DEV values in this stage</text>
+        <text class="t-s" x="565" y="138" text-anchor="middle">once per stage, then</text>
+        <text class="t-s" x="565" y="154" text-anchor="middle">again only on a change</text>
+        <text class="t-s" x="790" y="138" text-anchor="middle">the stage guard</text>
+        <text class="t-s" x="790" y="154" text-anchor="middle">confirms StageName</text>
+        <rect class="zone red" x="235" y="20" width="210" height="160" rx="12"/>
+        <text class="t-s c-red" x="340" y="200" text-anchor="middle">window to close in every release</text>
+      </svg>
+      <figcaption><b>The risky window.</b> Between the deployment and the activation the stage runs on the default value set. Close that window by making activation the next step of the release, before any pipeline or notebook run.</figcaption>
+    </figure>
+
+    <ol class="steps">
+      <li><strong>Deploy the library with its consumers.</strong><p>Deploy the library together with the pipelines, notebooks, dataflows and shortcuts that use it. Follow the layer order in <a href="../07-deployment/index.html">Deployment Pipelines and Promotion</a>: the library belongs with the layer whose items consume it.</p></li>
+      <li><strong>Open the library in the target stage.</strong><p>Open the new library in the target workspace, either from the workspace or from the item in the deployment pipeline's target stage.</p></li>
+      <li><strong>Set the stage's value set as active.</strong><p>Use the three-dot menu next to the value set (for example <code>TST</code> in the TST workspace) and select <strong>Set as active</strong>, then save.</p></li>
+      <li><strong>Verify.</strong><p>Check the library's active value set, run the stage guard (see the <a href="example-and-operations.html#guard">worked example</a>), and use <strong>Preview data</strong> on a pipeline activity that references a variable to see the resolved value.</p></li>
+      <li><strong>Record it.</strong><p>Add the step to the release checklist (see the <a href="../14-deployment-checklist/index.html">Deployment Checklist</a>) so it is done per stage and per library, and automate it with the script below once the process is stable.</p></li>
+    </ol>
+    <div class="callout warning"><p class="callout-title">Repeat for every library</p><p>The active value set is chosen per library. A workspace with three libraries needs three activations. Name value sets identically across libraries so one script can activate them all by stage name.</p></div>
+    <h3 id="feature-workspaces">Feature workspaces and branch-out</h3>
+    <p>A developer's feature workspace created from a branch receives the library with the default set active. Under the convention in which the default set holds the DEV values, that is the right behavior: feature workspaces work against development resources with no extra step, and they cannot accidentally point at TST or PRD.</p>
+
+    <h2 id="git">Variable libraries and Git</h2>
+    <p>Like other Fabric items, a library is stored in the connected repository as a folder. Item permissions are checked when you commit and when you update from Git, so a user cannot change a library through Git without the permission they would need in the workspace.</p>
+
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 290" role="img" aria-label="The Git folder of a variable library contains the platform file, variables.json, settings.json and a valueSets folder with one file per alternative value set. Commit and update move the definition between the workspace item and the folder. The active value set is workspace state that is never written to Git">
+        <defs>
+          <marker id="fig-cicd-2-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box" x="20" y="20" width="340" height="252" rx="10"/>
+        <text class="t-h" x="40" y="46">Git folder</text>
+        <text class="t-m" x="40" y="76">VL_SALES_SLV_Config.VariableLibrary/</text>
+        <text class="t-m" x="64" y="100">.platform</text>
+        <text class="t-m" x="64" y="124">variables.json</text>
+        <text class="t-m" x="64" y="148">settings.json</text>
+        <text class="t-m" x="64" y="172">valueSets/</text>
+        <text class="t-m" x="88" y="196">TST.json</text>
+        <text class="t-m" x="88" y="220">PRD.json</text>
+        <text class="t-s" x="40" y="252">one file per alternative value set</text>
+
+        <rect class="zone" x="560" y="20" width="320" height="252" rx="12"/>
+        <text class="t-h" x="580" y="46">Workspace item</text>
+        <rect class="box blue" x="580" y="60" width="280" height="40" rx="8"/>
+        <text class="t-s" x="720" y="85" text-anchor="middle">variables and default values</text>
+        <rect class="box blue" x="580" y="110" width="280" height="40" rx="8"/>
+        <text class="t-s" x="720" y="135" text-anchor="middle">value sets (overrides only)</text>
+        <rect class="box blue" x="580" y="160" width="280" height="40" rx="8"/>
+        <text class="t-s" x="720" y="185" text-anchor="middle">settings (value set order)</text>
+        <rect class="box orange dashed" x="580" y="214" width="280" height="46" rx="8"/>
+        <text class="t-b" x="720" y="234" text-anchor="middle">Active value set</text>
+        <text class="t-s" x="720" y="250" text-anchor="middle">workspace state, never in Git</text>
+
+        <path class="ln" d="M558 104H362" marker-end="url(#fig-cicd-2-a)"/>
+        <rect class="pill-bg" x="432" y="96" width="56" height="16"/>
+        <text class="t-s" x="460" y="108" text-anchor="middle">commit</text>
+        <path class="ln" d="M362 176H558" marker-end="url(#fig-cicd-2-a)"/>
+        <rect class="pill-bg" x="432" y="168" width="56" height="16"/>
+        <text class="t-s" x="460" y="180" text-anchor="middle">update</text>
+      </svg>
+      <figcaption><b>What Git carries.</b> The definition round-trips between the workspace and the folder; the choice of active value set stays in the workspace.</figcaption>
+    </figure>
+
+    <table>
+      <thead><tr><th>Part</th><th>Holds</th></tr></thead>
+      <tbody>
+        <tr><td><code>variables.json</code></td><td>Every variable: name, type, optional note and the default value</td></tr>
+        <tr><td><code>valueSets/&lt;name&gt;.json</code></td><td>One file per alternative value set, holding only the variables that override the default</td></tr>
+        <tr><td><code>settings.json</code></td><td>User settings: the order in which value sets are listed</td></tr>
+        <tr><td><code>.platform</code></td><td>Item metadata, generated automatically</td></tr>
+      </tbody>
+    </table>
+    <h3 id="json-shapes">Example files</h3>
+    <p>These examples show the shape of each file with neutral names and placeholder IDs. Treat them as a guide and copy the exact shape from a library you commit from your own workspace.</p>
+<pre data-title="variables.json (default values)"><code class="language-json">{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/variableLibrary/definition/variables/1.0.0/schema.json",
+  "variables": [
+    { "name": "StageName",    "note": "Stage this workspace represents; read by the stage guard", "type": "String",  "value": "DEV" },
+    { "name": "LookbackDays", "note": "Days of changes to merge on each run",                      "type": "Integer", "value": 3 },
+    { "name": "FullReload",   "type": "Boolean", "value": false },
+    {
+      "name": "BronzeLakehouse",
+      "type": "ItemReference",
+      "value": {
+        "workspaceId": "00000000-0000-0000-0000-000000000000",
+        "itemId": "00000000-0000-0000-0000-000000000000"
+      }
+    }
+  ]
+}</code></pre>
+<pre data-title="valueSets/TST.json (overrides only)"><code class="language-json">{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/variableLibrary/definition/valueSet/1.0.0/schema.json",
+  "name": "TST",
+  "variableOverrides": [
+    { "name": "StageName",    "value": "TST" },
+    { "name": "LookbackDays", "value": 7 }
+  ]
+}</code></pre>
+<pre data-title="settings.json (value set order)"><code class="language-json">{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/variableLibrary/definition/settings/1.0.0/schema.json",
+  "valueSetsOrder": [ "TST", "PRD" ]
+}</code></pre>
+    <ul>
+      <li>The order list can be empty or partial, cannot contain value set names that do not exist, and value sets missing from it are appended in alphabetical order.</li>
+      <li>Because every value set is its own file, a pull request shows exactly which stage's configuration changed. Protect the folder with code owners so the right people review changes (see <a href="../17-pr-notifications-codeowners/index.html">Pull-Request Notifications with CODEOWNERS</a>).</li>
+      <li>Reordering value sets, bulk edits and copying a set between libraries are quicker in the JSON than in the UI.</li>
+    </ul>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>The Learn articles do not agree on every field name. The REST definition article uses <code>name</code> and <code>variableOverrides</code> for a value set; the tutorial shows <code>valueSetName</code> and <code>overrides</code>, and the value sets article names the files after the library (<code>&lt;Library&gt;_Default.json</code>). The folder is shown as <code>valueSets</code> in one article and <code>valueSet</code> in another. The type name for a connection reference also appears with different casing. Commit a library from your workspace and treat that output as the source of truth. See <a href="https://learn.microsoft.com/rest/api/fabric/articles/item-management/definitions/variable-library-definition">Variable library definition</a>.</p></div>
+
+    <h3 id="git-only">Git-only flows without deployment pipelines</h3>
+    <p>If stages are driven only by Git (a branch or folder per stage, each synced to its workspace), the library definition arrives through the sync and the active value set still has to be set in each workspace, because Git does not carry it. Script that step with the API below and run it after the sync.</p>
+
+    <h2 id="rules-vs-libraries">Variable libraries or deployment rules?</h2>
+    <p>Deployment rules and variable libraries both give a stage its own values. They differ in where the value lives, which items they cover and when they take effect.</p>
+    <table>
+      <thead><tr><th>Aspect</th><th>Deployment rules</th><th>Variable libraries</th></tr></thead>
+      <tbody>
+        <tr><td>Where configured</td><td>On the target stage of a deployment pipeline, per item</td><td>In a library item in each workspace, shared by many items</td></tr>
+        <tr><td>Item types</td><td>Data source and parameter rules for dataflows Gen1, semantic models, paginated reports (data source) and mirrored databases (data source); a default lakehouse rule for notebooks</td><td>Pipelines, notebooks, Dataflow Gen2, lakehouse shortcuts, copy jobs, user data functions, eventstreams and others</td></tr>
+        <tr><td>Needs a deployment pipeline</td><td class="yes">Yes</td><td class="no">No; works with Git-only flows too</td></tr>
+        <tr><td>Can be set in the development stage</td><td class="no">No: rules cannot be created in the development stage</td><td class="yes">Yes: DEV values live in the library</td></tr>
+        <tr><td>Who can set it</td><td>The owner of the item the rule is for</td><td>Anyone with write access to the library</td></tr>
+        <tr><td>When it takes effect</td><td>At the next deployment to that stage</td><td>When the consumer next runs after activation or an edit</td></tr>
+        <tr><td>What can be lost</td><td>Rules are deleted with the item and lost when a workspace is unassigned and reassigned</td><td>Values are in the item and in Git</td></tr>
+        <tr><td>Restrictions</td><td>Data source rules only switch to a data source of the same type; a rule that references a removed parameter breaks the deployment</td><td>Per-consumer limits (types, same workspace); reference variables are static pointers</td></tr>
+      </tbody>
+    </table>
+
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 300" role="img" aria-label="Decision path: if the consumer is a supported variable library consumer, ask whether it is only a notebook default lakehouse in the same workspace, which autobinding handles, otherwise use a variable library. If the consumer is not supported, ask whether it is a deployment rule item type such as a semantic model, in which case use a deployment rule, otherwise use parameters or a script">
+        <defs>
+          <marker id="fig-cicd-3-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box purple" x="20" y="118" width="250" height="50" rx="25"/>
+        <text class="t-b" x="145" y="148" text-anchor="middle">Supported consumer?</text>
+        <rect class="box purple" x="340" y="30" width="270" height="50" rx="25"/>
+        <text class="t-b" x="475" y="60" text-anchor="middle">Only a notebook default lakehouse?</text>
+        <rect class="box purple" x="340" y="214" width="270" height="50" rx="25"/>
+        <text class="t-b" x="475" y="244" text-anchor="middle">A deployment-rule item type?</text>
+        <rect class="box gray" x="690" y="24" width="190" height="62" rx="10"/>
+        <text class="t-b" x="785" y="50" text-anchor="middle">Autobinding</text>
+        <text class="t-s" x="785" y="68" text-anchor="middle">same workspace, no variable</text>
+        <rect class="box green accent" x="690" y="110" width="190" height="62" rx="10"/>
+        <text class="t-b t-w" x="785" y="136" text-anchor="middle">Variable library</text>
+        <text class="t-s t-w" x="785" y="154" text-anchor="middle">one value set per stage</text>
+        <rect class="box blue" x="690" y="196" width="190" height="62" rx="10"/>
+        <text class="t-b" x="785" y="222" text-anchor="middle">Deployment rule</text>
+        <text class="t-s" x="785" y="240" text-anchor="middle">set on the target stage</text>
+        <rect class="box orange" x="690" y="270" width="190" height="26" rx="8"/>
+        <text class="t-s" x="785" y="287" text-anchor="middle">Parameters or a script</text>
+
+        <path class="ln" d="M145 118V55H338" marker-end="url(#fig-cicd-3-a)"/>
+        <path class="ln" d="M145 168V239H338" marker-end="url(#fig-cicd-3-a)"/>
+        <path class="ln" d="M610 55H688" marker-end="url(#fig-cicd-3-a)"/>
+        <path class="ln" d="M475 80V141H688" marker-end="url(#fig-cicd-3-a)"/>
+        <path class="ln" d="M610 239H640V227H688" marker-end="url(#fig-cicd-3-a)"/>
+        <path class="ln" d="M475 264V283H688" marker-end="url(#fig-cicd-3-a)"/>
+        <text class="t-s c-green" x="156" y="88">yes</text>
+        <text class="t-s c-red" x="156" y="206">no</text>
+        <text class="t-s c-green" x="624" y="47" text-anchor="middle">yes</text>
+        <text class="t-s c-red" x="487" y="108">no</text>
+        <text class="t-s c-green" x="634" y="220" text-anchor="middle">yes</text>
+        <text class="t-s c-red" x="487" y="278">no</text>
+      </svg>
+      <figcaption><b>Choosing the mechanism.</b> Prefer autobinding when Fabric already rebinds the dependency, a variable library where the consumer supports it, a deployment rule for the item types rules cover, and parameters or a script otherwise.</figcaption>
+    </figure>
+    <div class="callout note"><p class="callout-title">A rule can override autobinding</p><p>Notebook deployment rebinds the default lakehouse and attached Environment automatically when the dependent items are in the same workspace. If you need a specific lakehouse in the target stage, a default lakehouse rule overrides that. Setting the default lakehouse with <code>%%configure</code> from a library (see <a href="build-and-consume.html#configure">With %%configure</a>) is the library-based alternative and is the one that works without a deployment pipeline.</p></div>
+
+    <h2 id="rest">REST API and automation</h2>
+    <p>The Fabric REST API manages variable libraries as items. These operations cover the lifecycle:</p>
+    <table>
+      <thead><tr><th>Operation</th><th>Request</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td>List libraries in a workspace</td><td><code>GET /v1/workspaces/{workspaceId}/variableLibraries</code></td><td>Each entry includes <code>properties.activeValueSetName</code>. Pagination uses a continuation token.</td></tr>
+        <tr><td>Set the active value set</td><td><code>PATCH /v1/workspaces/{workspaceId}/variableLibraries/{variableLibraryId}</code> with <code>{"properties": {"activeValueSetName": "TST"}}</code></td><td>Caller needs read and write permission on the library. Scopes: <code>VariableLibrary.ReadWrite.All</code> or <code>Item.ReadWrite.All</code>. Users, service principals and managed identities are supported.</td></tr>
+        <tr><td>Read or replace the definition</td><td>The core item definition operations (get definition, update definition) with the parts <code>variables.json</code>, <code>settings.json</code>, <code>.platform</code> and one part per value set</td><td>Use these to reorder value sets or to write values from automation. Definitions are base64-encoded parts.</td></tr>
+        <tr><td>Rate limiting</td><td>HTTP 429 with a <code>Retry-After</code> header</td><td>Back off for the number of seconds returned.</td></tr>
+      </tbody>
+    </table>
+    <p>The following script activates a value set by library name, so a release job can call it once per library and stage. It authenticates with the signed-in Azure CLI identity.</p>
+    <div class="tabs">
+      <div class="tab" data-title="Bash (CI runner)">
+<pre data-title="scripts/activate_value_set.sh"><code class="language-shell">#!/usr/bin/env bash
+# Activate a value set on a variable library in one workspace.
+# Usage: activate_value_set.sh &lt;workspace-id&gt; &lt;library-name&gt; &lt;value-set-name&gt;
+set -euo pipefail
+
+WORKSPACE_ID="$1"
+LIBRARY_NAME="$2"
+VALUE_SET="$3"
+API="https://api.fabric.microsoft.com/v1"
+
+TOKEN="$(az account get-access-token --resource https://api.fabric.microsoft.com --query accessToken -o tsv)"
+AUTH=(-H "Authorization: Bearer ${TOKEN}")
+
+list_libraries() {
+  curl -sS --fail "${AUTH[@]}" "${API}/workspaces/${WORKSPACE_ID}/variableLibraries"
+}
+
+# 1. Resolve the library ID from its display name.
+LIBRARY_ID="$(list_libraries | jq -r --arg n "$LIBRARY_NAME" '.value[] | select(.displayName == $n) | .id')"
+if [ -z "$LIBRARY_ID" ]; then
+  echo "Library '${LIBRARY_NAME}' not found in workspace ${WORKSPACE_ID}" &gt;&amp;2
+  exit 1
+fi
+
+# 2. Set the active value set.
+curl -sS --fail -X PATCH "${AUTH[@]}" -H "Content-Type: application/json" \
+  -d "{\"properties\": {\"activeValueSetName\": \"${VALUE_SET}\"}}" \
+  "${API}/workspaces/${WORKSPACE_ID}/variableLibraries/${LIBRARY_ID}" &gt; /dev/null
+
+# 3. Verify that the change took effect.
+ACTIVE="$(list_libraries | jq -r --arg id "$LIBRARY_ID" '.value[] | select(.id == $id) | .properties.activeValueSetName')"
+if [ "$ACTIVE" != "$VALUE_SET" ]; then
+  echo "Active value set is '${ACTIVE}', expected '${VALUE_SET}'" &gt;&amp;2
+  exit 1
+fi
+echo "Active value set on ${LIBRARY_NAME}: ${ACTIVE}"</code></pre>
+      </div>
+      <div class="tab" data-title="PowerShell">
+<pre data-title="Activate-ValueSet.ps1"><code class="language-powershell">param(
+  [Parameter(Mandatory)] [string] $WorkspaceId,
+  [Parameter(Mandatory)] [string] $LibraryName,
+  [Parameter(Mandatory)] [string] $ValueSet
+)
+$ErrorActionPreference = 'Stop'
+$api     = 'https://api.fabric.microsoft.com/v1'
+$token   = az account get-access-token --resource https://api.fabric.microsoft.com --query accessToken -o tsv
+$headers = @{ Authorization = "Bearer $token" }
+$listUri = "$api/workspaces/$WorkspaceId/variableLibraries"
+
+$library = (Invoke-RestMethod -Headers $headers -Uri $listUri).value |
+  Where-Object { $_.displayName -eq $LibraryName }
+if (-not $library) { throw "Library '$LibraryName' not found in workspace $WorkspaceId" }
+
+$body = @{ properties = @{ activeValueSetName = $ValueSet } } | ConvertTo-Json
+Invoke-RestMethod -Method Patch -Headers $headers -ContentType 'application/json' `
+  -Body $body -Uri "$listUri/$($library.id)" | Out-Null
+
+$active = ((Invoke-RestMethod -Headers $headers -Uri $listUri).value |
+  Where-Object { $_.id -eq $library.id }).properties.activeValueSetName
+if ($active -ne $ValueSet) { throw "Active value set is '$active', expected '$ValueSet'" }
+"Active value set on ${LibraryName}: $active"</code></pre>
+      </div>
+    </div>
+    <p>To run it from GitHub Actions, sign in with a federated credential and call the script after the deployment step. The identity needs a role on the workspace that allows editing the library, and the tenant must allow service principals to call Fabric public APIs.</p>
+<pre data-title=".github/workflows/activate-value-set.yml"><code class="language-yaml">name: activate-value-set
+
+on:
+  workflow_dispatch:
+    inputs:
+      stage:
+        description: Stage whose value set to activate
+        type: choice
+        options: [TST, PRD]
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  activate:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.stage }}          # holds FABRIC_WORKSPACE_ID for that stage
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          allow-no-subscriptions: true
+      - name: Activate the stage value set
+        run: ./scripts/activate_value_set.sh "${{ vars.FABRIC_WORKSPACE_ID }}" "VL_SALES_SLV_Config" "${{ inputs.stage }}"</code></pre>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>Check the request and response contract before you automate: <a href="https://learn.microsoft.com/rest/api/fabric/variablelibrary/items/update-variable-library">Update Variable Library</a>, the other operations in the <a href="https://learn.microsoft.com/rest/api/fabric/variablelibrary/items">VariableLibrary Items reference</a> and the <a href="https://learn.microsoft.com/rest/api/fabric/articles/item-management/definitions/variable-library-definition">definition format</a>. The Fabric CLI and the fabric-cicd library are alternative ways to deploy item definitions; check their own documentation for how they treat variable libraries.</p></div>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p><ul>
+      <li>Deployment pipelines copy the library and every value set; the active value set is never copied and does not show as a difference.</li>
+      <li>After the first deployment into a stage, activate that stage's value set before anything runs; script it with a PATCH on <code>activeValueSetName</code> and verify.</li>
+      <li>In Git the library is a folder of JSON: default values, one file per value set (overrides only), settings and the platform file. Commit from your own workspace to learn the exact shapes.</li>
+      <li>Use autobinding where Fabric rebinds for you, deployment rules for the item types they cover, and variable libraries for everything else that supports them.</li>
+    </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/fabric/cicd/variable-library/variable-library-cicd">Lifecycle management of the variable library</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/cicd/variable-library/value-sets">Value sets in variable libraries</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/cicd/deployment-pipelines/create-rules">Create deployment rules</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/notebook-source-control-deployment">Notebook source control and deployment pipelines</a></li>
+        <li><a href="https://learn.microsoft.com/rest/api/fabric/variablelibrary/items/update-variable-library">Items - Update Variable Library (REST)</a></li>
+        <li><a href="https://learn.microsoft.com/rest/api/fabric/variablelibrary/items/list-variable-libraries">Items - List Variable Libraries (REST)</a></li>
+        <li><a href="https://learn.microsoft.com/rest/api/fabric/articles/item-management/definitions/variable-library-definition">Variable library definition (REST)</a></li>
+        <li><a href="https://learn.microsoft.com/azure/developer/github/connect-from-azure-openid-connect">Use GitHub Actions to connect to Azure (OpenID Connect)</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

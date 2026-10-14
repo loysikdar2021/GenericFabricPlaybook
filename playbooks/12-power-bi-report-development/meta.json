@@ -1,0 +1,19 @@
+{
+  "id": "12-power-bi-report-development",
+  "number": "12",
+  "title": "Power BI Report Development Standards",
+  "short": "Report Dev Standards",
+  "summary": "Standards for building maintainable, fast Power BI semantic models and thin reports on a Fabric data platform: model settings, storage modes, naming, DAX, rebinding, endorsement and a pre-publish checklist.",
+  "category": "analytics",
+  "level": "Intermediate",
+  "audience": "Power BI developers, analytics engineers, BI leads, report reviewers",
+  "readingTime": "75 min",
+  "pages": [
+    { "file": "index.html", "title": "Overview", "description": "What the standards cover, how the layers fit together, and where to start." },
+    { "file": "semantic-model.html", "title": "Semantic model standards", "description": "Storage mode choice, auto date/time and auto relationship settings, star schema, hiding, descriptions, calculation groups and PBIP/TMDL projects." },
+    { "file": "report-design.html", "title": "Report design and performance", "description": "Layout, theme, accessibility, mobile layout, drillthrough, query reduction, Performance Analyzer workflow and optimization levers." },
+    { "file": "naming-dax.html", "title": "Naming, DAX and measures tables", "description": "Naming rules for measures, columns and tables, DAX patterns, calculation groups and a step-by-step measures table in the UI and in TMDL." },
+    { "file": "rebinding.html", "title": "Rebinding reports to a new model", "description": "Repoint a report to a different semantic model by REST, semantic-link-labs, PBIP or manual remap, with a schema diff and a verification matrix." },
+    { "file": "collaboration-qa.html", "title": "Collaboration, endorsement and QA", "description": "Shared semantic models with thin reports, endorsement and certification, Git and pipeline flow, change management and the pre-publish QA checklist." }
+  ]
+}

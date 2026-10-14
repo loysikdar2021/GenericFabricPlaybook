@@ -1,0 +1,21 @@
+{
+  "id": "15-qa-validation",
+  "number": "15",
+  "title": "QA Validation Frameworks",
+  "short": "QA Validation",
+  "summary": "Notebook-based, SQL-first validation frameworks for Fabric medallion pipelines: row counts, transformations, schema, freshness and metric reconciliation, with structured results, gates and alerts.",
+  "category": "governance",
+  "level": "Intermediate",
+  "audience": "Data engineers, QA analysts, data architects, DevOps engineers",
+  "readingTime": "100 min",
+  "pages": [
+    { "file": "index.html", "title": "Overview", "description": "What the validation frameworks give you, when to use them, scope, prerequisites and a map of the playbook." },
+    { "file": "architecture.html", "title": "Architecture and design principles", "description": "The three frameworks, the validation type matrix, design principles, workspace layout, data flow and naming rules including four-part names and T-SQL versus Spark SQL." },
+    { "file": "results-model.html", "title": "Results model and tolerances", "description": "The results and run tables, status model, severity, and how to design tolerances, warning bands and expected-reject accounting." },
+    { "file": "core-checks.html", "title": "Harness and core checks", "description": "The notebook harness and the row count, transformation, schema and freshness checks with copy-ready code, success criteria and example output." },
+    { "file": "advanced-checks.html", "title": "Complex and extended checks", "description": "Complex metric reconciliation with rolling fiscal windows, plus duplicate, null, referential integrity, drift, layer reconciliation and late-arriving data checks." },
+    { "file": "orchestration.html", "title": "Orchestration, gating and reporting", "description": "Running validations from pipelines, gating promotion on results, alerting on failure and reporting results through a semantic model." },
+    { "file": "operations.html", "title": "Governance and troubleshooting", "description": "Ownership roles, change control, adding a validation, versioning, performance guidance, troubleshooting tables and common pitfalls." },
+    { "file": "tools-comparison.html", "title": "Comparison with other tools", "description": "How the framework compares with Delta constraints, materialized lake view constraints, Purview data quality, Great Expectations, Deequ, Soda and dbt tests, with a decision table and checklist." }
+  ]
+}

@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Notebook dispatcher (GUID launcher) · Control tables</title>
+<meta name="description" content="Run Fabric notebooks by item ID so renames cannot break orchestration: why IDs, the options compared, the dispatcher notebook with polling, identity and capacity behavior.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="10-control-table-pipelines" data-page="dispatcher.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+
+    <header class="page-header">
+      <p class="eyebrow">Playbook 10 · Half B · Step 3</p>
+      <h1>Notebook dispatcher (GUID launcher)</h1>
+      <p class="lede">A control table that stores notebook names breaks the day someone renames a notebook. This page explains why the framework stores IDs instead, compares the ways a pipeline can start a notebook by ID, and builds a dispatcher notebook that starts a notebook through the Fabric job scheduler API, waits for it, and reports the outcome.</p>
+    </header>
+
+    <h2 id="why-ids">Why IDs and not names</h2>
+    <p>A display name is a label that anyone with the right role can edit. An item ID is assigned when the item is created and never changes. Orchestration that depends on a name is therefore only as stable as the team's naming discipline.</p>
+    <table>
+      <thead><tr><th>Event</th><th>Reference by name</th><th>Reference by ID, resolved at sync time</th></tr></thead>
+      <tbody>
+        <tr><td>Someone renames a notebook</td><td><strong>Breaks.</strong> The next run cannot find it.</td><td><strong>Keeps working.</strong> The next sync updates the stored name.</td></tr>
+        <tr><td>Notebook is deleted and a different one is created with the same name</td><td><strong>Risky.</strong> Runs the new notebook silently.</td><td><strong>Fails visibly</strong> with item-not-found until the sync is run, which is what you want.</td></tr>
+        <tr><td>Two workspaces hold notebooks with the same name</td><td><strong>Ambiguous</strong> unless the workspace is part of the reference.</td><td><strong>Unambiguous.</strong> The workspace ID and item ID together are unique.</td></tr>
+        <tr><td>Same plan deployed to test and production</td><td><strong>Fragile.</strong> Works only if every name is identical in every environment.</td><td><strong>Works.</strong> IDs differ per environment; the sync fills them from names, so one seed script serves all.</td></tr>
+      </tbody>
+    </table>
+    <p>The design rule is therefore: people edit names, the framework executes IDs, and a sync step (<a href="warehouse-objects.html#proc-sync"><code>usp_sync_object_ids</code></a>) connects the two. The in-session shortcut <code>notebookutils.notebook.run("NB_Name")</code> resolves by name, so it is not rename-proof and is compared below for completeness.</p>
+
+    <h2 id="options">Ways to start a notebook from a control-table row</h2>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 330" role="img" aria-label="Decision path: if the Notebook activity accepts dynamic notebook and workspace IDs and no per-row timeout or retry is needed use the native Notebook activity; if per-row control is needed use the dispatcher; if dynamic IDs are not accepted use the dispatcher, or runMultiple when all steps are small notebooks sharing a session">
+        <defs>
+          <marker id="dp1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box purple" x="10" y="124" width="210" height="82" rx="10"/>
+        <text class="t-b" x="115" y="150" text-anchor="middle">Does the Notebook activity</text>
+        <text class="t-b" x="115" y="167" text-anchor="middle">accept dynamic notebook</text>
+        <text class="t-b" x="115" y="184" text-anchor="middle">and workspace IDs?</text>
+        <rect class="box purple" x="270" y="34" width="210" height="82" rx="10"/>
+        <text class="t-b" x="375" y="62" text-anchor="middle">Per-row timeout, attempts</text>
+        <text class="t-b" x="375" y="79" text-anchor="middle">or custom polling</text>
+        <text class="t-b" x="375" y="96" text-anchor="middle">needed?</text>
+        <rect class="box purple" x="270" y="214" width="210" height="82" rx="10"/>
+        <text class="t-b" x="375" y="242" text-anchor="middle">All steps small PySpark</text>
+        <text class="t-b" x="375" y="259" text-anchor="middle">notebooks and one shared</text>
+        <text class="t-b" x="375" y="276" text-anchor="middle">session acceptable?</text>
+        <rect class="box teal" x="580" y="22" width="300" height="64" rx="10"/>
+        <text class="t-b" x="730" y="48" text-anchor="middle">Native Notebook activity</text>
+        <text class="t-s" x="730" y="66" text-anchor="middle">queued, one Monitor hub entry per task</text>
+        <rect class="box accent" x="580" y="126" width="300" height="76" rx="10"/>
+        <text class="t-b t-w" x="730" y="156" text-anchor="middle">Dispatcher notebook</text>
+        <text class="t-s t-w" x="730" y="176" text-anchor="middle">job scheduler API, polling, row-level control</text>
+        <rect class="box gray" x="580" y="238" width="300" height="64" rx="10"/>
+        <text class="t-b" x="730" y="264" text-anchor="middle">notebookutils runMultiple</text>
+        <text class="t-s" x="730" y="282" text-anchor="middle">one session, by name, not rename-proof</text>
+        <path class="ln" d="M220 150H245V75H268" marker-end="url(#dp1-a)"/>
+        <path class="ln" d="M220 180H245V255H268" marker-end="url(#dp1-a)"/>
+        <path class="ln" d="M480 54H578" marker-end="url(#dp1-a)"/>
+        <path class="ln" d="M480 96H530V152H578" marker-end="url(#dp1-a)"/>
+        <path class="ln" d="M480 252H530V178H578" marker-end="url(#dp1-a)"/>
+        <path class="ln" d="M480 270H578" marker-end="url(#dp1-a)"/>
+        <rect class="pill-bg" x="228" y="105" width="28" height="16"/>
+        <text class="t-s" x="242" y="117" text-anchor="middle">yes</text>
+        <rect class="pill-bg" x="230" y="226" width="22" height="16"/>
+        <text class="t-s" x="241" y="238" text-anchor="middle">no</text>
+        <rect class="pill-bg" x="515" y="46" width="22" height="16"/>
+        <text class="t-s" x="526" y="58" text-anchor="middle">no</text>
+        <rect class="pill-bg" x="500" y="126" width="28" height="16"/>
+        <text class="t-s" x="514" y="138" text-anchor="middle">yes</text>
+        <rect class="pill-bg" x="500" y="206" width="22" height="16"/>
+        <text class="t-s" x="511" y="218" text-anchor="middle">no</text>
+        <rect class="pill-bg" x="510" y="262" width="28" height="16"/>
+        <text class="t-s" x="524" y="274" text-anchor="middle">yes</text>
+      </svg>
+      <figcaption><b>Choosing how to start a notebook.</b> Prefer the native Notebook activity wherever it accepts the IDs you store. Use the dispatcher when you need row-level timeout, attempts or outcome handling, or when dynamic IDs are not accepted.</figcaption>
+    </figure>
+    <table>
+      <thead><tr><th>Option</th><th>Rename-proof</th><th>Queued when capacity is full</th><th>Per-row timeout and attempts</th><th>Cost and monitoring</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Native Notebook activity</strong> with IDs from the row</td><td><strong>Yes</strong>, if IDs are accepted as dynamic content</td><td><strong>Yes.</strong> Pipeline-triggered notebook runs queue first in, first out.</td><td><strong>Limited.</strong> Activity-level settings are static</td><td>No extra session. One activity run per task in the Monitor hub.</td></tr>
+        <tr><td><strong>Dispatcher notebook</strong> calling the job scheduler API</td><td><strong>Yes</strong></td><td><strong>No.</strong> A run started through the REST API is not queued and is rejected when capacity is full, so the dispatcher must retry.</td><td><strong>Yes</strong>, from the row</td><td>One extra notebook session per task (a Python notebook is light), plus the child run in the Monitor hub.</td></tr>
+        <tr><td><strong><code>notebookutils.notebook.run</code> / <code>runMultiple</code></strong></td><td><strong>No.</strong> By name or path</td><td>Not applicable: children share the caller's session</td><td><strong>Partly.</strong> Per-activity timeout and retry in the DAG definition</td><td>Cheapest. No separate Monitor hub entry for each child.</td></tr>
+        <tr><td><strong>Invoke pipeline</strong> with one wrapper pipeline per notebook</td><td><strong>Yes</strong>, if the wrapper stores the notebook by selection</td><td><strong>Yes</strong></td><td><strong>Limited.</strong> Static</td><td>Many pipelines to maintain. Defeats the purpose of the table.</td></tr>
+      </tbody>
+    </table>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p>
+      <p>The <a href="https://learn.microsoft.com/fabric/data-factory/notebook-activity">Notebook activity article</a> describes selecting a notebook from a dropdown and does not state whether the notebook and workspace fields accept dynamic content in every tenant. Test this in your pipeline editor before choosing: if the fields accept an expression such as <code>@item().object_id</code>, the native activity is the better choice and the dispatcher is optional. The same applies to the workspace and pipeline fields of the Invoke pipeline activity.</p></div>
+    <p>The rest of this page builds the dispatcher, because it is the option that always works, gives row-level control and is easy to reason about. The <a href="master-pipeline.html#notebook-case">master pipeline page</a> shows where each option plugs into the Switch.</p>
+
+    <h2 id="identity">Identity, permissions and tenant settings</h2>
+    <p>The dispatcher calls the Fabric REST API as whichever identity runs the dispatcher notebook. When a pipeline's Notebook activity starts it, that is the identity of the activity's connection.</p>
+    <ul>
+      <li><strong>Permission.</strong> The identity must be allowed to run the target notebook. Add a service principal or workspace identity to the target workspace as Contributor, Member or Admin. The job scheduler lists the delegated scopes <code>Item.Execute.All</code> and <code>Notebook.Execute.All</code>.</li>
+      <li><strong>Tenant setting.</strong> Service principals and workspace identities call Fabric APIs only if <strong>Service principals can call Fabric public APIs</strong> is enabled for them.</li>
+      <li><strong>Token.</strong> Use the same idioms as the <a href="asset-inventory.html#token-idioms">inventory notebook</a>: <code>notebookutils.credentials.getToken('pbi')</code> for the running identity, or MSAL client credentials with secrets from Key Vault when you need the full service scope under a service principal. Never put a secret in the notebook or in a pipeline parameter.</li>
+      <li><strong>Least privilege.</strong> Contributor on every workspace the control table can reach is broad. Prefer one security group per environment and review its membership on a schedule.</li>
+    </ul>
+
+    <h2 id="dispatcher-flow">How the dispatcher works</h2>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 340" role="img" aria-label="Sequence: the master pipeline starts the dispatcher notebook; the dispatcher posts a run request to the job scheduler API and receives a Location and Retry-After; it polls the status with backoff until the job is Completed or Failed; the scheduler runs the target notebook; the dispatcher returns an exit value or fails the activity">
+        <defs>
+          <marker id="dp2-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="dp2-ag" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box teal" x="25" y="14" width="170" height="40" rx="8"/>
+        <text class="t-b" x="110" y="39" text-anchor="middle">Master pipeline</text>
+        <rect class="box blue" x="255" y="14" width="170" height="40" rx="8"/>
+        <text class="t-b" x="340" y="39" text-anchor="middle">Dispatcher notebook</text>
+        <rect class="box gray" x="485" y="14" width="170" height="40" rx="8"/>
+        <text class="t-b" x="570" y="39" text-anchor="middle">Job Scheduler API</text>
+        <rect class="box blue" x="705" y="14" width="170" height="40" rx="8"/>
+        <text class="t-b" x="790" y="39" text-anchor="middle">Target notebook</text>
+        <path class="ln thin dash gray" d="M110 54V330"/>
+        <path class="ln thin dash gray" d="M340 54V330"/>
+        <path class="ln thin dash gray" d="M570 54V330"/>
+        <path class="ln thin dash gray" d="M790 54V330"/>
+        <path class="ln" d="M110 90H338" marker-end="url(#dp2-a)"/>
+        <rect class="pill-bg" x="150" y="73" width="150" height="16"/>
+        <text class="t-s" x="225" y="85" text-anchor="middle">start with task and IDs</text>
+        <path class="ln" d="M340 125H568" marker-end="url(#dp2-a)"/>
+        <rect class="pill-bg" x="372" y="108" width="164" height="16"/>
+        <text class="t-s" x="454" y="120" text-anchor="middle">POST run notebook job</text>
+        <path class="ln dash" d="M568 160H342" marker-end="url(#dp2-a)"/>
+        <rect class="pill-bg" x="368" y="143" width="174" height="16"/>
+        <text class="t-s" x="455" y="155" text-anchor="middle">202, Location, Retry-After</text>
+        <path class="ln" d="M570 192H788" marker-end="url(#dp2-a)"/>
+        <rect class="pill-bg" x="618" y="175" width="124" height="16"/>
+        <text class="t-s" x="680" y="187" text-anchor="middle">queues and runs</text>
+        <rect class="zone" x="262" y="206" width="400" height="76" rx="8"/>
+        <text class="t-s" x="274" y="222">loop until a terminal status</text>
+        <path class="ln" d="M340 242H568" marker-end="url(#dp2-a)"/>
+        <rect class="pill-bg" x="384" y="225" width="140" height="16"/>
+        <text class="t-s" x="454" y="237" text-anchor="middle">GET status, back off</text>
+        <path class="ln dash green" d="M568 272H342" marker-end="url(#dp2-ag)"/>
+        <rect class="pill-bg" x="366" y="255" width="178" height="16"/>
+        <text class="t-s" x="455" y="267" text-anchor="middle">Completed or Failed</text>
+        <path class="ln dash" d="M340 314H112" marker-end="url(#dp2-a)"/>
+        <rect class="pill-bg" x="124" y="297" width="206" height="16"/>
+        <text class="t-s" x="227" y="309" text-anchor="middle">exit value, or fail the activity</text>
+      </svg>
+      <figcaption><b>Dispatcher sequence.</b> The dispatcher holds a session open while the target runs, which is the price of row-level control. It waits at least the first Retry-After before polling, then polls with growing intervals.</figcaption>
+    </figure>
+    <p>Job statuses reported by the scheduler are <code>NotStarted</code>, <code>InProgress</code>, <code>Completed</code>, <code>Failed</code>, <code>Cancelled</code> and <code>Deduped</code>. The last means another instance of the same job type was already running and this request was skipped. The dispatcher treats <code>Completed</code> as success and everything else terminal as failure.</p>
+    <p>Behaviors built into the notebook below:</p>
+    <ul>
+      <li><strong>Honors <code>Retry-After</code>.</strong> It waits at least the first <code>Retry-After</code> before the first status call, and honors the header on later calls.</li>
+      <li><strong>Retries only what is transient.</strong> Throttling (HTTP 429) and a full capacity (HTTP 430) are retried with a wait; a permission or item-not-found error is not.</li>
+      <li><strong>Attempts and timeout from the row.</strong> <code>MAX_ATTEMPTS</code> retries a failed child run; <code>TIMEOUT_MINUTES</code> caps one attempt and cancels the child if exceeded.</li>
+      <li><strong>Fails loudly.</strong> A failed child raises an exception, so the Notebook activity fails and the failure path in the pipeline runs. The error text carries the scheduler's failure reason.</li>
+      <li><strong>Returns a summary.</strong> On success it exits with a small JSON string containing the child job instance ID, which the pipeline can write to the run log.</li>
+    </ul>
+
+    <h2 id="notebook-code">The dispatcher notebook</h2>
+    <p>Create <code>NB_ORCH_HUB_RunNotebookById</code> in the hub workspace. A Python notebook is enough, because the dispatcher only makes HTTP calls, and it keeps the extra session small. Split the code into the three cells below. Mark the first as the parameter cell.</p>
+    <pre data-title="Cell 1 · parameters (notebook, Python)"><code class="language-python"># Mark this cell as a parameter cell. The Notebook activity overrides these values.
+TASK_NAME = "ingest_customers"
+RUN_ID = ""                                           # pipeline run ID, for log correlation
+TARGET_WORKSPACE_ID = "00000000-0000-0000-0000-000000000011"
+NOTEBOOK_ID = "00000000-0000-0000-0000-000000000001"
+PARAMETERS_JSON = "{}"                                # task settings, forwarded as one string
+TIMEOUT_MINUTES = 60                                  # limit for one attempt
+MAX_ATTEMPTS = 1
+MIN_POLL_SECONDS = 10
+MAX_POLL_SECONDS = 60
+
+# Optional execution context. Leave empty to use what the target notebook defines.
+COMPUTE_TYPE = "Spark"                                # "Spark", or "Jupyter" for the Python runtime; must match the target
+DEFAULT_LAKEHOUSE_ID = ""
+DEFAULT_LAKEHOUSE_WORKSPACE_ID = ""
+ENVIRONMENT_ID = ""
+ENVIRONMENT_WORKSPACE_ID = ""
+SESSION_TAG = ""                                      # reuse a session when high concurrency mode is on
+
+# Identity
+USE_SERVICE_PRINCIPAL = False                         # True: MSAL with secrets from Key Vault
+KEY_VAULT_URI = "https://&lt;vault-name&gt;.vault.azure.net/"
+TENANT_ID_SECRET = "dispatcher-tenant-id"
+CLIENT_ID_SECRET = "dispatcher-client-id"
+CLIENT_SECRET_SECRET = "dispatcher-client-secret"</code></pre>
+    <pre data-title="Cell 2 · authentication and request helpers (notebook, Python)"><code class="language-python">import json
+import time
+import requests
+
+FABRIC_API = "https://api.fabric.microsoft.com/v1"
+FABRIC_SCOPE = "https://api.fabric.microsoft.com/.default"
+TERMINAL = {"Completed", "Failed", "Cancelled", "Deduped"}
+
+_token = {"value": None, "at": 0.0}
+
+def bearer():
+    """Authorization header; the token is cached and refreshed well before it expires."""
+    if _token["value"] is None or time.time() - _token["at"] &gt; 45 * 60:
+        if USE_SERVICE_PRINCIPAL:
+            import msal
+            secret = lambda name: notebookutils.credentials.getSecret(KEY_VAULT_URI, name)
+            app = msal.ConfidentialClientApplication(
+                client_id=secret(CLIENT_ID_SECRET),
+                client_credential=secret(CLIENT_SECRET_SECRET),
+                authority=f"https://login.microsoftonline.com/{secret(TENANT_ID_SECRET)}",
+            )
+            result = app.acquire_token_for_client(scopes=[FABRIC_SCOPE])
+            if "access_token" not in result:
+                raise RuntimeError(f"Token request failed: {result.get('error')}")
+            _token["value"] = result["access_token"]
+        else:
+            _token["value"] = notebookutils.credentials.getToken("pbi")
+        _token["at"] = time.time()
+    return {"Authorization": f"Bearer {_token['value']}"}
+
+def run_url():
+    # Notebook-specific run endpoint. The generic form is
+    # f"{FABRIC_API}/workspaces/{ws}/items/{id}/jobs/RunNotebook/instances"; see the callout below.
+    return f"{FABRIC_API}/workspaces/{TARGET_WORKSPACE_ID}/notebooks/{NOTEBOOK_ID}/jobs/execute/instances?beta=false"
+
+def run_body():
+    body = {"parameters": [
+        {"name": "task_name",       "value": TASK_NAME,       "type": "Text"},
+        {"name": "run_id",          "value": RUN_ID,          "type": "Text"},
+        {"name": "parameters_json", "value": PARAMETERS_JSON, "type": "Text"},
+    ]}
+    cfg = {}
+    if DEFAULT_LAKEHOUSE_ID:
+        cfg["defaultLakehouse"] = {"referenceType": "ById", "itemId": DEFAULT_LAKEHOUSE_ID,
+                                   "workspaceId": DEFAULT_LAKEHOUSE_WORKSPACE_ID or TARGET_WORKSPACE_ID}
+    if ENVIRONMENT_ID:
+        cfg["attachedEnvironment"] = {"referenceType": "ById", "itemId": ENVIRONMENT_ID,
+                                      "workspaceId": ENVIRONMENT_WORKSPACE_ID or TARGET_WORKSPACE_ID}
+    if SESSION_TAG:
+        cfg["highConcurrencyModeOptions"] = {"enabled": True, "sessionTag": SESSION_TAG}
+    if cfg:
+        body["executionData"] = {"compute": COMPUTE_TYPE, "computeConfiguration": cfg}
+    return body</code></pre>
+    <pre data-title="Cell 3 · start, wait and report (notebook, Python)"><code class="language-python">def start_run():
+    """POST the run request. Returns (Location URL of the job instance, seconds to wait before polling)."""
+    for attempt in range(1, 7):
+        resp = requests.post(run_url(), headers={**bearer(), "Content-Type": "application/json"},
+                             data=json.dumps(run_body()), timeout=60)
+        if resp.status_code == 202:
+            location = resp.headers.get("Location")
+            if not location:
+                raise RuntimeError("The run request was accepted but returned no Location header.")
+            return location, int(resp.headers.get("Retry-After", 30))
+        if resp.status_code in (429, 430) and attempt &lt; 6:     # throttled, or capacity full and not queued
+            time.sleep(int(resp.headers.get("Retry-After", min(30 * attempt, 300))))
+            continue
+        raise RuntimeError(f"Start failed for {TASK_NAME} ({resp.status_code}): {resp.text[:500]}")
+
+def cancel_run(location):
+    try:
+        requests.post(location.rstrip("/") + "/cancel", headers=bearer(), timeout=30)
+    except Exception as exc:                                  # best effort
+        print(f"[WARN] Cancel request failed: {exc}")
+
+def wait_for_job(location, first_wait, deadline):
+    """Poll the job instance until it reaches a terminal status or the deadline passes."""
+    time.sleep(first_wait)                                    # do not poll before the first Retry-After
+    delay = MIN_POLL_SECONDS
+    while True:
+        resp = requests.get(location, headers=bearer(), timeout=60)
+        if resp.status_code == 200:
+            job = resp.json()
+            if job.get("status") in TERMINAL:
+                return job
+        elif resp.status_code not in (404, 429, 500, 502, 503, 504):
+            raise RuntimeError(f"Status check failed ({resp.status_code}): {resp.text[:300]}")
+        wait = max(delay, int(resp.headers.get("Retry-After", 0)))
+        if time.time() + wait &gt; deadline:
+            cancel_run(location)
+            raise TimeoutError(f"{TASK_NAME} exceeded {TIMEOUT_MINUTES} minutes and was cancelled.")
+        time.sleep(wait)
+        delay = min(int(delay * 1.5), MAX_POLL_SECONDS)
+
+started = time.time()
+last_error = None
+for attempt in range(1, MAX_ATTEMPTS + 1):
+    print(f"[INFO] {TASK_NAME}: attempt {attempt} of {MAX_ATTEMPTS}, notebook {NOTEBOOK_ID}")
+    location, first_wait = start_run()
+    job_id = location.rstrip("/").split("/")[-1]
+    job = wait_for_job(location, first_wait, time.time() + TIMEOUT_MINUTES * 60)
+    status = job.get("status")
+    if status == "Completed":
+        summary = {"task_name": TASK_NAME, "job_instance_id": job_id, "status": status,
+                   "attempts": attempt, "duration_seconds": int(time.time() - started)}
+        print(f"[OK] {summary}")
+        notebookutils.notebook.exit(json.dumps(summary))
+    reason = job.get("failureReason") or {}
+    last_error = f"{status}: {reason.get('errorCode', '')} {reason.get('message', '')}".strip()
+    print(f"[WARN] {TASK_NAME} attempt {attempt} ended as {last_error} (job {job_id})")
+    if status in ("Cancelled", "Deduped"):                    # do not retry these
+        break
+
+raise RuntimeError(f"Task {TASK_NAME} did not complete. Last result: {last_error}")</code></pre>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p>
+      <p>The job scheduler documents a generic endpoint (<code>.../items/{itemId}/jobs/{jobType}/instances</code>) and a notebook-specific one (<code>.../notebooks/{notebookId}/jobs/execute/instances</code>) whose request bodies differ; the notebook article also describes an <code>exitValue</code> field returned by a notebook-specific status call. The code keeps the URL and body in two small functions so you can switch after testing in your tenant. Start from <a href="https://learn.microsoft.com/rest/api/fabric/core/job-scheduler/run-on-demand-item-job">Run On Demand Item Job</a> and <a href="https://learn.microsoft.com/fabric/data-engineering/notebook-public-api">Manage and execute notebooks with APIs</a>. The cancel call uses the Cancel Item Job Instance operation; confirm its path in the same reference.</p></div>
+
+    <h3 id="child-contract">The contract for orchestrated notebooks</h3>
+    <p>For the three run parameters to take effect, the target notebook must declare them in a parameter cell with the same names. The parameter list is not broadly supported for every item type; if the API returns <code>FeatureNotAvailable</code>, the target item type does not accept it.</p>
+    <pre data-title="parameter cell of every orchestrated notebook (Python)"><code class="language-python"># Mark this cell as a parameter cell.
+task_name = ""                  # set by the framework
+run_id = ""                     # pipeline run ID
+parameters_json = "{}"          # task-specific settings as one JSON string</code></pre>
+    <pre data-title="reading the settings with defaults (Python)"><code class="language-python">import json
+
+defaults = {"load_mode": "incremental", "window_days": 7}
+settings = {**defaults, **json.loads(parameters_json or "{}")}</code></pre>
+    <p>One string parameter keeps the pipeline expression stable while the set of settings evolves. Adding a setting means changing the notebook and the row, not the pipeline.</p>
+
+    <h2 id="test">Test the dispatcher before wiring it in</h2>
+    <ol class="steps">
+      <li><strong>Run it by hand.</strong><p>Set <code>TARGET_WORKSPACE_ID</code> and <code>NOTEBOOK_ID</code> to a harmless notebook (one that only prints and returns) and run all cells. Expect a Completed status and a JSON summary.</p></li>
+      <li><strong>Break it on purpose.</strong><p>Use a random ID (expect item-not-found with no retries), a notebook that raises (expect a failed run and, with <code>MAX_ATTEMPTS</code> above 1, a retry) and a one-minute timeout against a sleeping notebook (expect a cancel).</p></li>
+      <li><strong>Run it as the real identity.</strong><p>Run it from a pipeline Notebook activity using the connection the framework will use. Permission problems often appear only here.</p></li>
+      <li><strong>Check the Monitor hub.</strong><p>The child run is visible in the target workspace as its own notebook run, and the dispatcher run is visible in the hub workspace. Both should agree with the summary the dispatcher returned.</p></li>
+    </ol>
+
+    <h2 id="capacity">Capacity and concurrency</h2>
+    <ul>
+      <li><strong>Two sessions per task.</strong> A parallel ForEach with batch count <em>n</em> keeps up to <em>n</em> dispatcher sessions and <em>n</em> child sessions alive. A Python dispatcher is small, but it is not free; size the batch count with both in mind.</li>
+      <li><strong>No queue for REST-started runs.</strong> A pipeline-started notebook queues when the capacity is full. A run started through the REST API does not queue and is rejected, which is why the dispatcher retries HTTP 430 with a wait. If a stage regularly hits that wall, lower the batch count or use the native Notebook activity for that stage.</li>
+      <li><strong>Session reuse.</strong> With high concurrency mode enabled for pipelines, a session tag lets several notebook runs share one Spark session. Set <code>SESSION_TAG</code> for tasks that can share a session and leave it empty for tasks that need isolation.</li>
+      <li><strong>Rate limits.</strong> The job scheduler returns 429 with a <code>Retry-After</code> header when a caller starts too many jobs. The dispatcher honors it.</li>
+    </ul>
+
+    <h2 id="troubleshooting">Troubleshooting</h2>
+    <table>
+      <thead><tr><th>Symptom</th><th>Likely cause</th><th>What to do</th></tr></thead>
+      <tbody>
+        <tr><td>403, insufficient privileges</td><td>The running identity cannot run the target notebook.</td><td>Add it to the target workspace (Contributor or higher) and confirm the tenant setting for service principals.</td></tr>
+        <tr><td>404, item not found</td><td>Wrong ID or workspace, or the notebook was deleted.</td><td>Run <code>usp_sync_object_ids</code> and the guard. Do not paste IDs by hand into the pipeline.</td></tr>
+        <tr><td>429 on start</td><td>Too many run requests.</td><td>Lower the batch count. The dispatcher already waits for <code>Retry-After</code>.</td></tr>
+        <tr><td>430 on start</td><td>Capacity is full and REST-started runs are not queued.</td><td>Wait and retry (built in), reduce concurrency or use the native Notebook activity.</td></tr>
+        <tr><td>Compute type mismatch</td><td><code>COMPUTE_TYPE</code> does not match the target notebook.</td><td>Use <code>Spark</code> for Spark notebooks and <code>Jupyter</code> for Python notebooks, or leave the optional settings empty.</td></tr>
+        <tr><td>Parameters ignored</td><td>The target has no parameter cell, or the names differ.</td><td>Add the parameter cell from the contract and match the names exactly.</td></tr>
+        <tr><td>Status stays NotStarted</td><td>The job is waiting for capacity.</td><td>Check capacity usage. The timeout cancels it if it never starts.</td></tr>
+        <tr><td><code>Deduped</code></td><td>The same notebook already has a running instance.</td><td>Do not retry. Fix the overlapping schedule or the duplicate task.</td></tr>
+        <tr><td>Token request fails or scopes are too narrow</td><td>Service principal with <code>getToken('pbi')</code>.</td><td>Set <code>USE_SERVICE_PRINCIPAL = True</code> and use MSAL with a Key Vault secret.</td></tr>
+      </tbody>
+    </table>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p><ul>
+      <li>Store IDs, edit names, and connect them with a sync step so renames cannot break a run and a deleted item fails visibly.</li>
+      <li>Prefer the native Notebook activity if your tenant accepts dynamic IDs; use the dispatcher for row-level timeout and attempts or when it does not.</li>
+      <li>Honor <code>Retry-After</code>, retry only throttling and capacity errors, and fail loudly on everything else.</li>
+      <li>REST-started runs are not queued: size the batch count to capacity and expect to retry.</li>
+      <li>Keep one parameter contract (<code>task_name</code>, <code>run_id</code>, <code>parameters_json</code>) for every orchestrated notebook.</li>
+    </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/rest/api/fabric/core/job-scheduler/run-on-demand-item-job">Job Scheduler: Run On Demand Item Job</a></li>
+        <li><a href="https://learn.microsoft.com/rest/api/fabric/core/job-scheduler/get-item-job-instance">Job Scheduler: Get Item Job Instance</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/notebook-public-api">Manage and execute notebooks with APIs</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/notebookutils/notebookutils-notebook-run">NotebookUtils notebook run and orchestration</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/job-queueing-for-fabric-spark">Job queueing in Apache Spark for Fabric</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/notebook-activity">Notebook activity</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/security/workspace-identity">Workspace identity</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/notebookutils/notebookutils-credentials">NotebookUtils credentials</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

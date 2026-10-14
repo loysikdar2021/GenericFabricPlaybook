@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Overview · Deployment Checklist</title>
+<meta name="description" content="A runbook for promoting a layered Fabric platform from DEV to TST to PRD, layer by layer, with the order of operations, per-layer checklists, verified watch-outs and a troubleshooting table.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="14-deployment-checklist" data-page="index.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 14 · Deployment Checklist</p>
+      <h1>Deployment Checklist</h1>
+      <p class="lede">This is the page you keep open on release day. It condenses the deployment pipelines playbook into an ordered runbook: what to deploy, what to configure, what to hydrate and what to verify for each layer, in the order that keeps bindings and data correct.</p>
+      <ul class="chips"><li><b>Audience</b> Release managers, data engineers</li><li><b>Level</b> Intermediate</li><li><b>Reading time</b> about 45 minutes</li></ul>
+    </header>
+<h2 id="purpose">What this runbook is for</h2>
+<p>A release across a medallion platform touches seven kinds of workspace and many items. The risk is rarely a single failed deployment; it is a successful deployment of an empty layer, or an item bound to the wrong stage, discovered a layer later. The runbook prevents that by fixing three things: the <strong>order</strong> in which layers move, the <strong>checks</strong> that gate each move, and the <strong>evidence</strong> you leave behind.</p>
+<p>It assumes the layout from the <a href="../07-deployment/index.html">Deployment pipelines playbook</a>: one pipeline per layer named <code>DPLY_&lt;DOMAIN&gt;_&lt;LAYER&gt;</code>, each with DEV, TST and PRD workspaces named <code>&lt;ENV&gt;_&lt;DOMAIN&gt;_&lt;LAYER&gt;</code>, and Git connected to DEV only. The explanations for why each step exists are in that playbook; here every step has a one-line reason and a check.</p>
+
+<figure class="diagram">
+<svg class="dg" viewBox="0 0 900 372" role="img" aria-label="The runbook order: for each of seven layers deploy then hydrate and verify, completing all layers from DEV to TST before repeating the same sequence from TST to PRD; steps 1 to 14 in TST and 15 to 28 in PRD">
+<defs>
+<marker id="fig-ck-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+</defs>
+<text class="t-b" x="340" y="24" text-anchor="middle">DEV to TST</text>
+<text class="t-b" x="710" y="24" text-anchor="middle">TST to PRD</text>
+<text class="t-s" x="260" y="48" text-anchor="middle">Deploy</text>
+<text class="t-s" x="420" y="48" text-anchor="middle">Hydrate, verify</text>
+<text class="t-s" x="630" y="48" text-anchor="middle">Deploy</text>
+<text class="t-s" x="790" y="48" text-anchor="middle">Hydrate, verify</text>
+<rect class="lane" x="10" y="62" width="170" height="32" rx="8"/>
+<text class="t-b" x="22" y="82">Bronze</text>
+<rect class="box bronze" x="190" y="62" width="140" height="32" rx="10"/>
+<text class="t-s" x="260" y="82" text-anchor="middle">Deploy</text>
+<circle class="dot" cx="202" cy="78" r="10"/>
+<text class="t-b t-w" x="202" y="82" text-anchor="middle">1</text>
+<rect class="box" x="350" y="62" width="140" height="32" rx="10"/>
+<text class="t-s" x="420" y="82" text-anchor="middle">Verify</text>
+<circle class="dot" cx="362" cy="78" r="10"/>
+<text class="t-b t-w" x="362" y="82" text-anchor="middle">2</text>
+<rect class="box bronze" x="560" y="62" width="140" height="32" rx="10"/>
+<text class="t-s" x="630" y="82" text-anchor="middle">Deploy</text>
+<circle class="dot" cx="572" cy="78" r="10"/>
+<text class="t-b t-w" x="572" y="82" text-anchor="middle">15</text>
+<rect class="box" x="720" y="62" width="140" height="32" rx="10"/>
+<text class="t-s" x="790" y="82" text-anchor="middle">Verify</text>
+<circle class="dot" cx="732" cy="78" r="10"/>
+<text class="t-b t-w" x="732" y="82" text-anchor="middle">16</text>
+<path class="ln" d="M330 78H350" marker-end="url(#fig-ck-1-a)"/>
+<path class="ln" d="M700 78H720" marker-end="url(#fig-ck-1-a)"/>
+<rect class="lane" x="10" y="102" width="170" height="32" rx="8"/>
+<text class="t-b" x="22" y="122">Silver</text>
+<rect class="box silver" x="190" y="102" width="140" height="32" rx="10"/>
+<text class="t-s" x="260" y="122" text-anchor="middle">Deploy</text>
+<circle class="dot" cx="202" cy="118" r="10"/>
+<text class="t-b t-w" x="202" y="122" text-anchor="middle">3</text>
+<rect class="box" x="350" y="102" width="140" height="32" rx="10"/>
+<text class="t-s" x="420" y="122" text-anchor="middle">Verify</text>
+<circle class="dot" cx="362" cy="118" r="10"/>
+<text class="t-b t-w" x="362" y="122" text-anchor="middle">4</text>
+<rect class="box silver" x="560" y="102" width="140" height="32" rx="10"/>
+<text class="t-s" x="630" y="122" text-anchor="middle">Deploy</text>
+<circle class="dot" cx="572" cy="118" r="10"/>
+<text class="t-b t-w" x="572" y="122" text-anchor="middle">17</text>
+<rect class="box" x="720" y="102" width="140" height="32" rx="10"/>
+<text class="t-s" x="790" y="122" text-anchor="middle">Verify</text>
+<circle class="dot" cx="732" cy="118" r="10"/>
+<text class="t-b t-w" x="732" y="122" text-anchor="middle">18</text>
+<path class="ln" d="M330 118H350" marker-end="url(#fig-ck-1-a)"/>
+<path class="ln" d="M700 118H720" marker-end="url(#fig-ck-1-a)"/>
+<rect class="lane" x="10" y="142" width="170" height="32" rx="8"/>
+<text class="t-b" x="22" y="162">Gold</text>
+<rect class="box gold" x="190" y="142" width="140" height="32" rx="10"/>
+<text class="t-s" x="260" y="162" text-anchor="middle">Deploy</text>
+<circle class="dot" cx="202" cy="158" r="10"/>
+<text class="t-b t-w" x="202" y="162" text-anchor="middle">5</text>
+<rect class="box" x="350" y="142" width="140" height="32" rx="10"/>
+<text class="t-s" x="420" y="162" text-anchor="middle">Verify</text>
+<circle class="dot" cx="362" cy="158" r="10"/>
+<text class="t-b t-w" x="362" y="162" text-anchor="middle">6</text>
+<rect class="box gold" x="560" y="142" width="140" height="32" rx="10"/>
+<text class="t-s" x="630" y="162" text-anchor="middle">Deploy</text>
+<circle class="dot" cx="572" cy="158" r="10"/>
+<text class="t-b t-w" x="572" y="162" text-anchor="middle">19</text>
+<rect class="box" x="720" y="142" width="140" height="32" rx="10"/>
+<text class="t-s" x="790" y="162" text-anchor="middle">Verify</text>
+<circle class="dot" cx="732" cy="158" r="10"/>
+<text class="t-b t-w" x="732" y="162" text-anchor="middle">20</text>
+<path class="ln" d="M330 158H350" marker-end="url(#fig-ck-1-a)"/>
+<path class="ln" d="M700 158H720" marker-end="url(#fig-ck-1-a)"/>
+<rect class="lane" x="10" y="182" width="170" height="32" rx="8"/>
+<text class="t-b" x="22" y="202">Warehouse</text>
+<rect class="box blue" x="190" y="182" width="140" height="32" rx="10"/>
+<text class="t-s" x="260" y="202" text-anchor="middle">Deploy</text>
+<circle class="dot" cx="202" cy="198" r="10"/>
+<text class="t-b t-w" x="202" y="202" text-anchor="middle">7</text>
+<rect class="box" x="350" y="182" width="140" height="32" rx="10"/>
+<text class="t-s" x="420" y="202" text-anchor="middle">Verify</text>
+<circle class="dot" cx="362" cy="198" r="10"/>
+<text class="t-b t-w" x="362" y="202" text-anchor="middle">8</text>
+<rect class="box blue" x="560" y="182" width="140" height="32" rx="10"/>
+<text class="t-s" x="630" y="202" text-anchor="middle">Deploy</text>
+<circle class="dot" cx="572" cy="198" r="10"/>
+<text class="t-b t-w" x="572" y="202" text-anchor="middle">21</text>
+<rect class="box" x="720" y="182" width="140" height="32" rx="10"/>
+<text class="t-s" x="790" y="202" text-anchor="middle">Verify</text>
+<circle class="dot" cx="732" cy="198" r="10"/>
+<text class="t-b t-w" x="732" y="202" text-anchor="middle">22</text>
+<path class="ln" d="M330 198H350" marker-end="url(#fig-ck-1-a)"/>
+<path class="ln" d="M700 198H720" marker-end="url(#fig-ck-1-a)"/>
+<rect class="lane" x="10" y="222" width="170" height="32" rx="8"/>
+<text class="t-b" x="22" y="242">Semantic model</text>
+<rect class="box blue" x="190" y="222" width="140" height="32" rx="10"/>
+<text class="t-s" x="260" y="242" text-anchor="middle">Deploy</text>
+<circle class="dot" cx="202" cy="238" r="10"/>
+<text class="t-b t-w" x="202" y="242" text-anchor="middle">9</text>
+<rect class="box" x="350" y="222" width="140" height="32" rx="10"/>
+<text class="t-s" x="420" y="242" text-anchor="middle">Verify</text>
+<circle class="dot" cx="362" cy="238" r="10"/>
+<text class="t-b t-w" x="362" y="242" text-anchor="middle">10</text>
+<rect class="box blue" x="560" y="222" width="140" height="32" rx="10"/>
+<text class="t-s" x="630" y="242" text-anchor="middle">Deploy</text>
+<circle class="dot" cx="572" cy="238" r="10"/>
+<text class="t-b t-w" x="572" y="242" text-anchor="middle">23</text>
+<rect class="box" x="720" y="222" width="140" height="32" rx="10"/>
+<text class="t-s" x="790" y="242" text-anchor="middle">Verify</text>
+<circle class="dot" cx="732" cy="238" r="10"/>
+<text class="t-b t-w" x="732" y="242" text-anchor="middle">24</text>
+<path class="ln" d="M330 238H350" marker-end="url(#fig-ck-1-a)"/>
+<path class="ln" d="M700 238H720" marker-end="url(#fig-ck-1-a)"/>
+<rect class="lane" x="10" y="262" width="170" height="32" rx="8"/>
+<text class="t-b" x="22" y="282">Consumption lakehouse</text>
+<rect class="box blue" x="190" y="262" width="140" height="32" rx="10"/>
+<text class="t-s" x="260" y="282" text-anchor="middle">Deploy</text>
+<circle class="dot" cx="202" cy="278" r="10"/>
+<text class="t-b t-w" x="202" y="282" text-anchor="middle">11</text>
+<rect class="box" x="350" y="262" width="140" height="32" rx="10"/>
+<text class="t-s" x="420" y="282" text-anchor="middle">Verify</text>
+<circle class="dot" cx="362" cy="278" r="10"/>
+<text class="t-b t-w" x="362" y="282" text-anchor="middle">12</text>
+<rect class="box blue" x="560" y="262" width="140" height="32" rx="10"/>
+<text class="t-s" x="630" y="282" text-anchor="middle">Deploy</text>
+<circle class="dot" cx="572" cy="278" r="10"/>
+<text class="t-b t-w" x="572" y="282" text-anchor="middle">25</text>
+<rect class="box" x="720" y="262" width="140" height="32" rx="10"/>
+<text class="t-s" x="790" y="282" text-anchor="middle">Verify</text>
+<circle class="dot" cx="732" cy="278" r="10"/>
+<text class="t-b t-w" x="732" y="282" text-anchor="middle">26</text>
+<path class="ln" d="M330 278H350" marker-end="url(#fig-ck-1-a)"/>
+<path class="ln" d="M700 278H720" marker-end="url(#fig-ck-1-a)"/>
+<rect class="lane" x="10" y="302" width="170" height="32" rx="8"/>
+<text class="t-b" x="22" y="322">Delivery</text>
+<rect class="box green" x="190" y="302" width="140" height="32" rx="10"/>
+<text class="t-s" x="260" y="322" text-anchor="middle">Deploy</text>
+<circle class="dot" cx="202" cy="318" r="10"/>
+<text class="t-b t-w" x="202" y="322" text-anchor="middle">13</text>
+<rect class="box" x="350" y="302" width="140" height="32" rx="10"/>
+<text class="t-s" x="420" y="322" text-anchor="middle">Verify</text>
+<circle class="dot" cx="362" cy="318" r="10"/>
+<text class="t-b t-w" x="362" y="322" text-anchor="middle">14</text>
+<rect class="box green" x="560" y="302" width="140" height="32" rx="10"/>
+<text class="t-s" x="630" y="322" text-anchor="middle">Deploy</text>
+<circle class="dot" cx="572" cy="318" r="10"/>
+<text class="t-b t-w" x="572" y="322" text-anchor="middle">27</text>
+<rect class="box" x="720" y="302" width="140" height="32" rx="10"/>
+<text class="t-s" x="790" y="322" text-anchor="middle">Verify</text>
+<circle class="dot" cx="732" cy="318" r="10"/>
+<text class="t-b t-w" x="732" y="322" text-anchor="middle">28</text>
+<path class="ln" d="M330 318H350" marker-end="url(#fig-ck-1-a)"/>
+<path class="ln" d="M700 318H720" marker-end="url(#fig-ck-1-a)"/>
+<text class="t-s" x="190" y="356">Same layer order in both blocks; the second block starts only after step 14 passes.</text>
+</svg>
+<figcaption><b>The order of operations at a glance.</b> Odd numbers deploy, even numbers hydrate and verify. Finish every layer in TST before you start the same sequence for PRD, and never start a layer whose upstream verify step has not passed.</figcaption>
+</figure>
+
+<h2 id="order">The sequence in one table</h2>
+<p>Run the whole table for the DEV to TST hop, finish every row, then run it again for TST to PRD. Inside a row, the steps run left to right.</p>
+<table>
+<thead><tr><th>Layer</th><th>Deploy</th><th>Configure</th><th>Hydrate</th></tr></thead>
+<tbody>
+<tr><td><strong>Bronze</strong></td><td>Lakehouse; then variable library, environment, notebooks, data pipelines</td><td>Activate the stage's variable library values</td><td>Populate tables</td></tr>
+<tr><td><strong>Silver</strong></td><td>Same as Bronze; redeploy anything deployed before its dependency existed</td><td>Same as Bronze</td><td>Populate tables</td></tr>
+<tr><td><strong>Gold</strong></td><td>Same as Silver</td><td>Same as Bronze</td><td>Populate tables</td></tr>
+<tr><td><strong>Warehouse</strong></td><td>Lakehouse; Warehouse; redeploy to fix bindings</td><td>Per-stage connections and permissions</td><td>Run the load pipelines</td></tr>
+<tr><td><strong>Semantic model</strong></td><td>Models; define rules for the warehouse connection; deploy the models again</td><td>Update model connections</td><td>Refresh the models</td></tr>
+<tr><td><strong>Consumption lakehouse</strong></td><td>Lakehouse</td><td>Shortcut targets</td><td>Verify tables</td></tr>
+<tr><td><strong>Delivery</strong></td><td>Reports</td><td>Apps and sharing</td><td>Open and check</td></tr>
+</tbody>
+</table>
+<p>After every row comes a <strong>verify</strong> step. It is part of the row, not an optional extra: the next row does not start until it passes.</p>
+
+<h2 id="ground-rules">Ground rules</h2>
+<ul>
+<li><strong>One layer at a time.</strong> Deploy, hydrate and verify a layer before you touch the next one.</li>
+<li><strong>TST completes before PRD starts.</strong> All seven rows in TST, then all seven in PRD, with the same order and the PRD values.</li>
+<li><strong>A deployment copies definitions, not data.</strong> An empty layer is the normal result of a deployment; hydration is what makes it a working layer.</li>
+<li><strong>Every deployment gets a note</strong> that names the release, the layer and the stage hop. It is the audit trail.</li>
+<li><strong>Nobody edits TST or PRD by hand.</strong> A hand edit is overwritten by the next deployment and hides the defect that caused it.</li>
+</ul>
+
+<h2 id="prerequisites">Prerequisites</h2>
+<ul class="checklist">
+<li>Seven pipelines exist (or as many as you use), each with its three stage workspaces assigned and items paired. See <a href="../07-deployment/pipeline-setup.html">Pipeline setup and pairing</a>.</li>
+<li>The release manager has pipeline admin on every pipeline and at least Contributor on every stage workspace; the automation identity, if any, has the same.</li>
+<li>Connections used by pipelines, notebooks and models are owned by a service principal and shared with the deployment group.</li>
+<li>Each layer workspace has a variable library with a value set per environment, and you know which value set each stage must activate.</li>
+<li>The values for deployment rules are recorded per stage. The <a href="../07-deployment/appendix.html">appendix of the deployment playbook</a> has a collection notebook and a template.</li>
+<li>Capacity has headroom for the deployment and for the hydration runs that follow it.</li>
+<li>A test plan exists for each layer: which tables, counts and reports prove the layer works.</li>
+</ul>
+
+<h2 id="map">Map of this playbook</h2>
+<div class="cards">
+<a class="card gold" href="layer-checklists.html"><span class="card-num">01</span><h3>Layer checklists</h3><p>Deploy, configure, hydrate and verify lists for each of the seven layers.</p><div class="card-meta"><span>Runbook</span></div></a>
+<a class="card orange" href="tips.html"><span class="card-num">02</span><h3>Tips and watch-outs</h3><p>The five practices that prevent most failures, with the mechanism behind each.</p><div class="card-meta"><span>Practice</span></div></a>
+<a class="card green" href="preflight-verify.html"><span class="card-num">03</span><h3>Pre-flight and verification</h3><p>What to check before, during and after, and the evidence to keep.</p><div class="card-meta"><span>Gates</span></div></a>
+<a class="card red" href="troubleshooting.html"><span class="card-num">04</span><h3>Troubleshooting</h3><p>Symptom, cause and fix, with a triage path.</p><div class="card-meta"><span>Operations</span></div></a>
+</div>
+
+<h2 id="related">Related playbooks</h2>
+<ul>
+<li><a href="../07-deployment/index.html">Deployment pipelines and promotion</a> explains pairing, autobinding, rules and the REST API behind each step.</li>
+<li><a href="../05-github-integration/index.html">GitHub integration and branching</a> covers how a change reaches the DEV workspace before the runbook starts.</li>
+<li><a href="../09-variable-libraries/index.html">Variable libraries</a> covers the per-stage values you activate in the Configure column.</li>
+</ul>
+
+<div class="takeaways"><p class="tk-title">Key takeaways</p>
+<ul>
+<li>Deploy, hydrate and verify one layer at a time, and finish every layer in TST before you start PRD.</li>
+<li>A green deployment says nothing about data; the verify step after each layer is what you sign off.</li>
+<li>Keep connections service-principal owned and rule values recorded before release day, not during it.</li>
+<li>Write a note on every deployment and keep the evidence.</li>
+</ul></div>
+
+<section class="refs">
+<h2 id="refs">References</h2>
+<ul>
+<li><a href="https://learn.microsoft.com/fabric/cicd/deployment-pipelines/intro-to-deployment-pipelines">Overview of Fabric deployment pipelines</a></li>
+<li><a href="https://learn.microsoft.com/fabric/cicd/deployment-pipelines/understand-the-deployment-process">The deployment pipelines process</a></li>
+<li><a href="https://learn.microsoft.com/fabric/cicd/best-practices-cicd">Best practices for lifecycle management in Fabric</a></li>
+</ul>
+</section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

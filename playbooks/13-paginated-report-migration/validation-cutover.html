@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Phase 3: Validation and cutover · Paginated Migration</title>
+<meta name="description" content="Prove that migrated paginated reports match the originals in layout, data, exports and speed, recreate subscriptions and access, cut over with a rollback window and retire the old capacity.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="13-paginated-report-migration" data-page="validation-cutover.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+
+    <header class="page-header">
+      <p class="eyebrow">Playbook 13 · Paginated Report Migration</p>
+      <h1>Phase 3: Validation and cutover</h1>
+      <p class="lede">A report that opens is not a report that matches. This phase proves parity with the original, recreates what the platform does not carry over, and ends in a cutover that you can undo until the day you retire the old capacity.</p>
+    </header>
+
+    <h2 id="strategy">Validation strategy</h2>
+    <p>Reuse the inventory from Phase 1 as the test list. Every migrating report gets a set of parameter values (typical, edge and empty), and every test compares the migrated report with the original under the same inputs. Business owners then confirm the result in user acceptance testing; the automated checks exist so that the owners spend their time on judgement, not on counting rows.</p>
+
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 300" role="img" aria-label="Parity test: for each report and parameter set, the legacy and migrated reports are exported to file with the same inputs, the outputs are compared on rows and page count, and the result is recorded and reviewed by the owner">
+        <defs>
+          <marker id="fig-vc-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-vc-1-ag" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box blue" x="20" y="110" width="170" height="80" rx="10"/>
+        <text class="t-b" x="105" y="142" text-anchor="middle">Test list</text>
+        <text class="t-s" x="105" y="162" text-anchor="middle">reports and parameters</text>
+        <path class="ln" d="M190 136H236V70H268" marker-end="url(#fig-vc-1-a)"/>
+        <path class="ln" d="M190 164H236V230H268" marker-end="url(#fig-vc-1-a)"/>
+        <rect class="box gray" x="270" y="40" width="200" height="60" rx="10"/>
+        <text class="t-b" x="370" y="66" text-anchor="middle">Legacy report</text>
+        <text class="t-s" x="370" y="84" text-anchor="middle">export CSV and PDF</text>
+        <rect class="box teal" x="270" y="200" width="200" height="60" rx="10"/>
+        <text class="t-b" x="370" y="226" text-anchor="middle">Migrated report</text>
+        <text class="t-s" x="370" y="244" text-anchor="middle">export CSV and PDF</text>
+        <path class="ln" d="M470 70H530V130H558" marker-end="url(#fig-vc-1-a)"/>
+        <path class="ln" d="M470 230H530V170H558" marker-end="url(#fig-vc-1-a)"/>
+        <rect class="box purple" x="560" y="110" width="150" height="80" rx="10"/>
+        <text class="t-b" x="635" y="142" text-anchor="middle">Compare</text>
+        <text class="t-s" x="635" y="162" text-anchor="middle">rows, totals, pages</text>
+        <path class="ln green" d="M710 150H748" marker-end="url(#fig-vc-1-ag)"/>
+        <rect class="box green" x="750" y="110" width="130" height="80" rx="10"/>
+        <text class="t-b" x="815" y="142" text-anchor="middle">Result</text>
+        <text class="t-s" x="815" y="162" text-anchor="middle">pass, or review</text>
+      </svg>
+      <figcaption><b>Same inputs, two outputs, one verdict.</b> Differences are not failures until someone has decided whether they are acceptable: a changed font, a UTC timestamp or a rounding rule can be intended.</figcaption>
+    </figure>
+
+    <h2 id="test-matrix">What to test</h2>
+    <table>
+      <thead><tr><th>Area</th><th>Compare</th><th>How</th><th>Pass when</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Layout and pagination</strong></td><td>Page count, page breaks, headers and footers, fonts, images</td><td>Export PDF from both; compare page counts; review a sample side by side</td><td>Same page count for the same inputs, or a documented reason</td></tr>
+        <tr><td><strong>Data</strong></td><td>Row counts, totals, nulls, ordering</td><td>Export CSV from both; compare after sorting</td><td>Identical, apart from explained differences</td></tr>
+        <tr><td><strong>Parameters</strong></td><td>Defaults, cascading lists, multi-value, date handling</td><td>Run every parameter set including empty and boundary values</td><td>Same available values and defaults; dates read correctly</td></tr>
+        <tr><td><strong>Interactivity</strong></td><td>Drillthrough, hyperlinks, subreports, toggles</td><td>Click through each path</td><td>Every link opens the intended report with the right parameters</td></tr>
+        <tr><td><strong>Exports</strong></td><td>Each format people actually use</td><td>Export in Excel, Word, PowerPoint, PDF, accessible PDF, CSV, XML and MHTML as needed</td><td>Opens cleanly; content and format acceptable to the owner</td></tr>
+        <tr><td><strong>Security</strong></td><td>What each audience can see</td><td>Open as users with different permissions and identities</td><td>Each user sees exactly what they saw before</td></tr>
+        <tr><td><strong>Performance</strong></td><td>Render time, capacity load</td><td>Time several runs on each side; check the Capacity Metrics app</td><td>Within the agreed tolerance of the baseline</td></tr>
+        <tr><td><strong>Delivery</strong></td><td>Subscriptions, schedules, recipients, attachments</td><td>Run each subscription once and inspect the message</td><td>Right people, format, content and time</td></tr>
+        <tr><td><strong>Links and embedding</strong></td><td>URLs, apps, embedded views, links from Power BI reports</td><td>Follow each known entry point</td><td>All entry points resolve to the new report</td></tr>
+      </tbody>
+    </table>
+    <div class="callout note"><p class="callout-title">Paginated reports have no refresh to test</p>
+      <p>A paginated report does not store data, so there is no refresh schedule on the report itself. The queries run each time the report renders. What you can test is the refresh of any semantic model the report reads, and the subscriptions that deliver the report.</p></div>
+
+    <h2 id="parity">Automate parity checks</h2>
+    <p>The REST API can render a paginated report to a file with given parameter values, which is exactly what a parity harness needs. The call is asynchronous: you start an export, poll its status and then fetch the file. Supported formats for paginated reports include PDF, accessible PDF, Excel, Word, PowerPoint, CSV, XML, MHTML and several image formats.</p>
+<pre data-title="Notebook cell: render a report to a file with parameter values"><code class="language-python">import io
+import time
+
+import pandas as pd
+import requests
+from pypdf import PdfReader      # %pip install pypdf
+
+TOKEN = "&lt;token&gt;"           # Microsoft Entra token for the Power BI API
+BASE = "https://api.powerbi.com/v1.0/myorg"
+HEADERS = {"Authorization": f"Bearer {TOKEN}"}
+
+
+def export_report(workspace_id: str, report_id: str, fmt: str, params: dict) -&gt; bytes:
+    """Render a paginated report to a file (fmt: 'PDF', 'CSV', 'XLSX', ...) and return its bytes."""
+    body = {
+        "format": fmt,
+        "paginatedReportConfiguration": {
+            "parameterValues": [{"name": k, "value": str(v)} for k, v in params.items()]
+        },
+    }
+    start = requests.post(f"{BASE}/groups/{workspace_id}/reports/{report_id}/ExportTo",
+                          headers=HEADERS, json=body, timeout=60)
+    start.raise_for_status()
+    export_id = start.json()["id"]
+
+    while True:
+        status = requests.get(f"{BASE}/groups/{workspace_id}/reports/{report_id}/exports/{export_id}",
+                              headers=HEADERS, timeout=60).json()
+        if status["status"] in ("Succeeded", "Failed"):
+            break
+        time.sleep(5)
+    if status["status"] != "Succeeded":
+        raise RuntimeError(f"Export failed for {report_id}")
+
+    file_resp = requests.get(f"{BASE}/groups/{workspace_id}/reports/{report_id}/exports/{export_id}/file",
+                             headers=HEADERS, timeout=300)
+    file_resp.raise_for_status()
+    return file_resp.content</code></pre>
+<pre data-title="Notebook cell: compare the legacy and migrated reports"><code class="language-python">def compare(old: tuple, new: tuple, params: dict) -&gt; dict:
+    """old and new are (workspace_id, report_id) pairs rendered with the same parameters."""
+    old_csv = pd.read_csv(io.BytesIO(export_report(*old, "CSV", params)), encoding="utf-8-sig")
+    new_csv = pd.read_csv(io.BytesIO(export_report(*new, "CSV", params)), encoding="utf-8-sig")
+
+    same_columns = list(old_csv.columns) == list(new_csv.columns)
+    same_rows = (
+        same_columns
+        and old_csv.sort_values(list(old_csv.columns)).reset_index(drop=True)
+            .equals(new_csv.sort_values(list(new_csv.columns)).reset_index(drop=True))
+    )
+
+    old_pages = len(PdfReader(io.BytesIO(export_report(*old, "PDF", params))).pages)
+    new_pages = len(PdfReader(io.BytesIO(export_report(*new, "PDF", params))).pages)
+
+    return {
+        "rows_old": len(old_csv), "rows_new": len(new_csv),
+        "columns_match": same_columns, "data_match": same_rows,
+        "pages_old": old_pages, "pages_new": new_pages,
+        "pages_match": old_pages == new_pages,
+    }
+
+
+result = compare(
+    old=("&lt;legacy-workspace-id&gt;", "&lt;legacy-report-id&gt;"),
+    new=("&lt;target-workspace-id&gt;", "&lt;migrated-report-id&gt;"),
+    params={"StartDate": "&lt;start-date&gt;", "EndDate": "&lt;end-date&gt;"},
+)
+print(result)</code></pre>
+    <ul>
+      <li><strong>Reports that read a semantic model need an identity.</strong> The export call requires an identity in the paginated report configuration when the report uses a Power BI semantic model or an Azure Analysis Services source. See the API reference for the shape.</li>
+      <li><strong>Compare content, not bytes.</strong> Exported PDFs carry timestamps and metadata, so compare page counts and extracted text, or render pages to images and compare them, rather than the file hash.</li>
+      <li><strong>Mind the limits.</strong> The export-to-file article lists limits on concurrent exports and sizes. Pace a large run and write results to a table, so a rerun only repeats failures. A results model is described in <a href="../15-qa-validation/index.html">QA validation frameworks</a>.</li>
+    </ul>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p>
+      <p>Check the request body, status and file calls in <a href="https://learn.microsoft.com/rest/api/power-bi/reports/export-to-file-in-group">Reports - Export To File In Group</a> and the limits in <a href="https://learn.microsoft.com/power-bi/developer/embedded/export-paginated-report">Export paginated report to file</a>. The status and file endpoints used in the sample are the companion calls described there.</p></div>
+
+    <h2 id="performance">Performance and capacity</h2>
+    <p>Compare render times against the baseline you recorded before the move, then watch the capacity for a couple of days under real use. Adding the paginated reports workload to a capacity can slow paginated reports and everything else on it, so treat the target capacity as a shared resource and check both.</p>
+    <table>
+      <thead><tr><th>Symptom</th><th>Check</th><th>Action</th></tr></thead>
+      <tbody>
+        <tr><td>Report is slower than before</td><td>Time the dataset query alone at the source, then the render</td><td>Tune the query or move the aggregation into the Gold layer; reports on a Warehouse benefit from pre-aggregated tables.</td></tr>
+        <tr><td>Slow only with certain parameters</td><td>Cascading parameters evaluate in sequence</td><td>Pre-aggregate the parameter lists or reduce the number of cascades.</td></tr>
+        <tr><td>Query timeout errors</td><td>The report's stored query timeout (600 seconds by default)</td><td>Fix the query first; raise the timeout only for known long runs.</td></tr>
+        <tr><td>Failures during busy periods</td><td>Capacity Metrics app; concurrency limits for the paginated reports workload, which return HTTP 429 when exceeded</td><td>Spread schedules, scale the capacity or reduce parallel exports.</td></tr>
+        <tr><td>Very long-running reports</td><td>How the report is consumed</td><td>Deliver by email subscription with an attachment so nobody waits on a screen.</td></tr>
+        <tr><td>The old server cached or snapshotted output</td><td>Where the old caching or snapshot settings lived</td><td>The migration and FAQ articles do not describe report caching or snapshots for the service; pre-aggregate at the source instead and test the effect.</td></tr>
+        <tr><td>Other items on the capacity slowed down</td><td>Capacity Metrics app by item type</td><td>Resize, or separate the workloads onto different capacities.</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="subscriptions">Subscriptions, delivery and links</h2>
+    <p>Subscriptions are service settings, not part of the RDL, so they do not move with a report. Recreate each one and run it once.</p>
+    <ul>
+      <li><strong>Email subscriptions</strong> are supported for paginated reports, with the report attached in a chosen format. Large attachments are limited in size; for big outputs, deliver to OneDrive or SharePoint instead.</li>
+      <li><strong>Per-recipient reports.</strong> The service supports subscriptions that vary the report by recipient, but there is no equivalent of SSRS data-driven subscriptions in the same form. Treat each as a redesign item from the assessment.</li>
+      <li><strong>Time zones.</strong> The execution time built-in field returns UTC in the service, which can move the date shown in footers and defaults.</li>
+      <li><strong>Links change with new items.</strong> Republishing creates a new report item with a new ID, so every saved URL, bookmark, app entry, embedded view and drillthrough link from a Power BI report must be updated. Drilling from a Power BI report to a paginated report works through URL parameters; check them for the new report.</li>
+      <li><strong>Apps.</strong> Paginated reports can be added to Power BI apps; republish the app audience after the new reports exist. For app design see <a href="../11-org-apps/index.html">Organizational apps</a>.</li>
+    </ul>
+
+    <h3 id="access">Permissions and licensing</h3>
+    <ul>
+      <li><strong>Roles.</strong> Under Method A the workspace stays in place, so confirm its roles are intact. New workspaces from Method B start with only the roles you grant, so recreate them from the legacy workspace.</li>
+      <li><strong>Viewers.</strong> Users with free licenses can view paginated reports only on a Fabric capacity of F64 or larger, or a Premium capacity of P1 or larger; otherwise they need a Pro or Premium Per User license. Confirm this with a free-license test user.</li>
+      <li><strong>Data access.</strong> Test with a person who has only the access a typical viewer has. If the report uses single sign-on, that person's permissions at the source decide what they see.</li>
+      <li><strong>Authors.</strong> Publishing to a workspace other than My workspace needs a Pro or Premium Per User license.</li>
+    </ul>
+
+    <h2 id="cutover">Cutover</h2>
+    <p>Cutover is the moment users stop using the old reports. For a workspace reassignment, the move itself is the cutover. For republished reports, it is the day links and apps point at the new items. In both cases, keep the old state intact for a defined rollback window.</p>
+
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 270" role="img" aria-label="Cutover timeline: freeze changes, final validation, switch, hypercare and retire; rollback stays possible from the freeze through hypercare and ends when the old capacity is retired">
+        <defs>
+          <marker id="fig-vc-2-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <path class="ln thick" d="M20 90H878" marker-end="url(#fig-vc-2-a)"/>
+        <rect class="box blue" x="20" y="50" width="150" height="80" rx="10"/>
+        <text class="t-b" x="95" y="82" text-anchor="middle">Freeze</text>
+        <text class="t-s" x="95" y="102" text-anchor="middle">no report changes</text>
+        <rect class="box orange" x="200" y="50" width="150" height="80" rx="10"/>
+        <text class="t-b" x="275" y="82" text-anchor="middle">Final validation</text>
+        <text class="t-s" x="275" y="102" text-anchor="middle">tests, UAT sign-off</text>
+        <rect class="box teal accent" x="380" y="50" width="150" height="80" rx="10"/>
+        <text class="t-b" x="455" y="82" text-anchor="middle">Switch</text>
+        <text class="t-s" x="455" y="102" text-anchor="middle">links, apps, schedules</text>
+        <rect class="box green" x="560" y="50" width="150" height="80" rx="10"/>
+        <text class="t-b" x="635" y="82" text-anchor="middle">Hypercare</text>
+        <text class="t-s" x="635" y="102" text-anchor="middle">watch, support</text>
+        <rect class="box gray" x="740" y="50" width="140" height="80" rx="10"/>
+        <text class="t-b" x="810" y="82" text-anchor="middle">Retire</text>
+        <text class="t-s" x="810" y="102" text-anchor="middle">old capacity</text>
+        <path class="ln dash red" d="M95 170H720"/>
+        <path class="ln red" d="M95 160V180"/>
+        <path class="ln red" d="M720 160V180"/>
+        <rect class="pill-bg" x="274" y="159" width="270" height="22" rx="11"/>
+        <text class="t-s c-red" x="409" y="174" text-anchor="middle">Rollback window: the old state is intact</text>
+        <text class="t-s" x="809" y="174" text-anchor="middle">no way back</text>
+        <rect class="box red dashed" x="200" y="204" width="510" height="48" rx="10"/>
+        <text class="t-s" x="455" y="224" text-anchor="middle">Method A: assign the workspace back to the Premium capacity</text>
+        <text class="t-s" x="455" y="240" text-anchor="middle">Method B: repoint links and apps to the legacy workspace, which was not changed</text>
+      </svg>
+      <figcaption><b>Every step before retirement is reversible.</b> Define the rollback triggers in advance and give someone the authority to use them.</figcaption>
+    </figure>
+
+    <ol class="steps">
+      <li><strong>Freeze changes</strong><p>Stop edits to legacy reports and to the sources they read, so the comparison stays valid.</p></li>
+      <li><strong>Run the final validation</strong><p>Repeat the parity tests on the frozen state and collect owner sign-off for every report in the wave.</p></li>
+      <li><strong>Switch</strong><p>Reassign the workspace (Method A), or update links, apps and embedded views to the new items and recreate subscriptions (Method B). Announce the switch with the support route.</p></li>
+      <li><strong>Hypercare</strong><p>Watch render errors, capacity metrics and support requests for an agreed period. Keep the legacy reports available but unadvertised.</p></li>
+      <li><strong>Close the rollback window</strong><p>When the period ends without an unresolved issue, record the decision and move to retirement.</p></li>
+    </ol>
+    <table>
+      <thead><tr><th>Rollback trigger</th><th>Example threshold to agree in advance</th></tr></thead>
+      <tbody>
+        <tr><td>Wrong numbers</td><td>Any report in the wave with an unexplained data difference</td></tr>
+        <tr><td>Access problems</td><td>Users who should see a report cannot, and no fix is in hand</td></tr>
+        <tr><td>Render failures</td><td>Failure rate above the agreed limit, or repeated HTTP 429 errors</td></tr>
+        <tr><td>Capacity pressure</td><td>Other workloads on the capacity affected beyond tolerance</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="decommission">Retire the old environment</h2>
+    <ul>
+      <li><strong>Archive first.</strong> Export and store every legacy RDL file in source control before you delete a legacy workspace. Keep the inventory and the test results with it.</li>
+      <li><strong>Check no workspace remains on the Premium capacity</strong> before you cancel it, and cancel the subscription only after the last wave has passed validation.</li>
+      <li><strong>Do not let the subscription lapse first.</strong> Learn describes how a capacity behaves when its subscription ends: throttling and then rejected operations. A lapse before the last workspace has moved is an outage you caused.</li>
+      <li><strong>Cancel in the licensing portal.</strong> Cancelling a Premium capacity is a manual step in the Microsoft 365 admin center, so assign it to a named person.</li>
+      <li><strong>Update the runbooks.</strong> The support runbook should now describe the Fabric workspaces, the pipeline, the gateways and the rules created here.</li>
+    </ul>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p>
+      <ul>
+        <li>Test against the original under identical parameters: row counts, totals, page counts and every export format in use.</li>
+        <li>Automate the comparison with the export-to-file API and compare content, not file hashes.</li>
+        <li>Recreate what the file does not carry: subscriptions, links, roles, credentials and gateway bindings.</li>
+        <li>Agree rollback triggers before the switch, and keep the old state intact until hypercare ends.</li>
+        <li>Cancel the Premium subscription last, after the last workspace has moved and passed validation.</li>
+      </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/power-bi/guidance/migrate-ssrs-reports-to-power-bi">Plan to migrate .rdl reports to Power BI</a></li>
+        <li><a href="https://learn.microsoft.com/rest/api/power-bi/reports/export-to-file-in-group">Reports - Export To File In Group</a></li>
+        <li><a href="https://learn.microsoft.com/power-bi/developer/embedded/export-paginated-report">Export paginated report to file</a></li>
+        <li><a href="https://learn.microsoft.com/power-bi/paginated-reports/paginated-capacity-planning">Capacity planning for paginated reports</a></li>
+        <li><a href="https://learn.microsoft.com/power-bi/collaborate-share/end-user-subscribe">Email subscriptions for reports and dashboards in the Power BI service</a></li>
+        <li><a href="https://learn.microsoft.com/power-bi/support/premium-migration-how-to">Migrate workspaces from Power BI Premium to Microsoft Fabric</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/enterprise/metrics-app">Microsoft Fabric Capacity Metrics app</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

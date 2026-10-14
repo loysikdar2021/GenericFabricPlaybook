@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Build and customize an org app · Org Apps</title>
+<meta name="description" content="Design an org app around its audience, then create it, add content, arrange navigation and an overview page, apply branding, preview, save, and know exactly what takes effect when.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="11-org-apps" data-page="build.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 11 · Organizational Apps</p>
+      <h1>Build and customize an org app</h1>
+      <p class="lede">An org app is a curated, branded data product, not a shared folder. This page starts with the design questions that decide what goes in, then walks through creation, content, navigation, the overview page, branding, preview and save, and ends with a table of what takes effect when.</p>
+    </header>
+
+    <h2 id="design">Design the app before you build it</h2>
+    <p>Because one workspace can host many apps, the useful question is no longer "which reports should we share?" but "which experience does this audience need?" Answer these first; they decide the items, the audiences and the roles.</p>
+    <table>
+      <thead><tr><th>Question</th><th>Why it matters</th><th>Example answer</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Who is the audience and what decision do they make?</strong></td><td>Defines the audience and keeps the app small</td><td>Executives running a weekly revenue review</td></tr>
+        <tr><td><strong>Which items answer that decision, and which only support it?</strong></td><td>Separates primary content from context such as method notes</td><td>Revenue report first, methodology notebook last</td></tr>
+        <tr><td><strong>What must each audience not see?</strong></td><td>Visibility drives access, so hiding an item can remove access to it</td><td>Analysts do not get the live store dashboard</td></tr>
+        <tr><td><strong>Who owns the app, and who may change access?</strong></td><td>Changing access needs write and reshare on items and models</td><td>The sales analytics lead as Member; developers as Contributors</td></tr>
+        <tr><td><strong>What will consumers call it?</strong></td><td>The app name appears on the Apps page and in Home lists</td><td>"Sales performance", not a technical identifier</td></tr>
+        <tr><td><strong>Where does it live, and how does it change?</strong></td><td>Live references make environments part of the design</td><td>Built in a development workspace, promoted by a pipeline</td></tr>
+      </tbody>
+    </table>
+    <p>A single workspace with a dozen items can feed a short "Executive" app with three reports and a separate "Regional operations" app with many reports grouped by territory, a live dashboard and a method notebook. That is the shift from sharing reports to building a targeted experience, and it makes the BI developer the product owner for the app.</p>
+    <table>
+      <thead><tr><th>App (consumer-facing name)</th><th>Audiences</th><th>Elements</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Sales performance - Executive</strong></td><td>Executives (one audience)</td><td>Overview with header; three reports; the methodology notebook</td></tr>
+        <tr><td><strong>Sales performance - Regional operations</strong></td><td>Managers (everything); Analysts (live dashboard hidden)</td><td>Overview; sections for regions, live operations and method; a data dictionary link</td></tr>
+      </tbody>
+    </table>
+    <div class="callout tip"><p class="callout-title">Name for the consumer, not for the engineer</p>
+      <p>The name you type when you create the app is the name consumers see. The house convention (<code>RPT_SALES_CNSM_Revenue</code> and similar) is for items and workspaces; do not apply a technical prefix to the app itself. Because environments are separated by workspace (<code>DEV_SALES_CNSM</code>, <code>TST_SALES_CNSM</code>, <code>PRD_SALES_CNSM</code>), the app can keep the same display name in every stage. You can rename each navigation element, so technical item names never have to appear in the navigation.</p></div>
+
+    <h2 id="flow">The build flow</h2>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 880 220" role="img" aria-label="Six build steps from create through add content, arrange, customize, save and share, with a feedback loop from save back to add content and notes on where write and reshare rights are needed">
+        <defs>
+          <marker id="fig-bld-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box blue" x="10" y="70" width="120" height="64" rx="8"/>
+        <text class="t-b" x="70" y="96" text-anchor="middle">1 · Create</text>
+        <text class="t-s" x="70" y="116" text-anchor="middle">New &gt; Org app</text>
+        <rect class="box blue" x="158" y="70" width="120" height="64" rx="8"/>
+        <text class="t-b" x="218" y="96" text-anchor="middle">2 · Add content</text>
+        <text class="t-s" x="218" y="116" text-anchor="middle">item picker</text>
+        <rect class="box blue" x="306" y="70" width="120" height="64" rx="8"/>
+        <text class="t-b" x="366" y="96" text-anchor="middle">3 · Arrange</text>
+        <text class="t-s" x="366" y="116" text-anchor="middle">sections, overview</text>
+        <rect class="box blue" x="454" y="70" width="120" height="64" rx="8"/>
+        <text class="t-b" x="514" y="96" text-anchor="middle">4 · Customize</text>
+        <text class="t-s" x="514" y="116" text-anchor="middle">branding, settings</text>
+        <rect class="box blue" x="602" y="70" width="120" height="64" rx="8"/>
+        <text class="t-b" x="662" y="96" text-anchor="middle">5 · Save</text>
+        <text class="t-s" x="662" y="116" text-anchor="middle">after Preview app</text>
+        <rect class="box green" x="750" y="70" width="120" height="64" rx="8"/>
+        <text class="t-b" x="810" y="96" text-anchor="middle">6 · Share</text>
+        <text class="t-s" x="810" y="116" text-anchor="middle">audiences, groups</text>
+        <path class="ln" d="M130 102H156" marker-end="url(#fig-bld-1-a)"/>
+        <path class="ln" d="M278 102H304" marker-end="url(#fig-bld-1-a)"/>
+        <path class="ln" d="M426 102H452" marker-end="url(#fig-bld-1-a)"/>
+        <path class="ln" d="M574 102H600" marker-end="url(#fig-bld-1-a)"/>
+        <path class="ln" d="M722 102H748" marker-end="url(#fig-bld-1-a)"/>
+        <path class="ln dash" d="M662 68V40H218V66" marker-end="url(#fig-bld-1-a)"/>
+        <rect class="pill-bg" x="327" y="32" width="256" height="16"/>
+        <text class="t-s" x="455" y="44" text-anchor="middle">iterate: add, hide, reorder, re-preview</text>
+        <rect class="box orange" x="158" y="156" width="120" height="40" rx="8"/>
+        <text class="t-s" x="218" y="172" text-anchor="middle">needs write +</text>
+        <text class="t-s" x="218" y="186" text-anchor="middle">reshare rights</text>
+        <rect class="box orange" x="602" y="156" width="120" height="40" rx="8"/>
+        <text class="t-s" x="662" y="172" text-anchor="middle">needs write +</text>
+        <text class="t-s" x="662" y="186" text-anchor="middle">reshare rights</text>
+        <rect class="box green" x="750" y="156" width="120" height="40" rx="8"/>
+        <text class="t-s" x="810" y="172" text-anchor="middle">test as a member</text>
+        <text class="t-s" x="810" y="186" text-anchor="middle">of each audience</text>
+        <path class="ln thin orange" d="M218 134V154"/>
+        <path class="ln thin orange" d="M662 134V154"/>
+        <path class="ln thin green" d="M810 134V154"/>
+      </svg>
+      <figcaption><b>Build flow.</b> Adding items and saving are the two moments that change who has access, so they are where permission errors surface. Preview is not a substitute for testing as an audience member.</figcaption>
+    </figure>
+
+    <h2 id="steps">Step by step</h2>
+    <ol class="steps">
+      <li><strong>Create the item</strong><p>Open the workspace that holds the content and select <strong>New &gt; Org app</strong>. Enter the consumer-facing name and select <strong>Create</strong>. The app editor opens. If your tenant has Fabric trials enabled and the workspace is not on a capacity, you are prompted to start a trial.</p></li>
+      <li><strong>Add content</strong><p>Select <strong>Add content</strong>, choose items from the workspace in the picker, and select <strong>Add to app</strong>. Only supported item types appear (see <a href="content.html">Integrating Fabric and Power BI items</a>). If the app has audiences, a new item is visible to the single audience by default; with several audiences you are asked where it should be visible.</p></li>
+      <li><strong>Arrange the navigation</strong><p>Use <strong>Add &gt; Section</strong> to group elements, <strong>... &gt; Move to section</strong> to file them, <strong>... &gt; Rename</strong> to give business-readable labels, and <strong>Move up</strong> or <strong>Move down</strong> to order them. The first element is the landing experience.</p></li>
+      <li><strong>Add an overview page and links</strong><p>Use <strong>Add &gt; Overview</strong> for a page that lists everything in the app (one per app), then <strong>Add header</strong> to set a title, body text and whether the header uses the theme color. Use <strong>Add &gt; Link</strong> for external or internal URLs such as a data dictionary.</p></li>
+      <li><strong>Set the item's settings</strong><p>In <strong>Settings</strong>, open <strong>About</strong> to set the name and description (and see the owner, creator and last modified time) and <strong>Endorsement</strong> to set the endorsement level. The level you set applies to the app item, not to the items inside it.</p></li>
+      <li><strong>Customize the look</strong><p>In <strong>Customize &gt; Branding</strong>, upload an app image and choose a theme color, then select <strong>Apply</strong>. Set navigation behavior and, if you use audiences, the audience tab display.</p></li>
+      <li><strong>Preview and save</strong><p>Select <strong>Preview app</strong> to see the experience, then <strong>Close preview</strong> and <strong>Save</strong>. The confirmation offers <strong>View app</strong> and a way to manage access.</p></li>
+      <li><strong>Share</strong><p>Saving persists the definition but does not by itself give anyone access. Share the app through audiences and groups as described in <a href="access-alm.html#sharing">Access, ALM and lifecycle</a>.</p></li>
+    </ol>
+
+    <h2 id="navigation">Navigation, overview page and links</h2>
+    <p>A flat list of fifteen reports is not an app. Group elements into sections that match how the audience thinks, put the page they need first, and give each element a name they would use in conversation.</p>
+<pre data-title="example navigation (Regional operations app)"><code class="language-text">Sales performance - Regional operations
+├─ Overview                       landing page, header with title and welcome text
+├─ Section: Regions
+│  ├─ North region                -&gt; report RPT_SALES_CNSM_RegionNorth
+│  ├─ South region                -&gt; report RPT_SALES_CNSM_RegionSouth
+│  └─ ...
+├─ Section: Live operations
+│  └─ Store traffic               -&gt; Real-Time Dashboard RTD_SALES_CNSM_StoreTraffic
+└─ Section: Method and definitions
+   ├─ How sales are calculated    -&gt; notebook NB_SALES_CNSM_Methodology
+   └─ Data dictionary             -&gt; link</code></pre>
+    <ul>
+      <li><strong>Landing page.</strong> Whatever is first in the navigation opens first. If you add an overview page, put it first when you want a welcome and an index; otherwise put the report that answers the audience's main question first.</li>
+      <li><strong>One overview.</strong> An app can have only one overview page. In a view for one audience it lists only the content that audience can access; in the All tab it lists everything the user can access across audiences.</li>
+      <li><strong>Sections.</strong> Keep one level of sections. Deeply nested navigation hides content and is harder to maintain in the definition file.</li>
+      <li><strong>Links.</strong> The definition distinguishes links that open embedded in the app from links that open in a new tab. Use a new tab for anything that is not designed to be framed.</li>
+      <li><strong>Rename, do not expose.</strong> Rename elements to business terms; a consumer should not need to know that a report is called <code>RPT_SALES_CNSM_RegionNorth</code>.</li>
+    </ul>
+
+    <h2 id="branding">Branding and behavior</h2>
+    <p>The <strong>Customize</strong> pane controls the visual identity and how the navigation behaves.</p>
+    <dl class="kv">
+      <dt>App image</dt><dd>Upload a .jpg or .png of up to 45 KB. <strong>Reset to default</strong> removes it. On the previous Apps page, Gallery view shows the default org app icon rather than the custom one.</dd>
+      <dt>Theme color</dt><dd>Pick any color with the color picker or enter a hexadecimal or RGB value. The definition stores a small palette: background, foreground and hover, selected and pressed backgrounds.</dd>
+      <dt>Preview of the look</dt><dd>A sneak-peek pane shows the effect as you choose. Select <strong>Apply</strong> before closing; nothing is visible to consumers until you save the app.</dd>
+      <dt>Navigation behavior</dt><dd>Options let you hide or collapse the app navigation pane, show report page navigation independently or combined with the app navigation, and hide the report page pane. The definition properties are <code>navigationPane.isHidden</code>, <code>navigationPane.isCollapsed</code>, <code>independentPageNavigation</code> and <code>itemTypeSettings.report.hidePagePane</code>.</dd>
+      <dt>Audience tabs</dt><dd>Show or hide the All tab and the audience tabs (<code>hideAllTab</code>, <code>hideAudienceTabs</code> in the audience settings).</dd>
+    </dl>
+    <div class="callout tip"><p class="callout-title">Pick contrast, not just a color</p>
+      <p>The theme color drives the navigation background, so check that the foreground text reaches at least a 4.5:1 contrast ratio against it in the normal, hover, selected and pressed states. Teams tend to approve the logo color and discover the hover state is unreadable only after release.</p></div>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p>
+      <p>The portal labels for the navigation options are not spelled out in the Get started article; the property names above come from the definition documented in <a href="https://learn.microsoft.com/power-bi/developer/embedded/org-app-cicd">CI/CD for org apps in Fabric</a>. If you script or review definition files, match properties to the schema version your tenant writes.</p></div>
+
+    <h2 id="preview-save">Preview, save and what takes effect when</h2>
+    <p><strong>Preview app</strong> shows the app as a consumer would see it, but it is rendered for users who have workspace access, so it reflects the broader access that a workspace role gives, across all audiences. It is a layout check, not an access test. Row-level security is not a good test here either, because workspace Admins, Members and Contributors hold write permission on the models, and write permission bypasses model-level data access rules.</p>
+    <p><strong>Save</strong> persists the app's definition. If the save includes access-affecting changes (added or removed items, audience visibility) and you lack write and reshare on the items or their semantic models, the save fails with a permissions message; see <a href="prerequisites.html#roles">the write-and-reshare rule</a>.</p>
+    <table>
+      <thead><tr><th>Change</th><th>Where you make it</th><th>Takes effect</th></tr></thead>
+      <tbody>
+        <tr><td>Name, description, endorsement</td><td>Settings &gt; About or Endorsement</td><td>Immediately</td></tr>
+        <tr><td>App image and theme color</td><td>Customize &gt; Branding, then Apply</td><td>When you save the app</td></tr>
+        <tr><td>Add, remove, rename or reorder elements; overview; links</td><td>App editor</td><td>When you save the app</td></tr>
+        <tr><td>Audience visibility and access</td><td>Manage audiences, Share</td><td>With the save or share action; confirm behavior in a test workspace</td></tr>
+        <tr><td>Edits to an included report or notebook</td><td>The item itself</td><td>When that item is saved, with no app step</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="quality">Quality bar before you share</h2>
+    <ul class="checklist">
+      <li>The app name and every navigation label make sense to the audience without explanation.</li>
+      <li>The landing element answers the audience's main question or explains what the app contains.</li>
+      <li>The icon is under 45 KB and the theme passes a contrast check in all four states.</li>
+      <li>Each audience has been tested with an account that belongs to that audience only, not with a workspace Admin.</li>
+      <li>Every report in the app opens for a test consumer, including reports whose models live in other workspaces.</li>
+      <li>Notebooks and dashboards in the app contain nothing you would not want every consumer to read (see <a href="content.html#notebooks">notebook outputs</a>).</li>
+      <li>The app has a named owner, a place to ask questions, and a rollback plan (<a href="access-alm.html#alm">ALM</a>).</li>
+    </ul>
+
+    <div class="callout warning"><p class="callout-title">Anti-patterns</p>
+      <ul>
+        <li><strong>One app for everyone.</strong> It forces every audience through content that is not theirs; use audiences or separate apps.</li>
+        <li><strong>Technical names in the navigation.</strong> Consumers search by business terms.</li>
+        <li><strong>Building in the production workspace.</strong> Every save is live.</li>
+        <li><strong>Treating Preview as the test.</strong> It shows the workspace-role view.</li>
+        <li><strong>Hiding as security.</strong> Hidden elements are not protected from someone with a direct link when access to hidden content is on.</li>
+      </ul></div>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p><ul>
+      <li>Design per audience first; the app name and navigation labels are consumer-facing and should read like business terms.</li>
+      <li>Adding items and saving are the moments that change access, so those need write and reshare rights.</li>
+      <li>Settings changes are instant, branding and structure take effect on Save, and item edits are live when the item is saved.</li>
+      <li>Preview is a layout check performed with a workspace-role view; test each audience with its own account.</li>
+      <li>Keep one level of sections, one overview, and a deliberate landing element.</li>
+    </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/power-bi/explore-reports/org-app-items">Get started with org apps</a></li>
+        <li><a href="https://learn.microsoft.com/power-bi/developer/embedded/org-app-cicd">CI/CD for org apps in Fabric</a> (definition properties)</li>
+        <li><a href="https://learn.microsoft.com/fabric/fundamentals/direct-lake-security-integration">Integrate Direct Lake security</a> (row-level security and write permission)</li>
+        <li><a href="https://learn.microsoft.com/fabric/fundamentals/fabric-home">Navigate the Fabric home page</a> (Focus mode)</li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

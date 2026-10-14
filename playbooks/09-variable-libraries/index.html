@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Overview · Variable Libraries</title>
+<meta name="description" content="Why stage-specific values scattered through Fabric items hurt promotion, what a variable library is and is not, when to use one, and a map of this playbook.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="09-variable-libraries" data-page="index.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 09 · Variable Libraries</p>
+      <h1>Variable libraries: per-stage configuration without editing items</h1>
+      <p class="lede">A variable library is a Fabric item that holds the values that change between DEV, TST and PRD (workspace and item IDs, connections, batch sizes, flags) so that the pipelines, notebooks, dataflows and shortcuts that use them can be promoted unchanged. This playbook covers how it works, how to build and consume one, how it behaves in Git and deployment pipelines, and how to run it safely.</p>
+      <ul class="chips"><li><b>Audience</b> data engineers, platform engineers, release managers</li><li><b>Level</b> intermediate</li><li><b>Reading time</b> about 65 minutes</li></ul>
+    </header>
+
+    <h2 id="problem">The problem: stage-specific values buried in items</h2>
+    <p>Every promoted solution carries a handful of values that must differ by stage: the lakehouse a copy activity reads, the connection it uses, the workspace an item points at, how many days of data a test run loads. When those values live inside the items, every promotion needs a human or a script to fix them, and every fix is a chance to ship the DEV value into PRD.</p>
+    <p>The usual workarounds each break down in a different place:</p>
+    <table>
+      <thead><tr><th>Workaround</th><th>Where it breaks</th></tr></thead>
+      <tbody>
+        <tr><td>Hard-coded IDs, edited after each deployment</td><td>Manual, easy to forget, invisible in review, and the edit is lost on the next deployment that overwrites the item</td></tr>
+        <tr><td>Pipeline parameters with a different default per stage</td><td>The default is part of the item, so the item differs between stages and shows as changed in every comparison</td></tr>
+        <tr><td>A Git branch per stage with edited copies of the same items</td><td>Configuration drift and merge conflicts; the branches stop being copies of each other</td></tr>
+        <tr><td>Deployment rules</td><td>Cover only a few item types (data sources and parameters for dataflows Gen1, semantic models, paginated reports, mirrored databases; the default lakehouse for notebooks); they take effect only from the next deployment and cannot be defined in the development stage</td></tr>
+        <tr><td>Post-deployment scripts that patch item definitions</td><td>You now maintain a deployment tool, and it must understand every item format</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="what-it-is">What a variable library is</h2>
+    <p>A variable library is an item in a workspace that contains a list of <strong>variables</strong> and, for each variable, a value for every stage in the release path. Other items in the <em>same workspace</em> consume the variables. Each consumer resolves the value in its own context, when it runs, so the library does not have to be deployed in lockstep with its consumers.</p>
+    <p>The design has four parts, covered in depth on the <a href="concepts.html">next page</a>:</p>
+    <ol class="steps">
+      <li><strong>Variables</strong><p>Named, typed values: basic types (Boolean, Integer, Number, String, DateTime, Guid) and two advanced reference types (item reference, connection reference).</p></li>
+      <li><strong>Value sets</strong><p>A <em>default value set</em> holds every variable's baseline value. Any number of <em>alternative value sets</em> override only the variables that differ, for example <code>TST</code> and <code>PRD</code>.</p></li>
+      <li><strong>An active value set</strong><p>Exactly one value set is active per library in a workspace. It is workspace state, not part of the item definition, so a deployment does not overwrite it.</p></li>
+      <li><strong>Consumers</strong><p>Pipelines, notebooks, Dataflow Gen2, lakehouse shortcuts, copy jobs and other items read the active values by library and variable name.</p></li>
+    </ol>
+
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 330" role="img" aria-label="Three workspaces DEV, TST and PRD each hold the same variable library definition. A deployment copies the definition between stages, but each workspace keeps its own active value set, which the consumer items in that workspace read at run time">
+        <defs>
+          <marker id="fig-index-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-index-1-b" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="zone" x="20" y="20" width="240" height="292" rx="12"/>
+        <text class="t-h" x="140" y="44" text-anchor="middle">DEV_SALES_SLV</text>
+        <rect class="box blue" x="40" y="60" width="200" height="76" rx="8"/>
+        <text class="t-h" x="140" y="86" text-anchor="middle">VL_SALES_SLV_Config</text>
+        <text class="t-s" x="140" y="108" text-anchor="middle">Default · TST · PRD value sets</text>
+        <rect class="box green" x="40" y="166" width="200" height="44" rx="8"/>
+        <text class="t-b" x="140" y="185" text-anchor="middle">Active value set</text>
+        <text class="t-s" x="140" y="201" text-anchor="middle">Default value set</text>
+        <rect class="box teal" x="40" y="240" width="200" height="56" rx="8"/>
+        <text class="t-b" x="140" y="262" text-anchor="middle">Consumer items</text>
+        <text class="t-s" x="140" y="280" text-anchor="middle">pipeline, notebook, shortcut</text>
+        <path class="ln" d="M140 136V164" marker-end="url(#fig-index-1-a)"/>
+        <text class="t-s" x="150" y="155">selects</text>
+        <path class="ln green" d="M140 210V238" marker-end="url(#fig-index-1-b)"/>
+        <text class="t-s" x="150" y="229">read at run time</text>
+
+        <rect class="zone" x="330" y="20" width="240" height="292" rx="12"/>
+        <text class="t-h" x="450" y="44" text-anchor="middle">TST_SALES_SLV</text>
+        <rect class="box blue" x="350" y="60" width="200" height="76" rx="8"/>
+        <text class="t-h" x="450" y="86" text-anchor="middle">VL_SALES_SLV_Config</text>
+        <text class="t-s" x="450" y="108" text-anchor="middle">Default · TST · PRD value sets</text>
+        <rect class="box green" x="350" y="166" width="200" height="44" rx="8"/>
+        <text class="t-b" x="450" y="185" text-anchor="middle">Active value set</text>
+        <text class="t-s" x="450" y="201" text-anchor="middle">TST</text>
+        <rect class="box teal" x="350" y="240" width="200" height="56" rx="8"/>
+        <text class="t-b" x="450" y="262" text-anchor="middle">Consumer items</text>
+        <text class="t-s" x="450" y="280" text-anchor="middle">pipeline, notebook, shortcut</text>
+        <path class="ln" d="M450 136V164" marker-end="url(#fig-index-1-a)"/>
+        <text class="t-s" x="460" y="155">selects</text>
+        <path class="ln green" d="M450 210V238" marker-end="url(#fig-index-1-b)"/>
+        <text class="t-s" x="460" y="229">read at run time</text>
+
+        <rect class="zone" x="640" y="20" width="240" height="292" rx="12"/>
+        <text class="t-h" x="760" y="44" text-anchor="middle">PRD_SALES_SLV</text>
+        <rect class="box blue" x="660" y="60" width="200" height="76" rx="8"/>
+        <text class="t-h" x="760" y="86" text-anchor="middle">VL_SALES_SLV_Config</text>
+        <text class="t-s" x="760" y="108" text-anchor="middle">Default · TST · PRD value sets</text>
+        <rect class="box green" x="660" y="166" width="200" height="44" rx="8"/>
+        <text class="t-b" x="760" y="185" text-anchor="middle">Active value set</text>
+        <text class="t-s" x="760" y="201" text-anchor="middle">PRD</text>
+        <rect class="box teal" x="660" y="240" width="200" height="56" rx="8"/>
+        <text class="t-b" x="760" y="262" text-anchor="middle">Consumer items</text>
+        <text class="t-s" x="760" y="280" text-anchor="middle">pipeline, notebook, shortcut</text>
+        <path class="ln" d="M760 136V164" marker-end="url(#fig-index-1-a)"/>
+        <text class="t-s" x="770" y="155">selects</text>
+        <path class="ln green" d="M760 210V238" marker-end="url(#fig-index-1-b)"/>
+        <text class="t-s" x="770" y="229">read at run time</text>
+
+        <path class="ln" d="M240 98H348" marker-end="url(#fig-index-1-a)"/>
+        <rect class="pill-bg" x="266" y="90" width="56" height="16"/>
+        <text class="t-s" x="294" y="102" text-anchor="middle">deploy</text>
+        <path class="ln" d="M550 98H658" marker-end="url(#fig-index-1-a)"/>
+        <rect class="pill-bg" x="576" y="90" width="56" height="16"/>
+        <text class="t-s" x="604" y="102" text-anchor="middle">deploy</text>
+      </svg>
+      <figcaption><b>One definition, one active set per workspace.</b> A deployment copies the library definition to the next stage. Which value set is active is decided in each workspace and is not overwritten by a deployment, so the consumers in TST and PRD read different values from identical items.</figcaption>
+    </figure>
+
+    <h2 id="not">What it is not</h2>
+    <ul>
+      <li><strong>Not a secret store.</strong> Anyone who can view the library can read its values (a workspace Viewer can view the item). Keep credentials in connections or a key vault and store only a reference.</li>
+      <li><strong>Not writable at run time.</strong> Notebooks can read variables but not change them. It is configuration, not shared state.</li>
+      <li><strong>Not cross-workspace.</strong> Consumers use libraries in their own workspace. A notebook cannot read a library from another workspace.</li>
+      <li><strong>Not automatic on deploy.</strong> The first deployment brings the library up with its default value set active. Selecting the right set per stage is a step you perform (and can script) after the library lands in the stage. See <a href="cicd-promotion.html#after-deployment">the step after deployment</a>.</li>
+      <li><strong>Not a replacement for autobinding.</strong> Where Fabric already rebinds a dependency within a workspace (a notebook's default lakehouse, for example), you do not need a variable.</li>
+    </ul>
+
+    <h2 id="when">When to use a variable library</h2>
+    <table>
+      <thead><tr><th>Use it when</th><th>Use something else when</th></tr></thead>
+      <tbody>
+        <tr><td>The same item must point to a different lakehouse, workspace or connection per stage</td><td>The value is a credential or token: use a connection or a key vault reference</td></tr>
+        <tr><td>A value changes with the stage but not with the run (batch size, lookback window, feature flag)</td><td>The value changes with every run: use a pipeline or notebook parameter</td></tr>
+        <tr><td>Several items in a workspace share one value and you want to change it once</td><td>The consumer is in another workspace: pass the value as a parameter or resolve it inside the consumer's own workspace</td></tr>
+        <tr><td>You want per-stage configuration reviewed in Git next to the items it configures</td><td>Autobinding or a deployment rule already does the job for that item type</td></tr>
+        <tr><td>You need to switch a data source for a whole workspace in one action</td><td>The consumer is not on the supported list (see <a href="build-and-consume.html#consumers">consumers</a>)</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="prerequisites">Prerequisites</h2>
+    <ul class="checklist">
+      <li>A workspace on a Fabric capacity per stage (the examples use <code>DEV_SALES_SLV</code>, <code>TST_SALES_SLV</code> and <code>PRD_SALES_SLV</code>).</li>
+      <li>The tenant setting <strong>Users can create Fabric items</strong> enabled for the people who build libraries.</li>
+      <li>A workspace role of Contributor or higher to create and edit a library; Viewer is read-only.</li>
+      <li>Items that support variable libraries (pipelines, notebooks, Dataflow Gen2 with CI/CD, lakehouse shortcuts, copy jobs and others; see the supported-items table).</li>
+      <li>For promotion: a deployment pipeline or Git integration (or both) set up as described in <a href="../05-github-integration/index.html">GitHub Integration and Branching</a> and <a href="../07-deployment/index.html">Deployment Pipelines and Promotion</a>.</li>
+      <li>For reference variables: Read permission on every item or connection you point a variable at.</li>
+    </ul>
+
+    <h2 id="outcomes">What you will have at the end</h2>
+    <ul>
+      <li>A variable library per domain and layer with a value set per stage, built to a naming convention.</li>
+      <li>Pipelines, notebooks and shortcuts reading their stage values from it, with no hard-coded IDs.</li>
+      <li>A repeatable step that activates the right value set after each first deployment, with a guard that fails fast if a stage runs with the wrong one.</li>
+      <li>A clear rule for when a variable, a deployment rule or autobinding is the right tool.</li>
+      <li>A troubleshooting table and a checklist for the first deployment into each stage.</li>
+    </ul>
+
+    <h2 id="map">Playbook map</h2>
+    <div class="cards">
+      <a class="card blue" href="concepts.html"><span class="card-num">02</span><h3>Concepts and anatomy</h3><p>Variable types, default and alternative value sets, why the active set is workspace state, naming, limits and permissions.</p><div class="card-meta"><span>Concepts</span><span>15 min</span></div></a>
+      <a class="card teal" href="build-and-consume.html"><span class="card-num">03</span><h3>Create and consume variables</h3><p>Create a library and read it from pipelines, notebooks, dataflows, shortcuts, copy jobs and other items.</p><div class="card-meta"><span>Implementation</span><span>20 min</span></div></a>
+      <a class="card orange" href="cicd-promotion.html"><span class="card-num">04</span><h3>Promotion, Git and automation</h3><p>Deployment pipelines, the step after deployment, Git representation, deployment rules compared, REST and a script.</p><div class="card-meta"><span>ALM</span><span>15 min</span></div></a>
+      <a class="card purple" href="example-and-operations.html"><span class="card-num">05</span><h3>Worked example and operations</h3><p>DEV, TST and PRD end to end, anti-patterns, troubleshooting and a validation checklist.</p><div class="card-meta"><span>Operations</span><span>15 min</span></div></a>
+    </div>
+
+    <h2 id="facts">Key facts at a glance</h2>
+    <dl class="kv">
+      <dt>Scope</dt><dd>A library and its consumers live in the same workspace. One library holds up to 1,000 variables and 1,000 value sets, within 10,000 alternative-value cells and 1 MB in total.</dd>
+      <dt>Variable types</dt><dd>Boolean, Integer, Number, String, DateTime (ISO 8601, UTC), Guid, plus item reference <span class="badge preview">Preview</span> and connection reference <span class="badge preview">Preview</span>.</dd>
+      <dt>Active value set</dt><dd>Exactly one per library per workspace; not part of the item definition; not overwritten by a deployment.</dd>
+      <dt>Consumers</dt><dd>Pipelines, lakehouse shortcuts, notebooks (NotebookUtils and <code>%%configure</code>), Dataflow Gen2, copy jobs, user data functions, eventstreams, deployment plan action parameters and Plan.</dd>
+      <dt>Lifecycle</dt><dd>Supported by Git integration and deployment pipelines, and managed through the Fabric REST API.</dd>
+    </dl>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>The list of supported consumers, the per-consumer limits and the status labels on the reference variable types change as items gain support. Before you design around a consumer, check the <a href="https://learn.microsoft.com/fabric/cicd/variable-library/variable-library-overview">variable library overview</a> and the consumer's own article.</p></div>
+
+    <h2 id="related">Related playbooks</h2>
+    <ul>
+      <li><a href="../05-github-integration/index.html">GitHub Integration and Branching</a> covers the repository and branch model in which the library is stored as a folder.</li>
+      <li><a href="../06-shared-libraries/index.html">Shared Python Libraries</a>: keep environment values out of the wheel and pass them in from a variable library at call time.</li>
+      <li><a href="../07-deployment/index.html">Deployment Pipelines and Promotion</a> covers stages, deployment rules and autobinding, and the order in which the library is deployed and activated.</li>
+      <li><a href="../14-deployment-checklist/index.html">Deployment Checklist</a> is the release-day list that includes the activate-value-set step.</li>
+    </ul>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p><ul>
+      <li>A variable library moves stage-specific values out of items, so the same item definition can be promoted to every stage.</li>
+      <li>The default value set holds all values; alternative sets override only what differs; one set is active per workspace.</li>
+      <li>The active value set is workspace state: deployments do not set it, so activating the right set is part of every first deployment.</li>
+      <li>It is configuration for items in the same workspace: no secrets, no cross-workspace reads, read-only from notebooks.</li>
+    </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/fabric/cicd/variable-library/variable-library-overview">Fabric application lifecycle management variable library</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/cicd/variable-library/get-started-variable-libraries">Get started with variable libraries</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/cicd/variable-library/variable-library-cicd">Lifecycle management of the variable library</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/cicd/deployment-pipelines/create-rules">Create deployment rules</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Worked example and operations · Variable Libraries</title>
+<meta name="description" content="A DEV, TST and PRD worked example with a connection, an item reference and stage values, a stage guard, anti-patterns, a troubleshooting table and a validation checklist for Fabric variable libraries.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="09-variable-libraries" data-page="example-and-operations.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 09 · Variable Libraries</p>
+      <h1>Worked example and operations</h1>
+      <p class="lede">One end-to-end example for a fictional retailer: a library with a connection, an item reference and stage values; a pipeline and a notebook that consume it; a release that deploys and activates it in TST and PRD; and a guard that fails fast when a stage runs with the wrong value set. The page then covers anti-patterns, troubleshooting and a validation checklist.</p>
+    </header>
+
+    <h2 id="scenario">The scenario</h2>
+    <p>Contoso's sales domain loads orders from an operational database into a bronze lakehouse. The bronze layer has three workspaces and one deployment pipeline:</p>
+    <table>
+      <thead><tr><th>Stage</th><th>Workspace</th><th>Contents</th></tr></thead>
+      <tbody>
+        <tr><td>DEV</td><td><code>DEV_SALES_BRZ</code></td><td><code>LH_SALES_BRZ</code>, <code>PL_SALES_BRZ_LoadOrders</code>, <code>NB_SALES_BRZ_StageGuard</code>, <code>NB_SALES_BRZ_LoadOrders</code>, <code>VL_SALES_BRZ_Config</code></td></tr>
+        <tr><td>TST</td><td><code>TST_SALES_BRZ</code></td><td>The same items, deployed from DEV</td></tr>
+        <tr><td>PRD</td><td><code>PRD_SALES_BRZ</code></td><td>The same items, deployed from TST</td></tr>
+      </tbody>
+    </table>
+    <p>The deployment pipeline is <code>DPLY_SALES_BRZ</code>. The pipeline copies recent changes from the orders database into the lakehouse; the notebook merges and validates them. What must differ by stage:</p>
+    <table>
+      <thead><tr><th>Variable</th><th>Type</th><th>Default value set (DEV)</th><th>TST</th><th>PRD</th><th>Read by</th></tr></thead>
+      <tbody>
+        <tr><td><code>StageName</code></td><td>String</td><td><code>DEV</code></td><td><code>TST</code></td><td><code>PRD</code></td><td>Stage guard</td></tr>
+        <tr><td><code>OrdersDb</code></td><td>Connection reference</td><td>DEV database connection</td><td>TST database connection</td><td>PRD database connection</td><td>Copy activity source</td></tr>
+        <tr><td><code>BronzeLakehouse</code></td><td>Item reference</td><td><code>LH_SALES_BRZ</code> in <code>DEV_SALES_BRZ</code></td><td><code>LH_SALES_BRZ</code> in <code>TST_SALES_BRZ</code></td><td><code>LH_SALES_BRZ</code> in <code>PRD_SALES_BRZ</code></td><td>Copy activity destination; load notebook</td></tr>
+        <tr><td><code>LookbackDays</code></td><td>Integer</td><td>3</td><td>7</td><td>inherits the default (3)</td><td>Copy activity query</td></tr>
+        <tr><td><code>FullReload</code></td><td>Boolean</td><td>false</td><td>inherits</td><td>inherits</td><td>Load notebook</td></tr>
+      </tbody>
+    </table>
+
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 300" role="img" aria-label="Release flow for the example: a feature workspace merges into DEV; the deployment pipeline deploys to TST, where the release activates the TST value set, the stage guard passes and a test run succeeds; after approval it deploys to PRD, where the PRD value set is activated, the guard passes and a smoke run succeeds">
+        <defs>
+          <marker id="fig-example-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box gray" x="20" y="24" width="150" height="56" rx="8"/>
+        <text class="t-b" x="95" y="48" text-anchor="middle">Feature workspace</text>
+        <text class="t-s" x="95" y="66" text-anchor="middle">branch of main</text>
+        <rect class="box blue" x="262" y="24" width="150" height="56" rx="8"/>
+        <text class="t-b" x="337" y="48" text-anchor="middle">DEV_SALES_BRZ</text>
+        <text class="t-s" x="337" y="66" text-anchor="middle">synced to main</text>
+        <rect class="box blue" x="504" y="24" width="150" height="56" rx="8"/>
+        <text class="t-b" x="579" y="48" text-anchor="middle">TST_SALES_BRZ</text>
+        <text class="t-s" x="579" y="66" text-anchor="middle">stage 2</text>
+        <rect class="box accent" x="746" y="24" width="134" height="56" rx="8"/>
+        <text class="t-b t-w" x="813" y="48" text-anchor="middle">PRD_SALES_BRZ</text>
+        <text class="t-s t-w" x="813" y="66" text-anchor="middle">stage 3</text>
+        <path class="ln" d="M170 52H260" marker-end="url(#fig-example-1-a)"/>
+        <rect class="pill-bg" x="190" y="44" width="60" height="16"/>
+        <text class="t-s" x="220" y="56" text-anchor="middle">PR merge</text>
+        <path class="ln" d="M412 52H502" marker-end="url(#fig-example-1-a)"/>
+        <rect class="pill-bg" x="437" y="44" width="52" height="16"/>
+        <text class="t-s" x="463" y="56" text-anchor="middle">deploy</text>
+        <path class="ln" d="M654 52H744" marker-end="url(#fig-example-1-a)"/>
+        <rect class="pill-bg" x="676" y="44" width="56" height="16"/>
+        <text class="t-s" x="704" y="56" text-anchor="middle">approve</text>
+
+        <rect class="lane" x="20" y="110" width="150" height="150" rx="8"/>
+        <text class="t-b" x="32" y="134">Develop</text>
+        <text class="t-s" x="32" y="158">Default set active</text>
+        <text class="t-s" x="32" y="176">DEV resources only</text>
+        <text class="t-s" x="32" y="194">edit values here</text>
+        <rect class="lane" x="262" y="110" width="150" height="150" rx="8"/>
+        <text class="t-b" x="274" y="134">Integrate</text>
+        <text class="t-s" x="274" y="158">Default set active</text>
+        <text class="t-s" x="274" y="176">library holds all</text>
+        <text class="t-s" x="274" y="194">three value sets</text>
+        <rect class="lane" x="504" y="110" width="150" height="150" rx="8"/>
+        <text class="t-b" x="516" y="134">Release to TST</text>
+        <text class="t-s" x="516" y="158">1 deploy all items</text>
+        <text class="t-s" x="516" y="176">2 activate TST</text>
+        <text class="t-s" x="516" y="194">3 stage guard passes</text>
+        <text class="t-s" x="516" y="212">4 test run</text>
+        <rect class="lane" x="746" y="110" width="134" height="150" rx="8"/>
+        <text class="t-b" x="758" y="134">Release to PRD</text>
+        <text class="t-s" x="758" y="158">1 deploy same set</text>
+        <text class="t-s" x="758" y="176">2 activate PRD</text>
+        <text class="t-s" x="758" y="194">3 guard passes</text>
+        <text class="t-s" x="758" y="212">4 smoke run</text>
+      </svg>
+      <figcaption><b>One definition, three activations.</b> The library and its consumers travel unchanged. Each stage adds the same two steps after the deployment: activate the stage's value set, and let the guard confirm it.</figcaption>
+    </figure>
+
+    <h2 id="build">Build it in DEV</h2>
+    <ol class="steps">
+      <li><strong>Create the library.</strong><p>In <code>DEV_SALES_BRZ</code> create <code>VL_SALES_BRZ_Config</code> and add the five variables with the DEV values as defaults (see the table above). For the two reference types, pick the DEV database connection and <code>LH_SALES_BRZ</code> in the picker. Save.</p></li>
+      <li><strong>Add the stage value sets.</strong><p>Add <code>TST</code> and <code>PRD</code>. In each, override only what differs: <code>StageName</code>, <code>OrdersDb</code>, <code>BronzeLakehouse</code>, and <code>LookbackDays</code> for TST. Save.</p></li>
+      <li><strong>Bind the pipeline.</strong><p>In <code>PL_SALES_BRZ_LoadOrders</code> add library variable references for <code>OrdersDb</code>, <code>BronzeLakehouse</code> and <code>LookbackDays</code>. Run <code>NB_SALES_BRZ_StageGuard</code> as the first activity. In the Copy activity bind the source connection, the destination workspace and lakehouse, and the query to the references as shown below.</p></li>
+      <li><strong>Bind the notebook.</strong><p>In <code>NB_SALES_BRZ_LoadOrders</code> read <code>FullReload</code> and the lakehouse reference with NotebookUtils, as in <a href="build-and-consume.html#notebookutils">Create and consume variables</a>.</p></li>
+      <li><strong>Test in DEV</strong><p>Use <strong>Preview data</strong> on each bound activity and run the full pipeline. Then commit to Git.</p></li>
+    </ol>
+<pre data-title="Pipeline dynamic content in the Copy activity"><code class="language-text">Source connection ........ @pipeline().libraryVariables.OrdersDb          (choose the connection ID property after typing '.')
+Destination workspace .... @pipeline().libraryVariables.BronzeLakehouse    (choose the workspace property)
+Destination lakehouse .... @pipeline().libraryVariables.BronzeLakehouse    (choose the item ID property)
+Source query ............. @concat('SELECT * FROM dbo.orders WHERE modified_at &gt;= DATEADD(day, -', string(pipeline().libraryVariables.LookbackDays), ', SYSUTCDATETIME())')</code></pre>
+
+    <h2 id="guard">The stage guard</h2>
+    <p>Nothing in the platform stops a TST or PRD workspace from running with the default (DEV) value set. The guard turns that mistake into a failed first activity instead of a quiet load into the wrong place. It compares the stage the workspace's name declares (by the <code>&lt;ENV&gt;_&lt;DOMAIN&gt;_&lt;LAYER&gt;</code> naming convention) with the <code>StageName</code> the active value set reports.</p>
+<pre data-title="NB_SALES_BRZ_StageGuard: first activity of every pipeline in TST and PRD"><code class="language-python">cfg = notebookutils.variableLibrary.getLibrary("VL_SALES_BRZ_Config")
+
+workspace = notebookutils.runtime.context["currentWorkspaceName"]   # for example PRD_SALES_BRZ
+expected = workspace.split("_")[0]                                   # DEV, TST or PRD by convention
+
+# Only TST and PRD are protected: DEV and feature workspaces may run the default set.
+if expected in ("TST", "PRD") and cfg.StageName != expected:
+    raise RuntimeError(
+        f"Stage guard failed: workspace {workspace} expects the {expected} value set, "
+        f"but the active value set reports StageName={cfg.StageName}. "
+        "Activate the stage's value set and run again."
+    )
+
+print(f"Stage guard passed for {workspace}: StageName={cfg.StageName}")</code></pre>
+    <ul>
+      <li>The guard depends on a disciplined naming convention. If your workspace names do not start with the stage, compare against a value you control instead, for example a variable you pass as a pipeline parameter.</li>
+      <li>Put the same check in the first cell of notebooks that are run on their own, or call it from every pipeline so it runs once per run.</li>
+      <li>The guard cannot verify the other variables, only that the stage's set is active. Keep value sets reviewed in Git so a wrong value in the right set is caught in review.</li>
+    </ul>
+
+    <h2 id="release">Release to TST and PRD</h2>
+    <ol class="steps">
+      <li><strong>Deploy</strong><p>In <code>DPLY_SALES_BRZ</code> compare DEV with TST and deploy the library together with the pipeline and notebooks. Expect the library to appear as a new or changed item.</p></li>
+      <li><strong>Activate the stage's value set</strong><p>Activate <code>TST</code> in the TST workspace by hand, or with the script from the <a href="cicd-promotion.html#rest">REST section</a>:</p>
+<pre data-title="Release job: activate and verify the value set for the stage"><code class="language-shell">./scripts/activate_value_set.sh "&lt;tst-workspace-id&gt;" "VL_SALES_BRZ_Config" "TST"</code></pre></li>
+      <li><strong>Run the guard and a test load</strong><p>Run <code>PL_SALES_BRZ_LoadOrders</code>. The guard passes, the Copy activity reads from the TST database connection, and rows land in <code>LH_SALES_BRZ</code> in <code>TST_SALES_BRZ</code>. Check the lookback window against the TST override (7 days).</p></li>
+      <li><strong>Approve and repeat for PRD</strong><p>Deploy the same versions to PRD, activate <code>PRD</code>, confirm the guard, then run a smoke load. In the comparison, TST and PRD should show no differences for the library definition; the active value sets differ by design and do not show.</p></li>
+    </ol>
+    <div class="callout tip"><p class="callout-title">Fold it into the checklist</p><p>The deployment, the activation and the guard result belong in the release record. See the <a href="../14-deployment-checklist/index.html">Deployment Checklist</a> and the stage-by-stage order in <a href="../07-deployment/index.html">Deployment Pipelines and Promotion</a>.</p></div>
+
+    <h2 id="anti-patterns">Anti-patterns</h2>
+    <table>
+      <thead><tr><th>Anti-pattern</th><th>Why it hurts</th><th>Instead</th></tr></thead>
+      <tbody>
+        <tr><td>Secrets, tokens or keys stored as variables</td><td>Anyone who can view the library can read them, and they sit in Git</td><td>Use connection references and key vault references; store only identifiers</td></tr>
+        <tr><td>One library for the whole tenant or workspace</td><td>Couples unrelated teams, widens write access and approaches size limits</td><td>One library per domain and layer</td></tr>
+        <tr><td>Code that branches on the stage name (<code>if stage == "PRD"</code>)</td><td>Behavior differs between stages for reasons hidden in code; TST no longer proves PRD</td><td>Express differences as values (flags, sizes, targets); keep code identical</td></tr>
+        <tr><td>Editing the PRD value set in the PRD workspace</td><td>Drifts from Git and from TST; the next deployment of the definition overwrites or conflicts with it</td><td>Change values in DEV and promote; use the comparison as a drift detector</td></tr>
+        <tr><td>Assuming deployment activates the right value set</td><td>The default set stays active until someone changes it</td><td>Script activation and add the stage guard</td></tr>
+        <tr><td>Renaming or retyping variables casually</td><td>Consumers bind by name and type; a type change resets the values</td><td>Add a new variable, migrate consumers, then delete the old one</td></tr>
+        <tr><td>Expecting a hub workspace's library to configure spokes</td><td>Libraries are read in the consumer's own workspace only</td><td>One library per workspace, deployed with the items that use it</td></tr>
+        <tr><td>Reference variables copied between stages without checking the target</td><td>An item or connection reference is a static ID; a stale ID points at the wrong stage's resource</td><td>Review value set files in pull requests; run the guard; test with Preview data</td></tr>
+        <tr><td>Adding a variable where Fabric already rebinds the dependency</td><td>An extra moving part for no gain</td><td>Rely on autobinding (for example the default lakehouse of a notebook in the same workspace)</td></tr>
+        <tr><td>Using a variable for a per-run value</td><td>A library edit is a configuration change, not a run input</td><td>Use a pipeline or notebook parameter</td></tr>
+        <tr><td>Mixed conventions: a value set named <code>DEV</code> next to a default that also holds DEV values</td><td>Nobody knows which is authoritative</td><td>Pick one convention (see <a href="concepts.html#default-choice">default value set</a>) and apply it everywhere</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="troubleshooting">Troubleshooting</h2>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 330" role="img" aria-label="Troubleshooting path for an unexpected value: first check that the stage value set is active, then that the edit was saved and deployed, then that the consumer is in the library's workspace, then that the consumer supports the variable type; each no answer has a fix">
+        <defs>
+          <marker id="fig-example-2-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box purple" x="20" y="16" width="330" height="46" rx="23"/>
+        <text class="t-b" x="185" y="43" text-anchor="middle">Is the stage's value set active?</text>
+        <rect class="box purple" x="20" y="92" width="330" height="46" rx="23"/>
+        <text class="t-b" x="185" y="119" text-anchor="middle">Was the edit saved and deployed?</text>
+        <rect class="box purple" x="20" y="168" width="330" height="46" rx="23"/>
+        <text class="t-b" x="185" y="195" text-anchor="middle">Is the consumer in the library's workspace?</text>
+        <rect class="box purple" x="20" y="244" width="330" height="46" rx="23"/>
+        <text class="t-b" x="185" y="271" text-anchor="middle">Does the consumer support the type?</text>
+        <rect class="box orange" x="470" y="16" width="410" height="46" rx="8"/>
+        <text class="t-s" x="675" y="43" text-anchor="middle">Activate it in the UI or with the REST call; run the guard</text>
+        <rect class="box orange" x="470" y="92" width="410" height="46" rx="8"/>
+        <text class="t-s" x="675" y="119" text-anchor="middle">Save in the library, fix validation errors, redeploy the library</text>
+        <rect class="box red" x="470" y="168" width="410" height="46" rx="8"/>
+        <text class="t-s" x="675" y="195" text-anchor="middle">Create a library in the consumer's workspace; no cross-workspace reads</text>
+        <rect class="box red" x="470" y="244" width="410" height="46" rx="8"/>
+        <text class="t-s" x="675" y="271" text-anchor="middle">Change type: String for %%configure, no Number in pipelines</text>
+        <path class="ln" d="M350 39H468" marker-end="url(#fig-example-2-a)"/>
+        <path class="ln" d="M350 115H468" marker-end="url(#fig-example-2-a)"/>
+        <path class="ln" d="M350 191H468" marker-end="url(#fig-example-2-a)"/>
+        <path class="ln" d="M350 267H468" marker-end="url(#fig-example-2-a)"/>
+        <path class="ln" d="M185 62V90" marker-end="url(#fig-example-2-a)"/>
+        <path class="ln" d="M185 138V166" marker-end="url(#fig-example-2-a)"/>
+        <path class="ln" d="M185 214V242" marker-end="url(#fig-example-2-a)"/>
+        <text class="t-s c-red" x="408" y="32" text-anchor="middle">no</text>
+        <text class="t-s c-red" x="408" y="108" text-anchor="middle">no</text>
+        <text class="t-s c-red" x="408" y="184" text-anchor="middle">no</text>
+        <text class="t-s c-red" x="408" y="260" text-anchor="middle">no</text>
+        <text class="t-s c-green" x="205" y="82">yes</text>
+        <text class="t-s c-green" x="205" y="158">yes</text>
+        <text class="t-s c-green" x="205" y="234">yes</text>
+        <text class="t-s" x="185" y="314" text-anchor="middle">all yes: check permissions, identity and the table below</text>
+      </svg>
+      <figcaption><b>Four questions, in order.</b> Most wrong-value incidents end at the first or second question. The table lists the rest.</figcaption>
+    </figure>
+    <table>
+      <thead><tr><th>Symptom</th><th>Likely cause</th><th>Fix</th></tr></thead>
+      <tbody>
+        <tr><td>TST or PRD runs with DEV values</td><td>The default value set is still active after the first deployment</td><td>Activate the stage's set; add the guard and the scripted activation</td></tr>
+        <tr><td>The library is missing from a pipeline's variable picker</td><td>The library is in another workspace, or the user has no access to it</td><td>Create or deploy the library in the consumer's workspace; check the user's workspace role or direct share</td></tr>
+        <tr><td>A notebook cannot resolve a variable</td><td>Missing <code>/**/</code> prefix, or the library or variable name differs in case</td><td>Use <code>$(/**/Library/Variable)</code> and the exact names</td></tr>
+        <tr><td><code>%%configure</code> does not set the lakehouse</td><td>The variables are not String type, or <code>workspaceId</code> is missing for a lakehouse in another workspace</td><td>Redefine them as String and add the workspace ID</td></tr>
+        <tr><td>Number variables are not offered in a pipeline</td><td>Pipelines do not support the Number type</td><td>Use Integer, String or read the value in a notebook</td></tr>
+        <tr><td>Consumers broke after editing a variable</td><td>A type change resets values; a rename breaks name-based bindings</td><td>Restore from Git, then add a new variable and migrate</td></tr>
+        <tr><td>A value set cannot be deleted</td><td>It is the active set</td><td>Activate another set, then delete</td></tr>
+        <tr><td>Save fails with a validation error</td><td>Invalid name, or a limit exceeded (1,000 variables, 1,000 value sets, 10,000 cells, 1 MB)</td><td>Fix the reported names or split the library</td></tr>
+        <tr><td>The library shows as different from source in a comparison</td><td>A variable or value set was edited in that stage, or the stages are on different versions</td><td>Redeploy from the source stage or update the source, whichever is correct</td></tr>
+        <tr><td>An active-set change does not appear in a comparison</td><td>By design: the active set is not part of the definition</td><td>Verify with the list API or the stage guard</td></tr>
+        <tr><td>A reference shows a value but no name or details</td><td>The caller lacks Read permission on the item or connection, or it no longer exists</td><td>Grant Read, or correct the reference</td></tr>
+        <tr><td>A notebook run by a service principal cannot read the library</td><td>The NotebookUtils variable library utilities do not support a service principal</td><td>Run under a user identity, or pass the values in as notebook parameters</td></tr>
+        <tr><td>A dataflow still uses the DEV connection after deployment</td><td>Variables cannot change a dataflow's connection information</td><td>Manage the dataflow's connections separately for each stage</td></tr>
+        <tr><td>A copy job still uses the DEV connection after deployment</td><td>The stage's connection value set has not been activated</td><td>Activate the value set in the target workspace</td></tr>
+        <tr><td>A shortcut variable cannot be set by script</td><td>Shortcut variable assignment is supported in the UI only</td><td>Bind it in Manage shortcut once; it travels with the item</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="checklist">Validation checklist</h2>
+    <p>Use this list when you introduce a library and again for every first deployment into a stage.</p>
+    <ul class="checklist">
+      <li>One library per domain and layer, named by convention (<code>VL_&lt;DOMAIN&gt;_&lt;LAYER&gt;_&lt;Purpose&gt;</code>), with a named owner.</li>
+      <li>Value sets are named exactly after the stages, with one default-value-set convention across the organization.</li>
+      <li>Every variable has a decided type and a note; reference types point at items and connections the editor can read.</li>
+      <li>No secrets, tokens or passwords in any value.</li>
+      <li>Consumers contain no hard-coded workspace IDs, item IDs, connection IDs or stage-specific names (search the item definitions in Git).</li>
+      <li>Write access to the libraries is limited, and the library folder has code owners in the repository.</li>
+      <li>The library is deployed together with its consumers in the same deployment.</li>
+      <li>The stage's value set is activated for every library in the stage, by a scripted step, and verified through the list API.</li>
+      <li>The stage guard runs first in every TST and PRD pipeline and passes.</li>
+      <li>Preview data on a bound pipeline activity shows the stage's expected values.</li>
+      <li>After the release, comparing stages shows no unexpected differences for the library definition.</li>
+      <li>The release record names the library versions deployed and the value sets activated.</li>
+    </ul>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p><ul>
+      <li>Model every stage difference as a value, deploy identical items everywhere, and add the two post-deployment steps: activate the stage's set, then confirm with a guard.</li>
+      <li>Keep a stage name in the library and compare it with the workspace's declared stage to catch the default set running in TST or PRD.</li>
+      <li>Most incidents are a wrong active set, an unsaved or undeployed edit, a cross-workspace read, or an unsupported type; check them in that order.</li>
+      <li>Avoid secrets in values, one-library-for-everything, stage-name branching in code and hand edits in PRD.</li>
+    </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/fabric/cicd/variable-library/tutorial-variable-library">Tutorial: use variable libraries</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/cicd/variable-library/variable-library-overview">Fabric application lifecycle management variable library</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/cicd/variable-library/variable-library-cicd">Lifecycle management of the variable library</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/variable-library-integration-with-data-pipelines">Variable library integration with pipelines</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/notebookutils/notebookutils-variable-library">NotebookUtils variable library utilities</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/notebook-utilities">NotebookUtils for Fabric (runtime context)</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/expression-language">Expressions and functions in pipelines</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/cicd/troubleshoot-cicd">Troubleshoot the Fabric lifecycle management tools</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

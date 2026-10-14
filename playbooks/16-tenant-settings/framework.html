@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Decision framework and rollout · Tenant Settings</title>
+<meta name="description" content="A repeatable way to decide each setting, enable it through security groups, pilot it and keep it reviewed.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="16-tenant-settings" data-page="framework.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 16 · Tenant Settings</p>
+      <h1>Decision framework and rollout</h1>
+      <p class="lede">A repeatable method for deciding each tenant setting, enabling it through security groups, piloting it and keeping it reviewed, so that every switch has an owner, a reason and a way back.</p>
+      <ul class="chips"><li><b>Audience</b> Fabric administrators, governance leads</li><li><b>Outcome</b> Decided, owned, reviewable settings</li><li><b>Pattern</b> Allow group plus exception group</li></ul>
+    </header>
+<h2 id="principles">Principles</h2>
+<ul>
+  <li><strong>Least exposure for egress, generous guardrails.</strong> Anything that moves data, code or tokens outside governed stores starts disabled or scoped. Anything that protects (labels, certified-visual enforcement, workspace guardrails) starts enabled for everyone.</li>
+  <li><strong>Decide capabilities, not toggles.</strong> "Bulk data extraction" is one decision that spans export, Analyze in Excel, XMLA, Execute Queries and download settings. Decide the family together so the controls do not contradict each other.</li>
+  <li><strong>One owner per setting.</strong> A named role, not a person, is accountable for the decision and for answering exception requests.</li>
+  <li><strong>Groups over everyone.</strong> Enabled for the entire organization is a decision you take deliberately, not the path of least resistance.</li>
+  <li><strong>Reversible and recorded.</strong> Every change has a record, a before-and-after snapshot and a rollback.</li>
+  <li><strong>Exceptions expire.</strong> A temporary need is a time-boxed membership, not a permanent hole.</li>
+</ul>
+
+<h2 id="risk-classes">Classify settings by risk</h2>
+<p>Seven classes cover almost every setting. The class sets the starting posture; the use case decides whether to depart from it.</p>
+<table>
+  <thead><tr><th>Class</th><th>What it covers</th><th>Starting posture</th><th>Examples</th></tr></thead>
+  <tbody>
+    <tr><td><strong>A. Egress and external exposure</strong></td><td>Data leaves governed stores or the tenant.</td><td class="maybe">Specific groups, or disable</td><td><a href="export-sharing.html#s-publish-to-web">Publish to web</a>, <a href="export-sharing.html#s-shareable-links">organization-wide links</a>, <a href="export-sharing.html#s-export-csv">CSV export</a>, <a href="export-sharing.html#s-download-reports">download reports</a>, <a href="export-sharing.html#s-external-data-sharing">external data sharing</a>, guest settings, <a href="workspace-git-onelake.html#s-onelake-external">external OneLake apps</a></td></tr>
+    <tr><td><strong>B. Identity and automation</strong></td><td>Non-human identities, tokens and keys.</td><td class="maybe">Specific groups with an owner</td><td><a href="integration-api.html#s-sp-public-apis">service principals for Fabric APIs</a>, <a href="integration-api.html#s-sp-admin-updates">admin API access</a>, <a href="workspace-git-onelake.html#s-onelake-sas">OneLake SAS tokens</a>, <a href="integration-api.html#s-eventstream-key-auth">Eventstream keys</a></td></tr>
+    <tr><td><strong>C. Third-party and cross-region processing</strong></td><td>Data processed by another party or outside the capacity's region.</td><td class="no">Disable until reviewed</td><td><a href="integration-api.html#s-arcgis">ArcGIS Maps</a>, <a href="ai-preview-other.html#s-copilot-subprocessor">OpenAI subprocessor</a>, <a href="ai-preview-other.html#s-copilot-cross-geo">cross-geography Copilot processing</a>, <a href="workspace-git-onelake.html#s-workloads-ws">additional workloads</a></td></tr>
+    <tr><td><strong>D. Creation and sprawl</strong></td><td>Who can create workspaces, items, apps and legacy objects.</td><td class="maybe">Specific groups, delegate where it helps</td><td><a href="workspace-git-onelake.html#s-create-workspaces">Create workspaces</a>, <a href="workspace-git-onelake.html#s-fabric-items">Fabric items</a>, <a href="content-models.html#s-publish-apps-org">organization-wide apps</a>, <a href="content-models.html#s-gen1-dataflows">Gen1 dataflows</a></td></tr>
+    <tr><td><strong>E. Protection and guardrails</strong></td><td>Labels, retention, enforcement of safer defaults.</td><td class="yes">Enable for all</td><td><a href="content-models.html#s-label-apply">applying labels</a>, <a href="content-models.html#s-label-link-restrict">protected-label link guard</a>, <a href="content-models.html#s-certified-visuals-only">certified visuals only</a>, <a href="workspace-git-onelake.html#s-block-myworkspace">My workspace guard</a></td></tr>
+    <tr><td><strong>F. Preview and experimental</strong></td><td>Features that can change, move or be retired.</td><td class="no">Sandbox group only</td><td><a href="ai-preview-other.html#s-ontology">Ontology items</a>, <a href="ai-preview-other.html#s-explore">Explore</a>, <a href="ai-preview-other.html#s-fabric-apps">Fabric apps</a>, <a href="ai-preview-other.html#s-ux-experiments">UX experiments</a></td></tr>
+    <tr><td><strong>G. Network and perimeter</strong></td><td>Private Link, public access and workspace network rules.</td><td><strong>Decide per organization</strong></td><td><a href="workspace-git-onelake.html#s-private-link">Private Link</a>, <a href="workspace-git-onelake.html#s-block-public">block public access</a>, <a href="workspace-git-onelake.html#s-ws-inbound">workspace inbound rules</a>, <a href="workspace-git-onelake.html#s-cmk">customer-managed keys</a></td></tr>
+  </tbody>
+</table>
+
+<h2 id="decision-path">The decision path</h2>
+<p>Apply three questions in order. If the setting has no egress and no new identity, enable it for all. Otherwise ask whether there is an approved use case with a named owner; if not, disable it. If there is, enable for specific groups when scoping is supported. When scoping is not supported, either find a compensating control or leave the setting off.</p>
+<figure class="diagram">
+<svg class="dg" viewBox="0 0 900 262" role="img" aria-label="Decision path for one setting: low-risk settings without egress are enabled for all; otherwise a business use case and owner are required; then group scoping decides between enable for specific groups and disable or compensate">
+<defs><marker id="fig-decide-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker></defs>
+<rect class="box purple" x="20" y="50" width="190" height="60" rx="30"/>
+<text class="t-b" x="115" y="84" text-anchor="middle">Low risk, no egress?</text>
+<rect class="box purple" x="270" y="50" width="190" height="60" rx="30"/>
+<text class="t-b" x="365" y="84" text-anchor="middle">Use case and owner?</text>
+<rect class="box purple" x="520" y="50" width="190" height="60" rx="30"/>
+<text class="t-b" x="615" y="84" text-anchor="middle">Can scope to groups?</text>
+<rect class="box green" x="20" y="170" width="190" height="62" rx="10"/>
+<text class="t-b" x="115" y="205" text-anchor="middle">Enable for all</text>
+<rect class="box red" x="270" y="170" width="190" height="62" rx="10"/>
+<text class="t-b" x="365" y="205" text-anchor="middle">Disable</text>
+<rect class="box orange" x="520" y="170" width="190" height="62" rx="10"/>
+<text class="t-b" x="615" y="197" text-anchor="middle">Enable for</text>
+<text class="t-b" x="615" y="213" text-anchor="middle">specific groups</text>
+<rect class="box gray" x="730" y="170" width="150" height="62" rx="10"/>
+<text class="t-b" x="805" y="190.5" text-anchor="middle">Usually disable;</text>
+<text class="t-s" x="805" y="205.4" text-anchor="middle">compensating control</text>
+<text class="t-s" x="805" y="219.9" text-anchor="middle">plus exception</text>
+<path class="ln" d="M210 80L268 80" marker-end="url(#fig-decide-a)"/>
+<text class="t-s c-red" x="239" y="72" text-anchor="middle">no</text>
+<path class="ln" d="M460 80L518 80" marker-end="url(#fig-decide-a)"/>
+<text class="t-s c-green" x="489" y="72" text-anchor="middle">yes</text>
+<path class="ln" d="M115 110L115 168" marker-end="url(#fig-decide-a)"/>
+<text class="t-s c-green" x="127" y="144">yes</text>
+<path class="ln" d="M365 110L365 168" marker-end="url(#fig-decide-a)"/>
+<text class="t-s c-red" x="377" y="144">no</text>
+<path class="ln" d="M615 110L615 168" marker-end="url(#fig-decide-a)"/>
+<text class="t-s c-green" x="627" y="144">yes</text>
+<path class="ln" d="M710 80L805 80L805 168" marker-end="url(#fig-decide-a)"/>
+<text class="t-s c-red" x="757" y="72" text-anchor="middle">no</text>
+</svg>
+<figcaption><b>Decision path.</b> Three questions place most settings. Anything that fails the owner test stays off; settings that cannot be scoped to groups need a compensating control or stay off.</figcaption>
+</figure>
+<h3 id="worked-example">Worked example: Export to .csv</h3>
+<p>A retailer (Contoso) wants analysts to continue exporting sales detail to CSV for reconciliation, but not store-employee or payroll data. The decision record looks like this.</p>
+<dl class="kv">
+  <dt>Setting</dt><dd>Export to .csv, Export and sharing settings</dd>
+  <dt>Class</dt><dd>A, egress. CSV has no label-based access control on the exported file.</dd>
+  <dt>Owner</dt><dd>Data governance lead</dd>
+  <dt>Decision</dt><dd>Enabled for specific groups: <code>SG-FAB-ExportCsv-Users</code>, except <code>SG-FAB-Restricted-Data</code></dd>
+  <dt>Compensating controls</dt><dd>Export events reviewed monthly; restricted workspaces also use Excel export only; sensitivity labels applied to the source models</dd>
+  <dt>Review</dt><dd>Quarterly, with group membership review</dd>
+  <dt>Rollback</dt><dd>Restore the previous snapshot value and notify the group owner</dd>
+</dl>
+
+<h2 id="security-groups">Enable through security groups</h2>
+<p>For any setting you enable for specific groups, use a pair of Microsoft Entra security groups: an allow group that carries the capability and an exception group that carves out restricted populations. The tenant setting lists the allow group under <em>Apply to</em> and the exception group under <em>Except specific security groups</em>.</p>
+<figure class="diagram">
+<svg class="dg" viewBox="0 0 880 340" role="img" aria-label="A capability has an allow group and an exception group in Microsoft Entra ID. The tenant setting is enabled for specific groups with the allow group listed and the exception group excluded; quarterly reviews keep membership honest">
+<defs><marker id="fig-sg-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker><marker id="fig-sg-a-blue" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar blue" d="M0 0L10 5L0 10z"/></marker><marker id="fig-sg-a-green" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker><marker id="fig-sg-a-purple" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar purple" d="M0 0L10 5L0 10z"/></marker><marker id="fig-sg-a-red" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar red" d="M0 0L10 5L0 10z"/></marker></defs>
+<rect class="zone" x="20" y="20" width="340" height="300" rx="12"/>
+<text class="t-s" x="34" y="39">Microsoft Entra ID</text>
+<rect class="zone" x="430" y="20" width="240" height="300" rx="12"/>
+<text class="t-s" x="444" y="39">Fabric tenant setting</text>
+<rect class="box green" x="40" y="56" width="300" height="58" rx="10"/>
+<text class="t-b" x="190" y="81.8" text-anchor="middle">SG-FAB-&lt;Capability&gt;-Users</text>
+<text class="t-s" x="190" y="96.6" text-anchor="middle">allow list, access package, owner</text>
+<rect class="box red" x="40" y="146" width="300" height="58" rx="10"/>
+<text class="t-b" x="190" y="171.8" text-anchor="middle">SG-FAB-&lt;Capability&gt;-Exceptions</text>
+<text class="t-s" x="190" y="186.6" text-anchor="middle">restricted populations, always win</text>
+<rect class="box purple" x="40" y="248" width="300" height="56" rx="10"/>
+<text class="t-b" x="190" y="272.8" text-anchor="middle">Quarterly access review</text>
+<text class="t-s" x="190" y="287.6" text-anchor="middle">owners confirm membership</text>
+<rect class="box blue" x="450" y="56" width="200" height="148" rx="10"/>
+<text class="t-h" x="550" y="112.7" text-anchor="middle">Export to Excel</text>
+<text class="t-s" x="550" y="128.1" text-anchor="middle">Enabled for specific groups</text>
+<text class="t-s" x="550" y="142.6" text-anchor="middle">Apply to: the Users group</text>
+<text class="t-s" x="550" y="157.1" text-anchor="middle">Except: the Exceptions group</text>
+<rect class="box green" x="730" y="100" width="130" height="60" rx="10"/>
+<text class="t-b" x="795" y="126.8" text-anchor="middle">Feature on</text>
+<text class="t-s" x="795" y="141.6" text-anchor="middle">within 15 minutes</text>
+<path class="ln green" d="M340 85L448 85" marker-end="url(#fig-sg-a-green)"/>
+<rect class="pill-bg" x="363" y="77" width="62" height="15"/>
+<text class="t-s" x="394" y="88.5" text-anchor="middle">apply to</text>
+<path class="ln red" d="M340 175L448 175" marker-end="url(#fig-sg-a-red)"/>
+<rect class="pill-bg" x="369" y="167" width="50" height="15"/>
+<text class="t-s" x="394" y="178.5" text-anchor="middle">except</text>
+<path class="ln blue" d="M650 130L728 130" marker-end="url(#fig-sg-a-blue)"/>
+<path class="ln dash purple" d="M190 248L190 206" marker-end="url(#fig-sg-a-purple)"/>
+<rect class="pill-bg" x="162" y="219" width="56" height="15"/>
+<text class="t-s" x="190" y="230.5" text-anchor="middle">reviews</text>
+</svg>
+<figcaption><b>Security-group enablement pattern.</b> Names are examples. One pair of groups per capability keeps ownership, review and audit simple, and the exception group lets you carve out restricted populations without touching the setting.</figcaption>
+</figure>
+<h3 id="naming">Naming and ownership</h3>
+<table>
+  <thead><tr><th>Group</th><th>Purpose</th><th>Membership</th><th>Owner</th></tr></thead>
+  <tbody>
+    <tr><td><code>SG-FAB-&lt;Capability&gt;-Users</code></td><td>Allow list for one capability, such as <code>ExportCsv</code>, <code>XmlaClients</code>, <code>GitSync</code>, <code>CopilotPilot</code>.</td><td>Access package with approval and expiry, or dynamic rule on a job attribute.</td><td>Business capability owner</td></tr>
+    <tr><td><code>SG-FAB-&lt;Capability&gt;-Exceptions</code></td><td>People who must never get it, regardless of other membership.</td><td>Rule-based where possible, for example a restricted-data attribute.</td><td>Data governance</td></tr>
+    <tr><td><code>SG-FAB-SP-&lt;Purpose&gt;</code></td><td>Approved service principals for one automation purpose.</td><td>Manual, change-controlled.</td><td>Platform owner</td></tr>
+  </tbody>
+</table>
+<p>The names above are an example convention; any consistent scheme works as long as the group name reveals the capability and the owner is recorded.</p>
+<h3 id="granularity">How fine should the groups be?</h3>
+<table>
+  <thead><tr><th>Option</th><th>Strength</th><th>Cost</th><th>Use when</th></tr></thead>
+  <tbody>
+    <tr><td><strong>One group per setting</strong></td><td>Precise audit and ownership.</td><td>Dozens of groups to review.</td><td>High-risk settings such as publish to web, admin API access or external sharing.</td></tr>
+    <tr><td><strong>One group per capability family</strong></td><td>Matches how decisions are made (for example all extraction paths).</td><td>Coarser; users in the group get several switches at once.</td><td>Export and download family, developer tooling family.</td></tr>
+    <tr><td><strong>One group per persona</strong></td><td>Few groups; simple onboarding.</td><td>Hard to explain exactly why a person has a switch.</td><td>Low-risk convenience settings and pilots.</td></tr>
+  </tbody>
+</table>
+<div class="callout tip"><p class="callout-title">Mix granularities</p>
+<p>Use per-setting groups for the dozen settings that carry real exposure, capability or persona groups for the rest, and one shared exception group for restricted populations where it makes sense. Keep membership flat, and test nested groups in a pilot before you depend on them.</p></div>
+<div class="callout important"><p class="callout-title">Plan the lifecycle, not only the switch</p>
+<p>A group without an owner, an access path and a review becomes a permanent entitlement. Use access packages for requests and expiry, and access reviews for owners to reconfirm membership. Both are Microsoft Entra ID Governance capabilities; check licensing.</p></div>
+
+<h2 id="rollout">Rollout phases</h2>
+<figure class="diagram">
+<svg class="dg" viewBox="0 0 880 250" role="img" aria-label="Five rollout phases: snapshot current settings, decide postures, pilot with a few teams, broaden by group, then operate with a review cadence that loops back to the decide phase">
+<defs><marker id="fig-roll-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker><marker id="fig-roll-a-purple" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar purple" d="M0 0L10 5L0 10z"/></marker></defs>
+<rect class="box gray" x="20" y="56" width="150" height="54" rx="10"/>
+<text class="t-h" x="95" y="87.5" text-anchor="middle">1  Snapshot</text>
+<rect class="box" x="20" y="130" width="150" height="82" rx="10"/>
+<text class="t-s" x="95" y="160.1" text-anchor="middle">Export all settings</text>
+<text class="t-s" x="95" y="174.6" text-anchor="middle">with the admin API</text>
+<text class="t-s" x="95" y="189.1" text-anchor="middle">Record who owns each</text>
+<rect class="box purple" x="192" y="56" width="150" height="54" rx="10"/>
+<text class="t-h" x="267" y="87.5" text-anchor="middle">2  Decide</text>
+<rect class="box" x="192" y="130" width="150" height="82" rx="10"/>
+<text class="t-s" x="267" y="160.1" text-anchor="middle">Classify by risk</text>
+<text class="t-s" x="267" y="174.6" text-anchor="middle">Pick a posture for</text>
+<text class="t-s" x="267" y="189.1" text-anchor="middle">each, name owners</text>
+<rect class="box blue" x="364" y="56" width="150" height="54" rx="10"/>
+<text class="t-h" x="439" y="87.5" text-anchor="middle">3  Pilot</text>
+<rect class="box" x="364" y="130" width="150" height="82" rx="10"/>
+<text class="t-s" x="439" y="160.1" text-anchor="middle">Create the groups</text>
+<text class="t-s" x="439" y="174.6" text-anchor="middle">Enable for 1-2 teams</text>
+<text class="t-s" x="439" y="189.1" text-anchor="middle">Track support asks</text>
+<rect class="box teal" x="536" y="56" width="150" height="54" rx="10"/>
+<text class="t-h" x="611" y="87.5" text-anchor="middle">4  Broaden</text>
+<rect class="box" x="536" y="130" width="150" height="82" rx="10"/>
+<text class="t-s" x="611" y="160.1" text-anchor="middle">Widen group by group</text>
+<text class="t-s" x="611" y="174.6" text-anchor="middle">Update the standard</text>
+<text class="t-s" x="611" y="189.1" text-anchor="middle">Communicate changes</text>
+<rect class="box green" x="708" y="56" width="150" height="54" rx="10"/>
+<text class="t-h" x="783" y="87.5" text-anchor="middle">5  Operate</text>
+<rect class="box" x="708" y="130" width="150" height="82" rx="10"/>
+<text class="t-s" x="783" y="160.1" text-anchor="middle">Quarterly review</text>
+<text class="t-s" x="783" y="174.6" text-anchor="middle">Alert on changes</text>
+<text class="t-s" x="783" y="189.1" text-anchor="middle">Handle exceptions</text>
+<path class="ln" d="M170 83L190 83" marker-end="url(#fig-roll-a)"/>
+<path class="ln" d="M342 83L362 83" marker-end="url(#fig-roll-a)"/>
+<path class="ln" d="M514 83L534 83" marker-end="url(#fig-roll-a)"/>
+<path class="ln" d="M686 83L706 83" marker-end="url(#fig-roll-a)"/>
+<path class="ln dash purple" d="M783 56L783 26L267 26L267 54" marker-end="url(#fig-roll-a-purple)"/>
+<rect class="pill-bg" x="476.5" y="18" width="97" height="15"/>
+<text class="t-s" x="525" y="29.5" text-anchor="middle">review cadence</text>
+</svg>
+<figcaption><b>Rollout in five phases.</b> Snapshot first so every later change can be compared. Pilot by group rather than by switching a setting on for everyone, and keep the review loop alive after the rollout ends.</figcaption>
+</figure>
+<ol class="steps">
+  <li><strong>Snapshot</strong><p>Call the Get Tenant Settings API and store the JSON. List capacity, domain and workspace overrides with the companion operations. Record who holds the Fabric administrator role. This is your baseline and your rollback.</p></li>
+  <li><strong>Decide</strong><p>Classify each setting, record the posture in a decision record, name the owner, and note compensating controls. Settings you leave at their default still need a line saying so and why.</p></li>
+  <li><strong>Pilot</strong><p>Create the groups, enable the setting for one or two teams in one domain, and keep the pilot open for a fixed period. Measure support requests, capacity impact and audit events, and write down what you learned.</p></li>
+  <li><strong>Broaden</strong><p>Widen group by group, update training and the published standard, and tell people what changed and who to ask for an exception.</p></li>
+  <li><strong>Operate</strong><p>Run the review cadence below, handle exceptions, and alert on drift between snapshots.</p></li>
+</ol>
+
+<h2 id="tightening">Tightening a setting that is already open</h2>
+<p>Many tenants start with defaults on. Moving a setting from <em>enabled for everyone</em> to <em>specific groups</em> can break workflows, so sequence it.</p>
+<ol class="steps">
+  <li><strong>Find real usage</strong><p>Use audit events for the capability (for example <code>ExportReport</code> or <code>ExportArtifact</code> for exports) to list who actually uses it.</p></li>
+  <li><strong>Seed the allow group</strong><p>Create the allow group from that list, remove clear mismatches, and set an owner.</p></li>
+  <li><strong>Announce a window</strong><p>Tell users the date their access moves to the group and how to request membership. Keep the window short.</p></li>
+  <li><strong>Switch the scope</strong><p>Change the setting from the entire organization to the allow group, with the exception group excluded. Allow time for propagation.</p></li>
+  <li><strong>Watch and adjust</strong><p>Review support requests for the first weeks and adjust membership. Keep the previous snapshot ready.</p></li>
+</ol>
+<div class="callout caution"><p class="callout-title">Content that depends on a setting</p>
+<p>Some settings, such as Gen1 dataflows, datamarts or Eventstream key authentication, sit under live content. Inventory dependents before disabling so you do not break scheduled refreshes or integrations.</p></div>
+
+<h2 id="anti-patterns">Anti-patterns</h2>
+<table>
+  <thead><tr><th>Anti-pattern</th><th>Why it hurts</th><th>Instead</th></tr></thead>
+  <tbody>
+    <tr><td>Enabling everything to unblock a pilot</td><td>The pilot's risk becomes the tenant's risk and rarely gets reversed.</td><td>Enable for the pilot group only.</td></tr>
+    <tr><td>One mega-group for all settings</td><td>Nobody can explain or review why a person has a switch.</td><td>Capability or persona groups with owners.</td></tr>
+    <tr><td>Groups without owners or expiry</td><td>Entitlements accumulate and survive role changes.</td><td>Access packages and periodic access reviews.</td></tr>
+    <tr><td>Delegating without checking overrides</td><td>A capacity or workspace quietly diverges from your standard.</td><td>List overrides on a schedule and compare to the standard.</td></tr>
+    <tr><td>Treating settings as a security boundary</td><td>Other paths to the same data stay open.</td><td>Combine settings with permissions, labels, network controls and audit.</td></tr>
+    <tr><td>Enabling preview features tenant-wide</td><td>Features change, move or retire, and may not honor your controls.</td><td>Sandbox group on an isolated capacity.</td></tr>
+    <tr><td>No exception path</td><td>Teams work around the control with shadow tools.</td><td>A documented, time-boxed exception request.</td></tr>
+  </tbody>
+</table>
+
+<h2 id="cadence">Review cadence</h2>
+<table>
+  <thead><tr><th>Frequency</th><th>Activity</th><th>Output</th></tr></thead>
+  <tbody>
+    <tr><td><strong>Monthly</strong></td><td>Compare the current snapshot with the last approved baseline. Scan the tenant settings index for new, renamed or retired settings and for preview items that changed status.</td><td>Drift report and a short list of decisions needed.</td></tr>
+    <tr><td><strong>Quarterly</strong></td><td>Group membership reviews, exception expiry, review of capacity, domain and workspace overrides, and Copilot and API usage.</td><td>Signed review and updated exceptions list.</td></tr>
+    <tr><td><strong>Yearly, or on a major platform change</strong></td><td>Re-baseline the posture for each class, retire obsolete settings from the standard, and re-test emergency procedures.</td><td>Updated standard and decision records.</td></tr>
+  </tbody>
+</table>
+
+<div class="takeaways"><p class="tk-title">Key takeaways</p>
+<ul>
+  <li>Classify settings into seven risk classes and start from the class posture, then depart from it only with a named owner and a use case.</li>
+  <li>Use an allow group and an exception group for every high-risk capability, and manage membership with access packages and reviews.</li>
+  <li>Roll out in five phases with a snapshot first, a pilot group second and a review loop that never ends.</li>
+  <li>Tighten open settings by seeding the allow group from audit events, announcing a short window and keeping the previous snapshot ready.</li>
+  <li>Review monthly for drift and new settings, quarterly for membership and overrides.</li>
+</ul></div>
+
+<section class="refs">
+  <h2 id="refs">References</h2>
+  <ul>
+    <li><a href="https://learn.microsoft.com/fabric/admin/about-tenant-settings">About tenant settings</a></li>
+    <li><a href="https://learn.microsoft.com/fabric/admin/delegate-settings">Delegate tenant settings</a></li>
+    <li><a href="https://learn.microsoft.com/fabric/governance/governance-compliance-overview">Governance and compliance in Microsoft Fabric</a></li>
+    <li><a href="https://learn.microsoft.com/entra/fundamentals/concept-learn-about-groups">Learn about groups and access rights in Microsoft Entra ID</a></li>
+    <li><a href="https://learn.microsoft.com/entra/id-governance/entitlement-management-access-package-create">Create an access package in entitlement management</a></li>
+    <li><a href="https://learn.microsoft.com/entra/id-governance/access-reviews-overview">What are access reviews?</a></li>
+  </ul>
+</section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

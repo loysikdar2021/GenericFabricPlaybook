@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quick reference matrix · Tenant Settings</title>
+<meta name="description" content="Every setting in one table with default, recommended posture, scoping and a link to its detail.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="16-tenant-settings" data-page="matrix.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 16 · Tenant Settings</p>
+      <h1>Quick reference matrix</h1>
+      <p class="lede">Every setting covered in this playbook in one place: its portal group, documented default, a recommended starting posture, whether it can be scoped to security groups, and a link to the full entry.</p>
+      <ul class="chips"><li><b>Use it for</b> Reviews, audits, onboarding</li><li><b>Posture is</b> Recommendation, not a Microsoft default</li></ul>
+    </header>
+<h2 id="summary">At a glance</h2>
+<div class="stats"><div class="stat"><b>165</b><span>settings covered</span></div><div class="stat"><b>33</b><span>enable for all</span></div><div class="stat"><b>51</b><span>enable for specific groups</span></div><div class="stat"><b>63</b><span>disable</span></div><div class="stat"><b>18</b><span>decide per organization</span></div><div class="stat"><b>12</b><span>organization-wide only</span></div><div class="stat"><b>29</b><span>labeled preview</span></div></div>
+<p>Postures are a starting point for a security-conscious enterprise. <strong>Default</strong> shows only what the documentation states; a dash means the default is not stated, so capture your tenant's real values with the API snapshot before changing anything. <strong>Scope</strong> reads <em>Groups</em> when the documentation says the setting supports security groups and exceptions, and <em>Org only</em> when it applies to the entire organization. A dash in Scope means the documentation I checked does not say; many such settings do offer groups in the portal, and the <code>canSpecifySecurityGroups</code> field of the Get Tenant Settings API gives the authoritative answer for your tenant. Settings labeled preview carry a badge.</p>
+<table class="tight">
+  <thead><tr><th>Posture</th><th>Reading</th></tr></thead>
+  <tbody>
+    <tr><td class="yes">Enable for all</td><td>Low-risk convenience features and guardrails.</td></tr>
+    <tr><td class="maybe">Enable for specific groups</td><td>Valuable but exposed: scope with an allow group and an exception group.</td></tr>
+    <tr><td class="no">Disable</td><td>Legacy, public, third-party-processing or preview features without an approved use case.</td></tr>
+    <tr><td><strong>Decide per organization</strong></td><td>Depends on network design, licensing or policy.</td></tr>
+  </tbody>
+</table>
+
+<h2 id="first-changes">Where to start</h2>
+<p>If your tenant is still at its defaults, these ten changes remove the largest exposures first. Take the snapshot before the first change.</p>
+<table>
+  <thead><tr><th>#</th><th>Change</th><th>Why it comes first</th></tr></thead>
+  <tbody>
+    <tr><td>1</td><td>Snapshot every setting with the administration API.</td><td>Gives you a baseline and a rollback for everything below.</td></tr>
+    <tr><td>2</td><td><a href="export-sharing.html#s-publish-to-web">Publish to web</a>: disable, then delete existing embed codes.</td><td>Public, unauthenticated, and not retired by group scoping.</td></tr>
+    <tr><td>3</td><td><a href="export-sharing.html#s-shareable-links">Organization-wide shareable links</a>: disable; keep <a href="content-models.html#s-label-link-restrict">the protected-label link guard</a> on.</td><td>Organization-wide links are hard to audit and spread easily.</td></tr>
+    <tr><td>4</td><td>Service principal admin API switches (<a href="integration-api.html#s-sp-admin-updates">updates</a>, <a href="integration-api.html#s-sp-readonly-admin">read-only</a>): dedicated groups only.</td><td>Most privileged non-human identities in the tenant.</td></tr>
+    <tr><td>5</td><td>Guest settings: switch off <a href="export-sharing.html#s-guest-invite">guest invitations</a>, <a href="export-sharing.html#s-guest-browse">guest browsing</a> and <a href="export-sharing.html#s-guest-suggested">guests in suggested people</a>; scope <a href="export-sharing.html#s-guest-access">guest access</a> to a group.</td><td>Stops accidental external sharing.</td></tr>
+    <tr><td>6</td><td><a href="export-sharing.html#s-export-csv">CSV export</a>, <a href="export-sharing.html#s-download-reports">download reports</a>, <a href="integration-api.html#s-xmla">XMLA and Analyze in Excel</a>, <a href="integration-api.html#s-execute-queries">Execute Queries API</a>: specific groups with an exception group.</td><td>Closes the bulk-extraction family together.</td></tr>
+    <tr><td>7</td><td><a href="export-sharing.html#s-external-data-sharing">External data sharing</a> and <a href="export-sharing.html#s-accept-external-shares">accepting external shares</a>: disable until a partner case exists.</td><td>Cross-tenant data sharing where the consumer governs the data.</td></tr>
+    <tr><td>8</td><td><a href="ai-preview-other.html#s-copilot-main">Copilot</a>: choose groups; keep <a href="ai-preview-other.html#s-copilot-subprocessor">the OpenAI subprocessor setting</a> and the cross-geography settings off.</td><td>Copilot is on by default.</td></tr>
+    <tr><td>9</td><td><a href="integration-api.html#s-arcgis">ArcGIS Maps</a>, <a href="integration-api.html#s-onedrive-view">OneDrive and SharePoint viewing</a>, <a href="integration-api.html#s-onedrive-share">Desktop link sharing</a> and <a href="integration-api.html#s-eventstream-key-auth">non-Entra Eventstream auth</a>: disable.</td><td>Organization-wide only, so no group scoping can help.</td></tr>
+    <tr><td>10</td><td><a href="ai-preview-other.html#preview-items">Preview item types</a>, <a href="ai-preview-other.html#s-explore">Explore</a> and <a href="ai-preview-other.html#s-ux-experiments">UX experiments</a>: disable; plan to retire <a href="content-models.html#s-gen1-dataflows">Gen1 dataflows</a> and <a href="content-models.html#s-datamarts">datamarts</a>.</td><td>Unvetted features and legacy objects.</td></tr>
+  </tbody>
+</table>
+
+<h2 id="matrix-export">Export and sharing</h2>
+<table class="tight">
+  <thead><tr><th>Setting</th><th>Portal group</th><th>Default</th><th>Typical posture</th><th>Scope</th></tr></thead>
+  <tbody>
+<tr><td><a href="export-sharing.html#s-copy-paste">Copy and paste visuals</a></td><td>Export and sharing settings</td><td>—</td><td class="maybe">Enable for specific groups</td><td>Groups</td></tr>
+<tr><td><a href="export-sharing.html#s-export-excel">Export to Excel</a></td><td>Export and sharing settings</td><td>—</td><td class="maybe">Enable for specific groups</td><td>Groups</td></tr>
+<tr><td><a href="export-sharing.html#s-export-csv">Export to .csv</a></td><td>Export and sharing settings</td><td>—</td><td class="maybe">Enable for specific groups</td><td>Groups</td></tr>
+<tr><td><a href="export-sharing.html#s-download-reports">Download reports</a></td><td>Export and sharing settings</td><td>—</td><td class="maybe">Enable for specific groups</td><td>Groups</td></tr>
+<tr><td><a href="export-sharing.html#s-excel-live">Users can work with semantic models in Excel using a live connection</a></td><td>Export and sharing settings</td><td>On</td><td class="maybe">Enable for specific groups</td><td>Groups</td></tr>
+<tr><td><a href="export-sharing.html#s-export-pptx-pdf">Export reports as PowerPoint presentations or PDF documents</a></td><td>Export and sharing settings</td><td>—</td><td class="maybe">Enable for specific groups</td><td>Groups</td></tr>
+<tr><td><a href="export-sharing.html#s-export-mhtml">Export reports as MHTML documents</a></td><td>Export and sharing settings</td><td>—</td><td class="no">Disable</td><td>Groups</td></tr>
+<tr><td><a href="export-sharing.html#s-export-word">Export reports as Word documents</a></td><td>Export and sharing settings</td><td>—</td><td class="no">Disable</td><td>Groups</td></tr>
+<tr><td><a href="export-sharing.html#s-shareable-links">Allow shareable links to grant access to everyone in your organization</a></td><td>Export and sharing settings</td><td>—</td><td class="no">Disable</td><td>Groups</td></tr>
+<tr><td><a href="export-sharing.html#s-ppt-addin">Enable Power BI add-in for PowerPoint</a></td><td>Export and sharing settings</td><td>On</td><td class="yes">Enable for all</td><td>Groups</td></tr>
+<tr><td><a href="export-sharing.html#s-directquery-pbi">Allow DirectQuery connections to Power BI semantic models</a></td><td>Export and sharing settings</td><td>On</td><td class="maybe">Enable for specific groups</td><td>Groups</td></tr>
+<tr><td><a href="export-sharing.html#s-publish-to-web">Publish to web</a></td><td>Export and sharing settings</td><td>—</td><td class="no">Disable</td><td>Groups</td></tr>
+<tr><td><a href="export-sharing.html#s-external-data-sharing">External data sharing</a></td><td>Export and sharing settings</td><td>—</td><td class="no">Disable</td><td>Groups</td></tr>
+<tr><td><a href="export-sharing.html#s-export-xml">Export reports as XML documents</a></td><td>Export and sharing settings</td><td>—</td><td class="no">Disable</td><td>—</td></tr>
+<tr><td><a href="export-sharing.html#s-export-image">Export reports as image files</a></td><td>Export and sharing settings</td><td>—</td><td class="no">Disable</td><td>—</td></tr>
+<tr><td><a href="export-sharing.html#s-print">Print dashboards and reports</a></td><td>Export and sharing settings</td><td>—</td><td class="yes">Enable for all</td><td>—</td></tr>
+<tr><td><a href="export-sharing.html#s-featured-tables">Allow connections to featured tables</a></td><td>Export and sharing settings</td><td>—</td><td class="maybe">Enable for specific groups</td><td>Groups</td></tr>
+<tr><td><a href="export-sharing.html#s-accept-external-shares">Users can accept external data shares</a></td><td>Export and sharing settings</td><td>—</td><td class="no">Disable</td><td>Groups</td></tr>
+<tr><td><a href="export-sharing.html#s-guest-access">Guest users can access Microsoft Fabric</a></td><td>Export and sharing settings</td><td>—</td><td class="maybe">Enable for specific groups</td><td>Groups</td></tr>
+<tr><td><a href="export-sharing.html#s-guest-invite">Users can invite guest users to collaborate through item sharing and permissions</a></td><td>Export and sharing settings</td><td>—</td><td class="no">Disable</td><td>Groups</td></tr>
+<tr><td><a href="export-sharing.html#s-guest-browse">Guest users can browse and access Fabric content</a></td><td>Export and sharing settings</td><td>—</td><td class="no">Disable</td><td>Groups</td></tr>
+<tr><td><a href="export-sharing.html#s-guest-suggested">Users can see guest users in lists of suggested people</a></td><td>Export and sharing settings</td><td>—</td><td class="no">Disable</td><td>Groups</td></tr>
+<tr><td><a href="export-sharing.html#s-guest-shared-models">Guest users can work with shared semantic models in their own tenants</a></td><td>Export and sharing settings</td><td>Off</td><td class="no">Disable</td><td>Groups</td></tr>
+<tr><td><a href="export-sharing.html#s-ext-sharing-models">Allow specific users to turn on external data sharing</a></td><td>Export and sharing settings</td><td>—</td><td class="no">Disable</td><td>Groups</td></tr>
+<tr><td><a href="export-sharing.html#s-certification">Certification</a></td><td>Export and sharing settings</td><td>—</td><td class="maybe">Enable for specific groups</td><td>Groups</td></tr>
+<tr><td><a href="export-sharing.html#s-endorse-master">Endorse master data</a></td><td>Export and sharing settings</td><td>—</td><td class="maybe">Enable for specific groups</td><td>Groups</td></tr>
+<tr><td><a href="export-sharing.html#s-email-subs">Users can set up email subscriptions</a></td><td>Export and sharing settings</td><td>—</td><td class="yes">Enable for all</td><td>—</td></tr>
+<tr><td><a href="export-sharing.html#s-email-b2b">B2B guest users can set up and be subscribed to email subscriptions</a></td><td>Export and sharing settings</td><td>—</td><td class="no">Disable</td><td>—</td></tr>
+<tr><td><a href="export-sharing.html#s-email-external">Users can send email subscriptions to external users</a></td><td>Export and sharing settings</td><td>—</td><td class="no">Disable</td><td>—</td></tr>
+<tr><td><a href="export-sharing.html#s-featured">Featured content</a></td><td>Export and sharing settings</td><td>—</td><td class="maybe">Enable for specific groups</td><td>—</td></tr>
+<tr><td><a href="export-sharing.html#s-teams-integration">Enable Microsoft Teams integration</a></td><td>Export and sharing settings</td><td>—</td><td class="yes">Enable for all</td><td>—</td></tr>
+<tr><td><a href="export-sharing.html#s-teams-auto-install">Install Power BI app for Microsoft Teams automatically</a></td><td>Export and sharing settings</td><td>—</td><td class="yes">Enable for all</td><td>—</td></tr>
+<tr><td><a href="export-sharing.html#s-notebook-download">Users with read or write permission can download data from notebooks</a></td><td>Export and sharing settings</td><td>—</td><td class="maybe">Enable for specific groups</td><td>—</td></tr>
+  </tbody>
+</table>
+
+<h2 id="matrix-content">Content, models and discovery</h2>
+<table class="tight">
+  <thead><tr><th>Setting</th><th>Portal group</th><th>Default</th><th>Typical posture</th><th>Scope</th></tr></thead>
+  <tbody>
+<tr><td><a href="content-models.html#s-cross-workspace-models">Use semantic models across workspaces</a></td><td>Workspace settings</td><td>—</td><td class="yes">Enable for all</td><td>Groups</td></tr>
+<tr><td><a href="content-models.html#s-pbir">Automatically convert and store reports using Power BI enhanced metadata format (PBIR)</a> <span class="badge preview">Preview</span></td><td>Workspace settings</td><td>On</td><td class="maybe">Enable for specific groups</td><td>—</td></tr>
+<tr><td><a href="content-models.html#s-label-apply">Allow users to apply sensitivity labels for content</a></td><td>Information protection</td><td>—</td><td class="yes">Enable for all</td><td>Groups</td></tr>
+<tr><td><a href="content-models.html#s-label-datasource">Apply sensitivity labels from data sources to their data in Power BI</a></td><td>Information protection</td><td>—</td><td class="yes">Enable for all</td><td>Groups</td></tr>
+<tr><td><a href="content-models.html#s-label-downstream">Automatically apply sensitivity labels to downstream content</a></td><td>Information protection</td><td>—</td><td class="yes">Enable for all</td><td>Groups</td></tr>
+<tr><td><a href="content-models.html#s-label-override">Allow workspace admins to override automatically applied sensitivity labels</a></td><td>Information protection</td><td>—</td><td class="no">Disable</td><td>Groups</td></tr>
+<tr><td><a href="content-models.html#s-label-link-restrict">Restrict content with protected labels from being shared via link with everyone in your organization</a></td><td>Information protection</td><td>—</td><td class="yes">Enable for all</td><td>Groups</td></tr>
+<tr><td><a href="content-models.html#s-label-domain-default">Domain admins can set default sensitivity labels for their domains</a> <span class="badge preview">Preview</span></td><td>Information protection</td><td>—</td><td class="maybe">Enable for specific groups</td><td>Groups</td></tr>
+<tr><td><a href="content-models.html#s-promoted-discoverable">Make promoted content discoverable</a></td><td>Discovery settings</td><td>—</td><td class="maybe">Enable for specific groups</td><td>Groups</td></tr>
+<tr><td><a href="content-models.html#s-certified-discoverable">Make certified content discoverable</a></td><td>Discovery settings</td><td>—</td><td class="maybe">Enable for specific groups</td><td>Groups</td></tr>
+<tr><td><a href="content-models.html#s-discover-content">Discover content</a></td><td>Discovery settings</td><td>—</td><td class="yes">Enable for all</td><td>Groups</td></tr>
+<tr><td><a href="content-models.html#s-find-objects">Users can find objects in search</a></td><td>Discovery settings</td><td>—</td><td class="yes">Enable for all</td><td>Groups</td></tr>
+<tr><td><a href="content-models.html#s-template-org-apps">Create template organizational apps</a></td><td>App settings</td><td>—</td><td class="no">Disable</td><td>—</td></tr>
+<tr><td><a href="content-models.html#s-push-apps">Push apps to end users</a></td><td>App settings</td><td>—</td><td class="maybe">Enable for specific groups</td><td>Groups</td></tr>
+<tr><td><a href="content-models.html#s-publish-apps-org">Publish apps to the entire organization</a></td><td>App settings</td><td>—</td><td class="maybe">Enable for specific groups</td><td>Groups</td></tr>
+<tr><td><a href="content-models.html#s-org-app-items">Users can discover and create org apps</a> <span class="badge preview">Preview</span></td><td>Microsoft Fabric</td><td>—</td><td class="maybe">Enable for specific groups</td><td>—</td></tr>
+<tr><td><a href="content-models.html#s-template-publish">Publish template apps</a></td><td>Template app settings</td><td>—</td><td class="no">Disable</td><td>—</td></tr>
+<tr><td><a href="content-models.html#s-template-install">Install template apps</a></td><td>Template app settings</td><td>—</td><td class="maybe">Enable for specific groups</td><td>—</td></tr>
+<tr><td><a href="content-models.html#s-template-install-unlisted">Install template apps not listed in AppSource</a></td><td>Template app settings</td><td>—</td><td class="no">Disable</td><td>—</td></tr>
+<tr><td><a href="content-models.html#s-certified-visuals-only">Add and use certified visuals only (block uncertified)</a></td><td>Power BI visuals</td><td>Off</td><td class="yes">Enable for all</td><td>Org only</td></tr>
+<tr><td><a href="content-models.html#s-sdk-visuals">Allow visuals created using the Power BI SDK</a></td><td>Power BI visuals</td><td>Off</td><td class="no">Disable</td><td>Groups</td></tr>
+<tr><td><a href="content-models.html#s-visual-downloads">Allow downloads from custom visuals</a></td><td>Power BI visuals</td><td>Off</td><td class="no">Disable</td><td>Groups</td></tr>
+<tr><td><a href="content-models.html#s-visual-sso">AppSource Custom Visuals SSO</a></td><td>Power BI visuals</td><td>Off</td><td class="no">Disable</td><td>Groups</td></tr>
+<tr><td><a href="content-models.html#s-visual-local-storage">Allow access to the browser's local storage</a></td><td>Power BI visuals</td><td>On</td><td class="yes">Enable for all</td><td>Groups</td></tr>
+<tr><td><a href="content-models.html#s-rpy-visuals">Interact with and share R and Python visuals</a></td><td>R and Python visuals settings</td><td>—</td><td class="maybe">Enable for specific groups</td><td>—</td></tr>
+<tr><td><a href="content-models.html#s-web-content-tiles">Web content on dashboard tiles</a></td><td>Dashboard settings</td><td>—</td><td class="no">Disable</td><td>—</td></tr>
+<tr><td><a href="content-models.html#s-gen1-dataflows">Create and use Gen1 dataflows</a></td><td>Gen1 dataflow settings</td><td>—</td><td class="no">Disable</td><td>Org only</td></tr>
+<tr><td><a href="content-models.html#s-datamarts">Create Datamarts</a> <span class="badge preview">Preview</span></td><td>Datamart settings</td><td>—</td><td class="no">Disable</td><td>—</td></tr>
+<tr><td><a href="content-models.html#s-edit-models-service">Users can edit semantic models in the Power BI service</a></td><td>Semantic model settings</td><td>—</td><td class="maybe">Enable for specific groups</td><td>—</td></tr>
+<tr><td><a href="content-models.html#s-block-republish">Block republish and disable package refresh</a></td><td>Semantic Model Security</td><td>—</td><td>Decide per organization</td><td>—</td></tr>
+<tr><td><a href="content-models.html#s-granular-connections">Enable granular access control for all data connections</a></td><td>Integration settings</td><td>—</td><td class="yes">Enable for all</td><td>—</td></tr>
+<tr><td><a href="content-models.html#s-models-export-onelake">Semantic models can export data to OneLake</a></td><td>Integration settings</td><td>—</td><td class="maybe">Enable for specific groups</td><td>—</td></tr>
+<tr><td><a href="content-models.html#s-models-auto-update">Semantic model owners can choose to automatically update semantic models from files imported from OneDrive or SharePoint</a></td><td>Integration settings</td><td>—</td><td class="no">Disable</td><td>—</td></tr>
+<tr><td><a href="content-models.html#s-scale-out">Scale out queries for large semantic models</a></td><td>Scale-out settings</td><td>—</td><td class="yes">Enable for all</td><td>—</td></tr>
+<tr><td><a href="content-models.html#s-qna-review">Review questions</a></td><td>Q&A settings</td><td>—</td><td class="maybe">Enable for specific groups</td><td>—</td></tr>
+<tr><td><a href="content-models.html#s-qna-synonyms">Synonym sharing</a></td><td>Q&A settings</td><td>—</td><td class="yes">Enable for all</td><td>—</td></tr>
+<tr><td><a href="content-models.html#s-scorecards">Create and use Scorecards</a></td><td>Scorecards settings</td><td>—</td><td class="yes">Enable for all</td><td>—</td></tr>
+<tr><td><a href="content-models.html#s-insights-notify">Receive notifications for top insights</a> <span class="badge preview">Preview</span></td><td>Insights settings</td><td>—</td><td>Decide per organization</td><td>—</td></tr>
+<tr><td><a href="content-models.html#s-insights-entry">Show entry points for insights</a> <span class="badge preview">Preview</span></td><td>Insights settings</td><td>—</td><td>Decide per organization</td><td>—</td></tr>
+  </tbody>
+</table>
+
+<h2 id="matrix-integration">Integration, developer and APIs</h2>
+<table class="tight">
+  <thead><tr><th>Setting</th><th>Portal group</th><th>Default</th><th>Typical posture</th><th>Scope</th></tr></thead>
+  <tbody>
+<tr><td><a href="integration-api.html#s-xmla">Allow XMLA endpoints and Analyze in Excel with on-premises semantic models</a></td><td>Integration settings</td><td>On</td><td class="maybe">Enable for specific groups</td><td>Groups</td></tr>
+<tr><td><a href="integration-api.html#s-execute-queries">Semantic Model Execute Queries REST API</a></td><td>Integration settings</td><td>—</td><td class="maybe">Enable for specific groups</td><td>Groups</td></tr>
+<tr><td><a href="integration-api.html#s-mcp-endpoint">Users can use the Power BI Model Context Protocol server endpoint</a> <span class="badge preview">Preview</span></td><td>Integration settings</td><td>—</td><td class="maybe">Enable for specific groups</td><td>—</td></tr>
+<tr><td><a href="integration-api.html#s-arcgis">Use ArcGIS Maps for Power BI</a></td><td>Integration settings</td><td>—</td><td class="no">Disable</td><td>Org only</td></tr>
+<tr><td><a href="integration-api.html#s-azure-maps-visual">Users can use the Azure Maps visual</a></td><td>Integration settings</td><td>—</td><td class="yes">Enable for all</td><td>Org only</td></tr>
+<tr><td><a href="integration-api.html#s-map-filled">Map and filled map visuals</a></td><td>Integration settings</td><td>—</td><td class="yes">Enable for all</td><td>—</td></tr>
+<tr><td><a href="integration-api.html#s-global-search">Use global search for Power BI</a></td><td>Integration settings</td><td>—</td><td class="yes">Enable for all</td><td>—</td></tr>
+<tr><td><a href="integration-api.html#s-sharepoint-lists">Integration with SharePoint and Microsoft Lists</a></td><td>Integration settings</td><td>On</td><td class="yes">Enable for all</td><td>—</td></tr>
+<tr><td><a href="integration-api.html#s-sso-third-party">SSO for third-party sources: Dremio SSO, Snowflake SSO, Redshift SSO, Google BigQuery SSO, Enable Denodo SSO, Enable Starburst SSO</a></td><td>Integration settings</td><td>—</td><td class="no">Disable</td><td>—</td></tr>
+<tr><td><a href="integration-api.html#s-sso-gateway">Microsoft Entra single sign-on for data gateway, and for virtual network (VNet) data gateway</a></td><td>Integration settings</td><td>Off</td><td class="maybe">Enable for specific groups</td><td>—</td></tr>
+<tr><td><a href="integration-api.html#s-onedrive-view">Users can view Power BI files saved in OneDrive and SharePoint</a> <span class="badge preview">Preview</span></td><td>Integration settings</td><td>On</td><td class="no">Disable</td><td>Org only</td></tr>
+<tr><td><a href="integration-api.html#s-onedrive-share">Users can share links to Power BI files stored in OneDrive and SharePoint through Power BI Desktop</a> <span class="badge preview">Preview</span></td><td>Integration settings</td><td>—</td><td class="no">Disable</td><td>Org only</td></tr>
+<tr><td><a href="integration-api.html#s-geoanalytics">ArcGIS GeoAnalytics for Fabric Runtime</a></td><td>Integration settings</td><td>—</td><td class="no">Disable</td><td>—</td></tr>
+<tr><td><a href="integration-api.html#s-eventstream-key-auth">Allow non-Entra ID auth in Eventstream</a></td><td>Integration settings</td><td>—</td><td class="no">Disable</td><td>Org only</td></tr>
+<tr><td><a href="integration-api.html#s-adbc">Users can connect to data sources by using Apache Arrow database connectivity (ADBC)</a></td><td>Integration settings</td><td>—</td><td>Decide per organization</td><td>—</td></tr>
+<tr><td><a href="integration-api.html#s-sp-public-apis">Service principals can call Fabric public APIs</a></td><td>Developer settings</td><td>On</td><td class="maybe">Enable for specific groups</td><td>Groups</td></tr>
+<tr><td><a href="integration-api.html#s-sp-create-workspaces">Service principals can create workspaces, connections, and deployment pipelines</a></td><td>Developer settings</td><td>Off</td><td class="maybe">Enable for specific groups</td><td>Groups</td></tr>
+<tr><td><a href="integration-api.html#s-sp-admin-updates">Service principals can access admin APIs used for updates</a></td><td>Admin API settings</td><td>—</td><td class="maybe">Enable for specific groups</td><td>Groups</td></tr>
+<tr><td><a href="integration-api.html#s-sp-readonly-admin">Service principals can access read-only admin APIs</a></td><td>Admin API settings</td><td>—</td><td class="maybe">Enable for specific groups</td><td>Groups</td></tr>
+<tr><td><a href="integration-api.html#s-admin-meta">Enhance admin APIs responses with detailed metadata</a></td><td>Admin API settings</td><td>—</td><td class="maybe">Enable for specific groups</td><td>Groups</td></tr>
+<tr><td><a href="integration-api.html#s-admin-dax">Enhance admin APIs responses with DAX and mashup expressions</a></td><td>Admin API settings</td><td>—</td><td class="maybe">Enable for specific groups</td><td>Groups</td></tr>
+<tr><td><a href="integration-api.html#s-sp-profiles">Allow service principals to create and use profiles</a></td><td>Developer settings</td><td>—</td><td class="no">Disable</td><td>Groups</td></tr>
+<tr><td><a href="integration-api.html#s-block-resourcekey">Block ResourceKey Authentication</a></td><td>Developer settings</td><td>—</td><td class="yes">Enable for all</td><td>Org only</td></tr>
+<tr><td><a href="integration-api.html#s-max-identities">Define maximum number of Fabric identities in a tenant</a></td><td>Developer settings</td><td>—</td><td>Decide per organization</td><td>—</td></tr>
+<tr><td><a href="integration-api.html#s-embed-content">Embed content in apps</a></td><td>Developer settings</td><td>—</td><td class="maybe">Enable for specific groups</td><td>—</td></tr>
+  </tbody>
+</table>
+
+<h2 id="matrix-platform">Workspaces, Git, OneLake and items</h2>
+<table class="tight">
+  <thead><tr><th>Setting</th><th>Portal group</th><th>Default</th><th>Typical posture</th><th>Scope</th></tr></thead>
+  <tbody>
+<tr><td><a href="workspace-git-onelake.html#s-fabric-items">Users can create Fabric items</a></td><td>Microsoft Fabric</td><td>—</td><td class="maybe">Enable for specific groups</td><td>Groups</td></tr>
+<tr><td><a href="workspace-git-onelake.html#s-create-workspaces">Create workspaces</a></td><td>Workspace settings</td><td>—</td><td class="maybe">Enable for specific groups</td><td>Groups</td></tr>
+<tr><td><a href="workspace-git-onelake.html#s-block-myworkspace">Block users from reassigning personal workspaces (My Workspace)</a></td><td>Workspace settings</td><td>—</td><td class="yes">Enable for all</td><td>Org only</td></tr>
+<tr><td><a href="workspace-git-onelake.html#s-retention">Define workspace retention period</a></td><td>Workspace settings</td><td>—</td><td class="yes">Enable for all</td><td>—</td></tr>
+<tr><td><a href="workspace-git-onelake.html#s-item-recovery">Fabric item recovery</a></td><td>Workspace settings</td><td>On</td><td class="yes">Enable for all</td><td>—</td></tr>
+<tr><td><a href="workspace-git-onelake.html#s-domain-override">Allow tenant and domain admins to override workspace assignments</a> <span class="badge preview">Preview</span></td><td>Domain management settings</td><td>—</td><td>Decide per organization</td><td>—</td></tr>
+<tr><td><a href="workspace-git-onelake.html#s-git-ado">Users can synchronize workspace items with their Git repositories</a></td><td>Git integration</td><td>On</td><td class="maybe">Enable for specific groups</td><td>Groups</td></tr>
+<tr><td><a href="workspace-git-onelake.html#s-git-github">Users can sync workspace items with GitHub repositories</a></td><td>Git integration</td><td>Off</td><td class="maybe">Enable for specific groups</td><td>Groups</td></tr>
+<tr><td><a href="workspace-git-onelake.html#s-git-geo">Users can export items to Git repositories in other geographical locations</a></td><td>Git integration</td><td>—</td><td class="no">Disable</td><td>Groups</td></tr>
+<tr><td><a href="workspace-git-onelake.html#s-git-labels">Users can export workspace items with applied sensitivity labels to Git repositories</a></td><td>Git integration</td><td>—</td><td class="no">Disable</td><td>Groups</td></tr>
+<tr><td><a href="workspace-git-onelake.html#s-onelake-external">Users can access data stored in OneLake with apps external to Fabric</a></td><td>OneLake settings</td><td>—</td><td class="maybe">Enable for specific groups</td><td>Groups</td></tr>
+<tr><td><a href="workspace-git-onelake.html#s-onelake-file-explorer">Users can sync data in OneLake with the OneLake File Explorer app</a></td><td>OneLake settings</td><td>—</td><td class="no">Disable</td><td>Org only</td></tr>
+<tr><td><a href="workspace-git-onelake.html#s-onelake-sas">Use short-lived user-delegated SAS tokens</a></td><td>OneLake settings</td><td>—</td><td class="no">Disable</td><td>—</td></tr>
+<tr><td><a href="workspace-git-onelake.html#s-onelake-sas-auth">Authenticate with OneLake user-delegated SAS tokens</a></td><td>OneLake settings</td><td>—</td><td class="no">Disable</td><td>—</td></tr>
+<tr><td><a href="workspace-git-onelake.html#s-onelake-euii">Include end-user identifiers in OneLake diagnostic logs</a></td><td>OneLake settings</td><td>—</td><td class="yes">Enable for all</td><td>—</td></tr>
+<tr><td><a href="workspace-git-onelake.html#s-private-link">Tenant-level Private Link</a></td><td>Advanced networking</td><td>—</td><td>Decide per organization</td><td>—</td></tr>
+<tr><td><a href="workspace-git-onelake.html#s-block-public">Block Public Internet Access</a></td><td>Advanced networking</td><td>—</td><td>Decide per organization</td><td>—</td></tr>
+<tr><td><a href="workspace-git-onelake.html#s-ws-inbound">Configure workspace-level inbound network rules</a></td><td>Advanced networking</td><td>—</td><td>Decide per organization</td><td>—</td></tr>
+<tr><td><a href="workspace-git-onelake.html#s-ws-outbound">Configure workspace-level outbound network rules</a></td><td>Advanced networking</td><td>—</td><td>Decide per organization</td><td>—</td></tr>
+<tr><td><a href="workspace-git-onelake.html#s-ws-firewall">Configure workspace IP firewall rules</a> <span class="badge preview">Preview</span></td><td>Advanced networking</td><td>—</td><td>Decide per organization</td><td>—</td></tr>
+<tr><td><a href="workspace-git-onelake.html#s-cmk">Apply customer-managed keys</a></td><td>Encryption</td><td>—</td><td>Decide per organization</td><td>—</td></tr>
+<tr><td><a href="workspace-git-onelake.html#s-workloads-ws">Workspace admins can add and remove additional workloads</a> <span class="badge preview">Preview</span></td><td>Additional workloads</td><td>—</td><td class="no">Disable</td><td>—</td></tr>
+<tr><td><a href="workspace-git-onelake.html#s-workloads-capacity">Capacity admins and contributors can add and remove additional workloads</a></td><td>Additional workloads</td><td>—</td><td class="no">Disable</td><td>—</td></tr>
+<tr><td><a href="workspace-git-onelake.html#s-workloads-develop">Workspace admins can develop partner workloads</a></td><td>Additional workloads</td><td>—</td><td class="no">Disable</td><td>—</td></tr>
+<tr><td><a href="workspace-git-onelake.html#s-workloads-unvalidated">Users can see and work with additional workloads not validated by Microsoft</a></td><td>Additional workloads</td><td>—</td><td class="no">Disable</td><td>—</td></tr>
+<tr><td><a href="workspace-git-onelake.html#s-set-alert">All Power BI users can see "Set alert" button to create Fabric Activator alerts</a></td><td>Microsoft Fabric</td><td>—</td><td class="yes">Enable for all</td><td>—</td></tr>
+<tr><td><a href="workspace-git-onelake.html#s-try-paid">Users can try Microsoft Fabric paid features</a></td><td>Help and support settings</td><td>—</td><td class="maybe">Enable for specific groups</td><td>—</td></tr>
+<tr><td><a href="workspace-git-onelake.html#s-get-help">Publish "Get Help" information</a></td><td>Help and support settings</td><td>—</td><td class="yes">Enable for all</td><td>—</td></tr>
+<tr><td><a href="workspace-git-onelake.html#s-publish-message">Show a custom message before publishing reports</a></td><td>Help and support settings</td><td>—</td><td class="yes">Enable for all</td><td>—</td></tr>
+<tr><td><a href="workspace-git-onelake.html#s-outage-notify">Receive email and Teams notifications for service outages or incidents, and Receive In-product notifications for service outages or incidents</a></td><td>Help and support settings</td><td>—</td><td class="yes">Enable for all</td><td>—</td></tr>
+  </tbody>
+</table>
+
+<h2 id="matrix-ai">AI, preview and experimental</h2>
+<table class="tight">
+  <thead><tr><th>Setting</th><th>Portal group</th><th>Default</th><th>Typical posture</th><th>Scope</th></tr></thead>
+  <tbody>
+<tr><td><a href="ai-preview-other.html#s-purview-ai">Allow Microsoft Purview to secure AI interactions</a></td><td>Information protection</td><td>—</td><td>Decide per organization</td><td>—</td></tr>
+<tr><td><a href="ai-preview-other.html#s-copilot-main">Users can use Copilot and other features powered by Azure OpenAI</a></td><td>Copilot and Azure OpenAI Service</td><td>On</td><td class="maybe">Enable for specific groups</td><td>Groups</td></tr>
+<tr><td><a href="ai-preview-other.html#s-copilot-subprocessor">Users can use Copilot, AI Agents and other AI experiences powered by OpenAI as a Microsoft Subprocessor</a></td><td>Copilot and Azure OpenAI Service</td><td>Off</td><td class="no">Disable</td><td>Groups</td></tr>
+<tr><td><a href="ai-preview-other.html#s-copilot-subprocessor-geo">Data sent to OpenAI as a Microsoft Subprocessor can be processed outside your capacity's geographic region, compliance boundary, or national cloud instance</a></td><td>Copilot and Azure OpenAI Service</td><td>Off</td><td class="no">Disable</td><td>Groups</td></tr>
+<tr><td><a href="ai-preview-other.html#s-copilot-cross-geo">Data sent to Azure OpenAI can be processed outside your capacity's geographic region, compliance boundary, or national cloud instance</a></td><td>Copilot and Azure OpenAI Service</td><td>Off</td><td class="no">Disable</td><td>Groups</td></tr>
+<tr><td><a href="ai-preview-other.html#s-copilot-storage-geo">Data sent to Azure OpenAI can be stored outside your capacity's geographic region, compliance boundary, or national cloud instance</a></td><td>Copilot and Azure OpenAI Service</td><td>Off</td><td class="no">Disable</td><td>Groups</td></tr>
+<tr><td><a href="ai-preview-other.html#s-copilot-capacities">Capacities can be designated as Fabric Copilot capacities</a></td><td>Copilot and Azure OpenAI Service</td><td>On</td><td class="maybe">Enable for specific groups</td><td>Groups</td></tr>
+<tr><td><a href="ai-preview-other.html#s-copilot-standalone">Users can access a standalone, cross-item Power BI Copilot experience</a> <span class="badge preview">Preview</span></td><td>Copilot and Azure OpenAI Service</td><td>Off</td><td class="maybe">Enable for specific groups</td><td>Groups</td></tr>
+<tr><td><a href="ai-preview-other.html#s-copilot-approved">Only show approved items in the standalone Copilot in Power BI experience</a> <span class="badge preview">Preview</span></td><td>Copilot and Azure OpenAI Service</td><td>Off</td><td class="yes">Enable for all</td><td>Groups</td></tr>
+<tr><td><a href="ai-preview-other.html#s-fabric-copilot">Users can use Fabric Copilot</a> <span class="badge preview">Preview</span></td><td>Copilot and Azure OpenAI Service</td><td>—</td><td class="maybe">Enable for specific groups</td><td>—</td></tr>
+<tr><td><a href="ai-preview-other.html#s-data-agent-foundry">Fabric data agents can send operational metadata for observability in Microsoft Foundry</a></td><td>Microsoft Fabric</td><td>—</td><td class="no">Disable</td><td>—</td></tr>
+<tr><td><a href="ai-preview-other.html#s-ops-agents">Enable operations agents</a></td><td>Microsoft Fabric</td><td>—</td><td class="maybe">Enable for specific groups</td><td>—</td></tr>
+<tr><td><a href="ai-preview-other.html#s-ops-agents-agent365">Enable sending Operations Agents observability data to Agent 365</a> <span class="badge preview">Preview</span></td><td>Microsoft Fabric</td><td>—</td><td class="no">Disable</td><td>—</td></tr>
+<tr><td><a href="ai-preview-other.html#s-ops-agents-insights">Insights for operations agents</a> <span class="badge preview">Preview</span></td><td>Microsoft Fabric</td><td>—</td><td class="maybe">Enable for specific groups</td><td>—</td></tr>
+<tr><td><a href="ai-preview-other.html#s-azure-ai-services">Allow data processing outside geographic region for Azure AI services</a></td><td>Azure AI Service</td><td>—</td><td class="no">Disable</td><td>—</td></tr>
+<tr><td><a href="ai-preview-other.html#s-azure-maps-services">Users can use Azure Maps services, and Data sent to Azure Maps can be processed outside your capacity's geographic region, compliance boundary or national cloud instance</a></td><td>Azure Maps services</td><td>—</td><td class="maybe">Enable for specific groups</td><td>—</td></tr>
+<tr><td><a href="ai-preview-other.html#s-m365-share">Share Fabric data with your Microsoft 365 services</a></td><td>Share data with your Microsoft 365 services</td><td>On</td><td>Decide per organization</td><td>—</td></tr>
+<tr><td><a href="ai-preview-other.html#s-ontology">Users can create Ontology items</a> <span class="badge preview">Preview</span></td><td>Microsoft Fabric</td><td>—</td><td class="no">Disable</td><td>—</td></tr>
+<tr><td><a href="ai-preview-other.html#s-digital-twin">Users can create Digital Twin Builder items</a> <span class="badge preview">Preview</span></td><td>Microsoft Fabric</td><td>—</td><td class="no">Disable</td><td>—</td></tr>
+<tr><td><a href="ai-preview-other.html#s-ml-endpoints">ML models can serve real-time predictions from API endpoints</a> <span class="badge preview">Preview</span></td><td>Microsoft Fabric</td><td>—</td><td class="no">Disable</td><td>—</td></tr>
+<tr><td><a href="ai-preview-other.html#s-anomaly-detection">Detect anomalies in Real-Time Intelligence</a> <span class="badge preview">Preview</span></td><td>Microsoft Fabric</td><td>—</td><td class="no">Disable</td><td>—</td></tr>
+<tr><td><a href="ai-preview-other.html#s-event-schemas">Enable Event Schema Sets in Real-Time Hub</a> <span class="badge preview">Preview</span></td><td>Microsoft Fabric</td><td>—</td><td class="no">Disable</td><td>—</td></tr>
+<tr><td><a href="ai-preview-other.html#s-dbt-jobs">Users can create dbt job items</a> <span class="badge preview">Preview</span></td><td>Microsoft Fabric</td><td>—</td><td class="no">Disable</td><td>—</td></tr>
+<tr><td><a href="ai-preview-other.html#s-mirrored-catalog">Enable new mirrored catalog items</a> <span class="badge preview">Preview</span></td><td>Microsoft Fabric</td><td>—</td><td class="no">Disable</td><td>—</td></tr>
+<tr><td><a href="ai-preview-other.html#s-fabric-apps">Enable Fabric App Items</a> <span class="badge preview">Preview</span></td><td>Microsoft Fabric</td><td>—</td><td class="no">Disable</td><td>—</td></tr>
+<tr><td><a href="ai-preview-other.html#s-fabric-apps-anon">Enable anonymous data access for Fabric Apps</a> <span class="badge preview">Preview</span></td><td>Microsoft Fabric</td><td>—</td><td class="no">Disable</td><td>—</td></tr>
+<tr><td><a href="ai-preview-other.html#s-databricks-storage">Users can create Azure Databricks Storage items</a> <span class="badge preview">Preview</span></td><td>Microsoft Fabric</td><td>—</td><td class="no">Disable</td><td>—</td></tr>
+<tr><td><a href="ai-preview-other.html#s-explore">Users with view permission can launch Explore</a> <span class="badge preview">Preview</span></td><td>Explore settings</td><td>On</td><td class="no">Disable</td><td>Org only</td></tr>
+<tr><td><a href="ai-preview-other.html#s-ux-experiments">Help Power BI optimize your experience</a></td><td>User experience experiments</td><td>—</td><td class="no">Disable</td><td>Org only</td></tr>
+<tr><td><a href="ai-preview-other.html#s-product-feedback">Product Feedback</a></td><td>Microsoft Fabric</td><td>—</td><td>Decide per organization</td><td>—</td></tr>
+<tr><td><a href="ai-preview-other.html#s-conferences">Users can be informed of upcoming conferences featuring Microsoft Fabric when they are logged in to Fabric</a></td><td>Microsoft Fabric</td><td>—</td><td class="no">Disable</td><td>—</td></tr>
+<tr><td><a href="ai-preview-other.html#s-query-text">Microsoft can store query text to aid in support investigations</a></td><td>Audit and usage settings</td><td>On</td><td>Decide per organization</td><td>—</td></tr>
+<tr><td><a href="ai-preview-other.html#s-kusto-embedded">Allow Real-Time Dashboards to include embedded app visuals</a></td><td>Kusto settings</td><td>—</td><td class="no">Disable</td><td>—</td></tr>
+<tr><td><a href="ai-preview-other.html#s-usage-metrics">Usage metrics for content creators</a></td><td>Audit and usage settings</td><td>—</td><td class="yes">Enable for all</td><td>—</td></tr>
+<tr><td><a href="ai-preview-other.html#s-usage-per-user">Per-user data in usage metrics for content creators</a></td><td>Audit and usage settings</td><td>On</td><td>Decide per organization</td><td>Groups</td></tr>
+<tr><td><a href="ai-preview-other.html#s-usage-capacity-metrics">Show user data in the Fabric Capacity Metrics app and reports</a></td><td>Audit and usage settings</td><td>On</td><td>Decide per organization</td><td>—</td></tr>
+<tr><td><a href="ai-preview-other.html#s-log-analytics">Azure Log Analytics connections for workspace administrators</a></td><td>Audit and usage settings</td><td>—</td><td class="maybe">Enable for specific groups</td><td>—</td></tr>
+<tr><td><a href="ai-preview-other.html#s-ws-monitoring">Workspace admins can turn on monitoring for their workspaces</a> <span class="badge preview">Preview</span></td><td>Audit and usage settings</td><td>—</td><td class="maybe">Enable for specific groups</td><td>—</td></tr>
+  </tbody>
+</table>
+
+<div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p>
+<p>Defaults, names and preview status change. Before you act on a row, confirm it on <a href="https://learn.microsoft.com/fabric/admin/tenant-settings-index">Tenant settings index</a> and in your own portal. Where a setting exists in the portal but is not listed here, treat it as unreviewed and apply the decision framework before enabling it.</p></div>
+
+<div class="takeaways"><p class="tk-title">Key takeaways</p>
+<ul>
+  <li>Use the matrix as the review sheet: copy it, add your own decision, owner and date columns, and keep it with the snapshot.</li>
+  <li>Start with the ten changes that remove the biggest exposure, in order, after taking the snapshot.</li>
+  <li>Where a row says Org only, plan a compensating control because groups cannot help.</li>
+</ul></div>
+
+<section class="refs">
+  <h2 id="refs">References</h2>
+  <ul>
+    <li><a href="https://learn.microsoft.com/fabric/admin/tenant-settings-index">Tenant settings index</a></li>
+    <li><a href="https://learn.microsoft.com/fabric/admin/about-tenant-settings">About tenant settings</a></li>
+    <li><a href="https://learn.microsoft.com/rest/api/fabric/admin/tenants/list-tenant-settings">Tenants: List Tenant Settings (Fabric REST API)</a></li>
+  </ul>
+</section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

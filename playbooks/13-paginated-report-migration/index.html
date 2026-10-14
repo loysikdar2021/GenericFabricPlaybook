@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Overview · Paginated Migration</title>
+<meta name="description" content="Plan and run the move of paginated (RDL) reports from Power BI Premium capacity workspaces to Fabric workspaces, by reassigning workspaces or republishing RDL files, with pipelines, gateways and validation.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="13-paginated-report-migration" data-page="index.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+
+    <header class="page-header">
+      <p class="eyebrow">Playbook 13 · Analytics</p>
+      <h1>Paginated Report Migration</h1>
+      <p class="lede">Paginated reports are the print-ready, pixel-controlled reports built from RDL files. This playbook moves them from workspaces on Power BI Premium capacity to workspaces on Fabric capacity, with the same reports, the same data and no surprises for the people who open them on Monday morning.</p>
+    </header>
+
+    <h2 id="purpose">Purpose and scope</h2>
+    <p>Paginated reports do not hold data. Each report is a layout plus queries that run at render time against the sources it names, which makes a migration mostly a question of <em>where the report lives</em>, <em>which capacity runs it</em> and <em>how it reaches its data</em>. This playbook covers all three:</p>
+    <ul>
+      <li><strong>Where it lives.</strong> Keep the legacy workspace and change its capacity, or publish the RDL files into new development, test and production workspaces governed by a deployment pipeline.</li>
+      <li><strong>Who runs it.</strong> Move from a Premium (P) capacity to a Fabric (F) capacity, which sets who can view the reports without a paid license and how much concurrent rendering you can serve.</li>
+      <li><strong>How it reaches data.</strong> Rebuild the data source mappings, credentials and gateway bindings for each environment, including Fabric Warehouse and Lakehouse SQL analytics endpoints as new sources.</li>
+    </ul>
+
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 330" role="img" aria-label="Two migration paths: Method A reassigns the legacy workspace from a Premium capacity to a Fabric capacity; Method B publishes the RDL files into development, test and production Fabric workspaces promoted by a deployment pipeline">
+        <defs>
+          <marker id="fig-idx-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-idx-1-ag" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-idx-1-at" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar teal" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="zone gray" x="20" y="28" width="250" height="274" rx="12"/>
+        <text class="t-h" x="36" y="52">Premium capacity (P SKU)</text>
+        <rect class="box gray" x="36" y="100" width="218" height="110" rx="10"/>
+        <text class="t-b" x="145" y="136" text-anchor="middle">Legacy workspace</text>
+        <text class="t-s" x="145" y="156" text-anchor="middle">RDL reports</text>
+        <text class="t-s" x="145" y="174" text-anchor="middle">gateway bindings, subscriptions</text>
+        <rect class="zone green" x="340" y="28" width="540" height="100" rx="12"/>
+        <text class="t-h" x="356" y="52">Method A: reassign the workspace</text>
+        <rect class="box green" x="356" y="66" width="250" height="46" rx="10"/>
+        <text class="t-b" x="481" y="94" text-anchor="middle">Same workspace on an F SKU</text>
+        <text class="t-s" x="740" y="94" text-anchor="middle">reports move with it</text>
+        <rect class="zone teal" x="340" y="148" width="540" height="154" rx="12"/>
+        <text class="t-h" x="356" y="172">Method B: publish RDL into Fabric workspaces</text>
+        <rect class="box teal" x="356" y="194" width="150" height="50" rx="10"/>
+        <text class="t-b" x="431" y="224" text-anchor="middle">DEV_SALES_DLV</text>
+        <rect class="box teal" x="536" y="194" width="150" height="50" rx="10"/>
+        <text class="t-b" x="611" y="224" text-anchor="middle">TST_SALES_DLV</text>
+        <rect class="box teal" x="716" y="194" width="150" height="50" rx="10"/>
+        <text class="t-b" x="791" y="224" text-anchor="middle">PRD_SALES_DLV</text>
+        <path class="ln teal" d="M506 219H534" marker-end="url(#fig-idx-1-at)"/>
+        <path class="ln teal" d="M686 219H714" marker-end="url(#fig-idx-1-at)"/>
+        <text class="t-s" x="611" y="272" text-anchor="middle">DPLY_SALES_DLV promotes with data source rules</text>
+        <path class="ln thick green" d="M254 120H290V89H354" marker-end="url(#fig-idx-1-ag)"/>
+        <path class="ln thick teal" d="M254 190H290V219H354" marker-end="url(#fig-idx-1-at)"/>
+      </svg>
+      <figcaption><b>Two paths from one legacy workspace.</b> Reassigning changes the capacity under an existing workspace. Republishing creates new workspaces and brings the RDL files across, which is the point at which you can change data sources and adopt a pipeline.</figcaption>
+    </figure>
+
+    <h2 id="phases">The three phases</h2>
+    <ol class="phases">
+      <li><strong>Assess</strong>Inventory every report, its sources, parameters and features; decide each report's fate.</li>
+      <li><strong>Migrate</strong>Reassign the workspace or republish the RDL files; recreate credentials and gateway bindings.</li>
+      <li><strong>Promote</strong>Apply data source rules so each stage reads its own sources.</li>
+      <li><strong>Validate</strong>Prove layout, data, exports, performance, subscriptions and access match.</li>
+      <li><strong>Cut over</strong>Switch users, keep a rollback, then retire the old capacity.</li>
+    </ol>
+
+    <h2 id="when-to-use">When to use this playbook</h2>
+    <div class="pros-cons">
+      <div class="pros"><h4>Use it when</h4><ul>
+        <li>Paginated reports live in workspaces assigned to Power BI Premium capacity and the capacity is going away.</li>
+        <li>You are standardising on Fabric workspaces named by environment, with promotion through a pipeline.</li>
+        <li>Reports come from SQL Server Reporting Services or Power BI Report Server and must land in the Power BI service.</li>
+      </ul></div>
+      <div class="cons"><h4>Look elsewhere when</h4><ul>
+        <li>You are moving Power BI reports and semantic models, not RDL files: use <a href="../01-powerbi-to-fabric-migration/index.html">Power BI to Fabric migration</a>.</li>
+        <li>You need general promotion mechanics for Fabric items: use <a href="../07-deployment/index.html">Deployment pipelines</a>.</li>
+        <li>You are building interactive reports: use <a href="../12-power-bi-report-development/index.html">Power BI report development standards</a>.</li>
+      </ul></div>
+    </div>
+
+    <h2 id="before-you-start">Before you start</h2>
+    <ul class="checklist">
+      <li>A Fabric (F SKU) capacity exists, sized from the Premium capacity it replaces, with capacity administrators assigned. See the sizing notes on the <a href="migration-methods.html#method-a">migration methods page</a>.</li>
+      <li>You can publish: a Power BI Pro or Premium Per User license is needed to publish paginated reports to workspaces other than <strong>My workspace</strong>, and the publisher needs at least the Contributor role in the target workspace.</li>
+      <li>You know who owns each report. Data source rules, take-over and credentials all depend on the identity that owns the item.</li>
+      <li>On-premises sources have a gateway, and someone with gateway admin rights can add data sources to it.</li>
+      <li>Power BI Report Builder is installed for the people who will edit RDL files, and everyone uses the same version.</li>
+    </ul>
+    <div class="callout important"><p class="callout-title">Check who can view the reports after the move</p>
+      <p>Users with a free license can view paginated reports only in workspaces on a Fabric capacity of F64 or larger, or a Premium capacity of P1 or larger. On smaller Fabric capacities, every viewer needs a Power BI Pro or Premium Per User license. If your audience relies on free licenses, do not size the target below F64. The mapping from P SKUs to F SKUs is on the <a href="migration-methods.html#method-a">methods page</a>.</p></div>
+
+    <h2 id="choose">Choosing a path</h2>
+    <table>
+      <thead><tr><th>Path</th><th>Use it when</th><th>Effort</th><th>Reversal</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Method A: reassign the workspace</strong></td><td>The whole workspace moves as it is, and the environments are handled elsewhere.</td><td>Low. A setting change, then validation.</td><td>Reassign back while the Premium capacity is still active.</td></tr>
+        <tr><td><strong>Method B: republish RDL files</strong></td><td>You want new workspaces, different data sources, per-report changes or a pipeline from the start.</td><td>Per report, scriptable through REST.</td><td>The legacy workspace is untouched until you retire it.</td></tr>
+        <tr><td><strong>SSRS or Report Server source</strong></td><td>Reports are on a report server, not yet in the Power BI service.</td><td>Built-in publish for newer servers, a migration tool for older ones.</td><td>The source server stays in place.</td></tr>
+      </tbody>
+    </table>
+    <p>The decision flow on <a href="migration-methods.html#decision">the methods page</a> turns this table into questions you can answer from the inventory.</p>
+
+    <h2 id="map">Map of this playbook</h2>
+    <div class="cards">
+      <a class="card blue" href="assessment.html"><span class="card-num">02</span><h3>Phase 1: Inventory and assessment</h3><p>Catalog reports with REST and an RDL parser, classify features that need work, and decide the fate of each report.</p><div class="card-meta"><span>Migration leads</span><span>15 min</span></div></a>
+      <a class="card teal" href="migration-methods.html"><span class="card-num">03</span><h3>Phase 2: Migration methods</h3><p>Reassign or republish, the SSRS and Report Server path, REST import code and a decision flow.</p><div class="card-meta"><span>Administrators</span><span>20 min</span></div></a>
+      <a class="card purple" href="pipelines-gateways.html"><span class="card-num">04</span><h3>Pipelines, gateways and sources</h3><p>Data source rules per stage, gateway mapping, Fabric SQL endpoint authentication and the REST calls that automate them.</p><div class="card-meta"><span>Developers</span><span>15 min</span></div></a>
+      <a class="card green" href="validation-cutover.html"><span class="card-num">05</span><h3>Phase 3: Validation and cutover</h3><p>Parity tests, capacity checks, subscriptions, permissions, cutover, rollback and decommissioning.</p><div class="card-meta"><span>Everyone</span><span>15 min</span></div></a>
+      <a class="card orange" href="troubleshooting.html"><span class="card-num">06</span><h3>Risks, troubleshooting, checklist</h3><p>Risk register, symptom-to-fix table and a readiness checklist.</p><div class="card-meta"><span>Everyone</span><span>10 min</span></div></a>
+    </div>
+
+    <h2 id="related">How this fits with the other playbooks</h2>
+    <p>The wider move of datasets, reports and capacities is planned in <a href="../01-powerbi-to-fabric-migration/index.html">Power BI to Fabric migration</a>; use this playbook for the paginated slice of that plan. Environment promotion follows <a href="../07-deployment/index.html">Deployment pipelines</a>, and the workspace names used here come from the house convention in <a href="../../reference-architecture.html">the reference architecture</a>. Paginated reports that read from semantic models inherit the standards in <a href="../12-power-bi-report-development/index.html">Power BI report development</a>.</p>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p>
+      <ul>
+        <li>A paginated report has no data of its own, so migration is about location, capacity and connectivity.</li>
+        <li>Decide per workspace between reassigning and republishing; both leave a way back until you retire the old capacity.</li>
+        <li>Size the target at F64 or larger if free-license users must keep viewing the reports.</li>
+        <li>Plan for credentials and gateway bindings to be recreated; moving the RDL does not move them.</li>
+        <li>Finish with parity tests and a recorded rollback, not with a setting change.</li>
+      </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/power-bi/guidance/migrate-ssrs-reports-to-power-bi">Plan to migrate .rdl reports to Power BI</a></li>
+        <li><a href="https://learn.microsoft.com/power-bi/paginated-reports/paginated-reports-faq">Paginated reports in Power BI: FAQ</a></li>
+        <li><a href="https://learn.microsoft.com/power-bi/support/premium-migration-overview">Power BI Premium to Microsoft Fabric migration overview</a></li>
+        <li><a href="https://learn.microsoft.com/power-bi/support/premium-migration-how-to">Migrate workspaces from Power BI Premium to Microsoft Fabric</a></li>
+        <li><a href="https://learn.microsoft.com/power-bi/paginated-reports/report-builder-power-bi">Power BI Report Builder</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

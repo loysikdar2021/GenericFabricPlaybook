@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Layer checklists · Deployment Checklist</title>
+<meta name="description" content="Deploy, configure, hydrate and verify checklists for Bronze, Silver, Gold, warehouse, semantic model, consumption lakehouse and delivery, to run for DEV to TST and again for TST to PRD.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="14-deployment-checklist" data-page="layer-checklists.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 14 · Deployment Checklist</p>
+      <h1>Layer checklists</h1>
+      <p class="lede">One checklist per layer. Each item is a single verifiable action; tick them in order, and do not start the next layer until the last item of this one is ticked. The tick state is remembered in your browser, so you can pause and return.</p>
+    </header>
+<h2 id="how-to-use">How to use the checklists</h2>
+<ul>
+<li>Run every list twice per release: once for the DEV to TST hop, once for TST to PRD with the PRD values. Reload the page or clear the ticks between hops.</li>
+<li>Each list has four groups in this order: <strong>Deploy</strong>, <strong>Configure</strong>, <strong>Hydrate</strong>, <strong>Verify</strong>.</li>
+<li>Use the same deployment note format everywhere: <em>release reference, layer, from-stage to to-stage</em>.</li>
+<li>If a verify item fails, stop. Fix the cause, repeat the step that produced it and re-run the verify group.</li>
+</ul>
+<figure class="diagram">
+<svg class="dg" viewBox="0 0 900 214" role="img" aria-label="The generic loop for a lakehouse layer: deploy the lakehouse, environment and variable library, then notebooks, pipelines and shortcuts, activate the stage's variable values, hydrate, and verify before the next layer">
+<defs>
+<marker id="fig-ck-2-a-teal" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar teal" d="M0 0L10 5L0 10z"/></marker>
+<marker id="fig-ck-2-a-gray" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar gray" d="M0 0L10 5L0 10z"/></marker>
+</defs>
+<rect class="box blue" x="14" y="52" width="140" height="92" rx="10"/>
+<text class="t-s" x="84" y="85" text-anchor="middle">Lakehouse,</text>
+<text class="t-s" x="84" y="102" text-anchor="middle">environment,</text>
+<text class="t-s" x="84" y="119" text-anchor="middle">variable library</text>
+<circle class="dot" cx="22" cy="48" r="10"/>
+<text class="t-b t-w" x="22" y="52" text-anchor="middle">1</text>
+<rect class="box teal" x="192" y="52" width="140" height="92" rx="10"/>
+<text class="t-s" x="262" y="85" text-anchor="middle">Notebooks,</text>
+<text class="t-s" x="262" y="102" text-anchor="middle">pipelines,</text>
+<text class="t-s" x="262" y="119" text-anchor="middle">shortcuts</text>
+<circle class="dot" cx="200" cy="48" r="10"/>
+<text class="t-b t-w" x="200" y="52" text-anchor="middle">2</text>
+<rect class="box orange" x="370" y="52" width="140" height="92" rx="10"/>
+<text class="t-s" x="440" y="85" text-anchor="middle">Activate the</text>
+<text class="t-s" x="440" y="102" text-anchor="middle">stage's variable</text>
+<text class="t-s" x="440" y="119" text-anchor="middle">value set</text>
+<circle class="dot" cx="378" cy="48" r="10"/>
+<text class="t-b t-w" x="378" y="52" text-anchor="middle">3</text>
+<rect class="box" x="548" y="52" width="140" height="92" rx="10"/>
+<text class="t-s" x="618" y="85" text-anchor="middle">Hydrate:</text>
+<text class="t-s" x="618" y="102" text-anchor="middle">run load</text>
+<text class="t-s" x="618" y="119" text-anchor="middle">pipelines</text>
+<circle class="dot" cx="556" cy="48" r="10"/>
+<text class="t-b t-w" x="556" y="52" text-anchor="middle">4</text>
+<rect class="box green" x="726" y="52" width="140" height="92" rx="10"/>
+<text class="t-s" x="796" y="85" text-anchor="middle">Verify:</text>
+<text class="t-s" x="796" y="102" text-anchor="middle">tables, shortcuts,</text>
+<text class="t-s" x="796" y="119" text-anchor="middle">bindings</text>
+<circle class="dot" cx="734" cy="48" r="10"/>
+<text class="t-b t-w" x="734" y="52" text-anchor="middle">5</text>
+<path class="ln teal" d="M154 98H192" marker-end="url(#fig-ck-2-a-teal)"/>
+<rect class="pill-bg" x="155.1" y="81.5" width="35.8" height="16"/>
+<text class="t-s" x="173" y="94" text-anchor="middle">then</text>
+<path class="ln teal" d="M332 98H370" marker-end="url(#fig-ck-2-a-teal)"/>
+<rect class="pill-bg" x="333.1" y="81.5" width="35.8" height="16"/>
+<text class="t-s" x="351" y="94" text-anchor="middle">then</text>
+<path class="ln teal" d="M510 98H548" marker-end="url(#fig-ck-2-a-teal)"/>
+<rect class="pill-bg" x="511.1" y="81.5" width="35.8" height="16"/>
+<text class="t-s" x="529" y="94" text-anchor="middle">then</text>
+<path class="ln teal" d="M688 98H726" marker-end="url(#fig-ck-2-a-teal)"/>
+<rect class="pill-bg" x="689.1" y="81.5" width="35.8" height="16"/>
+<text class="t-s" x="707" y="94" text-anchor="middle">then</text>
+<path class="ln gray dash" d="M796 144V182H84V144" marker-end="url(#fig-ck-2-a-gray)"/>
+<rect class="pill-bg" x="378.7" y="165.5" width="142.7" height="16"/>
+<text class="t-s" x="450" y="178" text-anchor="middle">next layer starts here</text>
+<text class="t-b" x="14" y="30">Deploy</text>
+<text class="t-b" x="370" y="30">Configure</text>
+<text class="t-b" x="548" y="30">Hydrate and verify</text>
+</svg>
+<figcaption><b>One layer, step by step.</b> Each box is a gate: do not start it until the previous one has succeeded. Redeploy an item if it was deployed before its dependency existed.</figcaption>
+</figure>
+
+<h2 id="bronze">Bronze</h2>
+<p>The Bronze layer ingests from external sources into raw tables. Pipeline: <code>DPLY_&lt;DOMAIN&gt;_BRZ</code>.</p>
+<ul class="checklist">
+<li><strong>Deploy.</strong> Deploy the lakehouse and wait for success; the stage lists it as paired and the target workspace holds a new, empty lakehouse of the same name.</li>
+<li><strong>Deploy.</strong> Deploy the environment and confirm its published state (libraries and Spark settings) matches DEV.</li>
+<li><strong>Deploy.</strong> Deploy the variable library.</li>
+<li><strong>Deploy.</strong> Deploy notebooks, data pipelines and shortcuts only after the three items above succeeded.</li>
+<li><strong>Configure.</strong> Open the variable library in the target workspace, make the stage's value set active and save.</li>
+<li><strong>Configure.</strong> Confirm every connection used by the pipelines exists and is usable by the run identity.</li>
+<li><strong>Configure.</strong> Confirm external shortcuts point at the target stage's sources: they keep the source stage's targets unless the target is a variable.</li>
+<li><strong>Hydrate.</strong> Run the ingestion pipelines and wait for them to finish.</li>
+<li><strong>Verify.</strong> Expected tables exist and row counts are in the expected range.</li>
+<li><strong>Verify.</strong> Shortcuts resolve and nothing is listed under <em>Unidentified</em>.</li>
+<li><strong>Verify.</strong> Notebooks are attached to the target lakehouse and environment.</li>
+<li><strong>Verify.</strong> The last run of each pipeline succeeded and used the target stage's connections.</li>
+</ul>
+
+<h2 id="silver">Silver</h2>
+<p>Silver cleans and conforms Bronze data. It depends on Bronze being deployed <em>and</em> hydrated in the same stage. Pipeline: <code>DPLY_&lt;DOMAIN&gt;_SLV</code>.</p>
+<ul class="checklist">
+<li><strong>Precondition.</strong> The Bronze verify group passed in this stage.</li>
+<li><strong>Deploy.</strong> Repeat the Bronze deploy order: lakehouse, environment, variable library, then notebooks, pipelines, shortcuts.</li>
+<li><strong>Deploy.</strong> Redeploy any item that was deployed before the item it depends on existed; binding is evaluated when you deploy, so a second deploy re-evaluates it.</li>
+<li><strong>Configure.</strong> Activate the stage's variable library value set.</li>
+<li><strong>Configure.</strong> Check every reference to the Bronze layer: notebooks, shortcuts and pipeline activities must point at the Bronze workspace of <em>this</em> stage. References across workspaces are not autobound; they come from variable library values, parameters or a default lakehouse rule.</li>
+<li><strong>Hydrate.</strong> Run the Silver transformation pipelines and notebooks.</li>
+<li><strong>Verify.</strong> Tables exist with the DEV schema, and row counts reconcile with the Bronze inputs.</li>
+<li><strong>Verify.</strong> No notebook run read from a lakehouse of another stage (spot-check the run details of one notebook).</li>
+</ul>
+
+<h2 id="gold">Gold</h2>
+<p>Gold holds business-ready tables. Pipeline: <code>DPLY_&lt;DOMAIN&gt;_GLD</code>.</p>
+<ul class="checklist">
+<li><strong>Precondition.</strong> The Silver verify group passed in this stage.</li>
+<li><strong>Deploy.</strong> Repeat the Silver deploy order and the redeploy check for items deployed ahead of their dependencies.</li>
+<li><strong>Configure.</strong> Activate the stage's variable library value set and check references to Silver, as for Silver.</li>
+<li><strong>Hydrate.</strong> Run the Gold transformations.</li>
+<li><strong>Verify.</strong> Dimension and fact tables exist; counts and key totals reconcile with Silver.</li>
+<li><strong>Verify.</strong> Every table the warehouse and models will read is present with the expected columns.</li>
+</ul>
+
+<h2 id="warehouse">Warehouse</h2>
+<p>The consumption warehouse reads Gold and serves SQL. Pipeline: <code>DPLY_&lt;DOMAIN&gt;_CNSM_WH</code>.</p>
+<ul class="checklist">
+<li><strong>Precondition.</strong> The Gold verify group passed in this stage.</li>
+<li><strong>Deploy.</strong> Deploy the lakehouse, if the layer has one (for example for staging or shortcuts).</li>
+<li><strong>Deploy.</strong> Deploy the warehouse, then the load pipelines and any stored procedures.</li>
+<li><strong>Deploy.</strong> Redeploy items that were deployed before their dependencies, to fix bindings.</li>
+<li><strong>Configure.</strong> Set per-stage connections and cross-workspace names in the load pipelines through the variable library; a warehouse deployment does not rewrite connection strings.</li>
+<li><strong>Configure.</strong> Grant the warehouse and item permissions for the stage; permissions are not copied by a deployment.</li>
+<li><strong>Hydrate.</strong> Run the load pipelines to populate the warehouse.</li>
+<li><strong>Verify.</strong> Tables, views and procedures exist; row counts match the Gold tables they load from.</li>
+<li><strong>Verify.</strong> A sample query through the SQL endpoint returns data from the target stage.</li>
+</ul>
+
+<h2 id="semantic-model">Semantic model</h2>
+<p>Semantic models are usually deployed twice: the rule is defined on the target stage's copy of the model, and it applies only at a deployment. Pipeline: <code>DPLY_&lt;DOMAIN&gt;_CNSM_SM</code>.</p>
+<figure class="diagram">
+<svg class="dg" viewBox="0 0 900 250" role="img" aria-label="The semantic model cycle in six steps: deploy the model, define the deployment rule on the target stage, deploy again so the rule applies, set credentials and connections, refresh, and verify with a report; do not refresh between the first deploy and the redeploy">
+<defs>
+<marker id="fig-ck-3-a-teal" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar teal" d="M0 0L10 5L0 10z"/></marker>
+</defs>
+<rect class="box blue" x="10" y="56" width="128" height="64" rx="10"/>
+<text class="t-s" x="74" y="83.5" text-anchor="middle">Deploy</text>
+<text class="t-s" x="74" y="100.5" text-anchor="middle">the model</text>
+<circle class="dot" cx="18" cy="52" r="10"/>
+<text class="t-b t-w" x="18" y="56" text-anchor="middle">1</text>
+<rect class="box purple" x="158" y="56" width="128" height="64" rx="10"/>
+<text class="t-s" x="222" y="83.5" text-anchor="middle">Define rule</text>
+<text class="t-s" x="222" y="100.5" text-anchor="middle">on target stage</text>
+<circle class="dot" cx="166" cy="52" r="10"/>
+<text class="t-b t-w" x="166" y="56" text-anchor="middle">2</text>
+<rect class="box teal" x="306" y="56" width="128" height="64" rx="10"/>
+<text class="t-s" x="370" y="83.5" text-anchor="middle">Deploy again</text>
+<text class="t-s" x="370" y="100.5" text-anchor="middle">rule applies</text>
+<circle class="dot" cx="314" cy="52" r="10"/>
+<text class="t-b t-w" x="314" y="56" text-anchor="middle">3</text>
+<rect class="box orange" x="454" y="56" width="128" height="64" rx="10"/>
+<text class="t-s" x="518" y="83.5" text-anchor="middle">Set credentials</text>
+<text class="t-s" x="518" y="100.5" text-anchor="middle">and connections</text>
+<circle class="dot" cx="462" cy="52" r="10"/>
+<text class="t-b t-w" x="462" y="56" text-anchor="middle">4</text>
+<rect class="box" x="602" y="56" width="128" height="64" rx="10"/>
+<text class="t-s" x="666" y="83.5" text-anchor="middle">Refresh</text>
+<text class="t-s" x="666" y="100.5" text-anchor="middle">the model</text>
+<circle class="dot" cx="610" cy="52" r="10"/>
+<text class="t-b t-w" x="610" y="56" text-anchor="middle">5</text>
+<rect class="box green" x="750" y="56" width="128" height="64" rx="10"/>
+<text class="t-s" x="814" y="83.5" text-anchor="middle">Verify</text>
+<text class="t-s" x="814" y="100.5" text-anchor="middle">open a report</text>
+<circle class="dot" cx="758" cy="52" r="10"/>
+<text class="t-b t-w" x="758" y="56" text-anchor="middle">6</text>
+<path class="ln teal" d="M138 88H158" marker-end="url(#fig-ck-3-a-teal)"/>
+<path class="ln teal" d="M286 88H306" marker-end="url(#fig-ck-3-a-teal)"/>
+<path class="ln teal" d="M434 88H454" marker-end="url(#fig-ck-3-a-teal)"/>
+<path class="ln teal" d="M582 88H602" marker-end="url(#fig-ck-3-a-teal)"/>
+<path class="ln teal" d="M730 88H750" marker-end="url(#fig-ck-3-a-teal)"/>
+<rect class="zone red" x="6" y="40" width="432" height="100" rx="12"/>
+<text class="t-s" x="14" y="160">Do not refresh here: the model still reads the source stage</text>
+<text class="t-s" x="454" y="160">Credentials are not copied by a deployment</text>
+</svg>
+<figcaption><b>Why semantic models are deployed twice.</b> A rule is defined on an item that already exists in the target stage, and it applies only at a deployment. Until the second deploy the new model still points at the source stage, so refreshing it early loads the wrong data.</figcaption>
+</figure>
+<ul class="checklist">
+<li><strong>Precondition.</strong> The warehouse (or lakehouse) the models read is hydrated and verified in this stage.</li>
+<li><strong>Deploy.</strong> Deploy the semantic models. Do not refresh them yet: they still read the source stage.</li>
+<li><strong>Configure.</strong> As the model owner, open the target stage's deployment rules and add the data source rule for the warehouse or SQL endpoint connection, plus any parameter rules.</li>
+<li><strong>Configure.</strong> Record the rule values you entered, per stage.</li>
+<li><strong>Deploy.</strong> Deploy the models again so the rules apply; the models should no longer show as different.</li>
+<li><strong>Configure.</strong> Set the data source credentials and connection on each target model; credentials are not copied by a deployment. Confirm the identity can read the target source.</li>
+<li><strong>Configure.</strong> Set the refresh schedule and role members; neither is copied.</li>
+<li><strong>Configure.</strong> For Direct Lake on OneLake, which has no data source rule, run the rebind step you chose. See <a href="../07-deployment/deployment-rules.html#direct-lake">Direct Lake models</a>.</li>
+<li><strong>Hydrate.</strong> Refresh the models.</li>
+<li><strong>Verify.</strong> The model settings show the target stage's data source, and a refresh succeeds.</li>
+<li><strong>Verify.</strong> A count from the model matches the same count from the warehouse.</li>
+</ul>
+
+<h2 id="consumption-lakehouse">Consumption lakehouse</h2>
+<p>Pipeline: <code>DPLY_&lt;DOMAIN&gt;_CNSM_LH</code>. If a Direct Lake model reads this lakehouse, deploy and verify it before the semantic model layer instead.</p>
+<ul class="checklist">
+<li><strong>Precondition.</strong> The Gold layer is verified in this stage.</li>
+<li><strong>Deploy.</strong> Deploy the lakehouse; its SQL analytics endpoint and default semantic model are provisioned with it.</li>
+<li><strong>Configure.</strong> Check each shortcut: internal shortcuts in the same workspace are remapped, but their target tables and folders are not created for you, and a shortcut to another workspace must be checked by hand.</li>
+<li><strong>Configure.</strong> Create the target tables or folders a shortcut needs, if any are missing.</li>
+<li><strong>Verify.</strong> Shortcuts resolve, nothing sits under <em>Unidentified</em>, and the SQL endpoint answers a query.</li>
+</ul>
+
+<h2 id="delivery">Delivery</h2>
+<p>Reports and paginated reports. Pipeline: <code>DPLY_&lt;DOMAIN&gt;_DLV</code>.</p>
+<ul class="checklist">
+<li><strong>Precondition.</strong> The models the reports read are deployed and refreshed in this stage.</li>
+<li><strong>Deploy.</strong> Deploy the reports. If you deploy selectively, use <strong>Select related</strong> so each report's model dependency is included or checked.</li>
+<li><strong>Configure.</strong> For paginated reports with a Fabric semantic model as source, apply the data source rule; they do not autobind.</li>
+<li><strong>Configure.</strong> Update the Power BI app or organizational app in the stage by hand; a deployment does not update app content or settings.</li>
+<li><strong>Configure.</strong> Check sharing, audiences and sensitivity labels for the stage.</li>
+<li><strong>Verify.</strong> Open <strong>View lineage</strong> on each report and confirm it reads the target stage's model.</li>
+<li><strong>Verify.</strong> Open each report and confirm the visuals load with target stage data.</li>
+</ul>
+
+<div class="callout tip"><p class="callout-title">Make the lists yours</p><p>Copy the lists into your own runbook and add your platform's specifics: table names to count, report names to open, the connection names to check. Generic lists get ticked without being read; specific ones catch problems.</p></div>
+
+<div class="takeaways"><p class="tk-title">Key takeaways</p>
+<ul>
+<li>Every layer has the same shape: deploy in dependency order, configure per-stage values, hydrate, verify.</li>
+<li>Cross-workspace references are not autobound; check them explicitly in Silver, Gold and the warehouse.</li>
+<li>Semantic models are deployed twice, and not refreshed between the two deployments.</li>
+<li>Credentials, schedules, role members, permissions and app content are not copied; they are configure items on every list.</li>
+</ul></div>
+
+<section class="refs">
+<h2 id="refs">References</h2>
+<ul>
+<li><a href="https://learn.microsoft.com/fabric/data-engineering/lakehouse-git-deployment-pipelines">Lakehouse Git integration and deployment pipelines</a></li>
+<li><a href="https://learn.microsoft.com/fabric/cicd/deployment-pipelines/create-rules">Create deployment rules</a></li>
+<li><a href="https://learn.microsoft.com/fabric/cicd/deployment-pipelines/understand-the-deployment-process">The deployment pipelines process</a></li>
+<li><a href="https://learn.microsoft.com/fabric/cicd/variable-library/variable-library-cicd">Variable library CI/CD</a></li>
+<li><a href="https://learn.microsoft.com/fabric/data-engineering/environment-git-and-deployment-pipeline">Environment Git integration and deployment pipelines</a></li>
+</ul>
+</section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

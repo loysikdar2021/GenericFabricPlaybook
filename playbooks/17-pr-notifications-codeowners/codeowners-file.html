@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Creating the CODEOWNERS file · PR Notifications</title>
+<meta name="description" content="Where the CODEOWNERS file lives and which copy GitHub reads, the pattern syntax, why the last matching line wins, how to name owners and teams, and how to protect and validate the file.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="17-pr-notifications-codeowners" data-page="codeowners-file.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+
+    <header class="page-header">
+      <p class="eyebrow">Playbook 17 · PR Notifications</p>
+      <h1>Creating the CODEOWNERS file</h1>
+      <p class="lede">The file is a dozen lines of text, and almost every way it goes wrong is silent: a pattern that matches nothing, an owner without Write access, a second owner on a second line. Nothing errors out; nobody is simply asked. This page covers the rules that matter.</p>
+      <ul class="chips"><li><b>Audience</b> repository admins, platform leads</li><li><b>Use it for</b> writing, placing and validating the file</li></ul>
+    </header>
+
+    <h2 id="location">Where the file lives</h2>
+    <p>GitHub looks for a file named <code>CODEOWNERS</code> (all capitals, no extension) in three places, in this order, and uses the first one it finds:</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 880 190" role="img" aria-label="GitHub searches the pull request's base branch for .github/CODEOWNERS first, then CODEOWNERS in the repository root, then docs/CODEOWNERS, and reads only the first one it finds">
+        <defs>
+          <marker id="fig-cf-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="zone purple" x="20" y="16" width="840" height="158" rx="14"/>
+        <text class="t-h" x="38" y="42">Searched on the base branch of the pull request, in this order</text>
+        <rect class="box green" x="50" y="62" width="230" height="60" rx="10"/>
+        <text class="t-m" x="165" y="88" text-anchor="middle">.github/CODEOWNERS</text>
+        <text class="t-s" x="165" y="108" text-anchor="middle">first choice, recommended</text>
+        <rect class="box blue" x="325" y="62" width="230" height="60" rx="10"/>
+        <text class="t-m" x="440" y="88" text-anchor="middle">CODEOWNERS</text>
+        <text class="t-s" x="440" y="108" text-anchor="middle">repository root</text>
+        <rect class="box gray" x="600" y="62" width="230" height="60" rx="10"/>
+        <text class="t-m" x="715" y="88" text-anchor="middle">docs/CODEOWNERS</text>
+        <text class="t-s" x="715" y="108" text-anchor="middle">docs directory</text>
+        <path class="ln" d="M282 92H323" marker-end="url(#fig-cf-1-a)"/>
+        <text class="t-s" x="303" y="84" text-anchor="middle">else</text>
+        <path class="ln" d="M557 92H598" marker-end="url(#fig-cf-1-a)"/>
+        <text class="t-s" x="578" y="84" text-anchor="middle">else</text>
+        <text class="t-s" x="440" y="152" text-anchor="middle">Only the first file found is read. The others are ignored.</text>
+      </svg>
+      <figcaption><b>Use <code>.github/</code>.</b> It keeps the file next to workflows and the pull-request template, and it is the one place you can protect together with them.</figcaption>
+    </figure>
+    <ul>
+      <li><strong>One file, one branch.</strong> A <code>CODEOWNERS</code> file assigns owners for the branch it sits on. Review requests are generated from the copy on the <em>base</em> branch of the pull request, which for Fabric work is <code>main</code>.</li>
+      <li><strong>Edits take effect on merge.</strong> A pull request that changes <code>CODEOWNERS</code> is itself judged by the version that is already on <code>main</code>.</li>
+      <li><strong>Size.</strong> The file must be under 3 MB; a larger file is not loaded at all and no owners are requested. Wildcards keep it small.</li>
+      <li><strong>Who can edit it.</strong> Anyone with Write access can propose a change. Because <code>main</code> is protected, the change goes through a pull request like any other.</li>
+    </ul>
+    <h3 id="create">Creating it</h3>
+    <ol class="steps">
+      <li><strong>Start a branch.</strong><p>Because <code>main</code> is protected by a ruleset, open the repository and create a branch, for example <code>chore/1301-add-codeowners</code>, rather than committing to <code>main</code>.</p></li>
+      <li><strong>Create the file.</strong><p>Choose <em>Add file</em>, then <em>Create new file</em>. In the name box type <code>.github/CODEOWNERS</code>; typing the slash creates the folder. Use capitals and no extension.</p></li>
+      <li><strong>Write the rules.</strong><p>Start with the catch-all and add specific lines below it (next sections).</p></li>
+      <li><strong>Open a pull request and merge it.</strong><p>Have the platform team approve it. From the moment it merges, later pull requests use it.</p></li>
+    </ol>
+
+    <h2 id="syntax">Syntax</h2>
+    <p>Each line is a path pattern followed by one or more owners. The patterns follow most of the <code>.gitignore</code> rules; <code>#</code> starts a comment.</p>
+<pre data-title=".github/CODEOWNERS"><code class="language-text"># Default owners for everything in the repository
+*                      @contoso-org/core-team
+
+# Own every SQL file, anywhere
+*.sql                  @contoso-org/data-engineering @contoso-org/dba-team
+
+# Own a directory at the repository root and everything below it
+/docs/                 @contoso-org/tech-writers
+/backend/api/          @contoso-org/backend-team
+
+# Own one specific file
+/config/database.yml   @contoso-org/platform-team</code></pre>
+    <table>
+      <thead><tr><th>Pattern</th><th>Matches</th></tr></thead>
+      <tbody>
+        <tr><td><code>*</code></td><td>Every file, unless a later line also matches. The usual catch-all.</td></tr>
+        <tr><td><code>*.sql</code></td><td>Every file with that extension, at any depth.</td></tr>
+        <tr><td><code>/docs/</code></td><td>The <code>docs</code> directory at the repository root and everything inside it, including subdirectories.</td></tr>
+        <tr><td><code>docs/*</code></td><td>Files directly in <code>docs</code>, but not files in its subdirectories.</td></tr>
+        <tr><td><code>apps/</code></td><td>Any directory named <code>apps</code>, wherever it is, and its contents.</td></tr>
+        <tr><td><code>**/logs</code></td><td>Any <code>logs</code> directory at any depth.</td></tr>
+        <tr><td><code>/apps/github</code> with no owner</td><td>Clears ownership for that path, so the more general line above it no longer applies there.</td></tr>
+      </tbody>
+    </table>
+    <ul>
+      <li><strong>Paths are case sensitive.</strong> <code>/Sales_GLD/</code> does not match <code>SALES_GLD/</code>, even if you work on a case-insensitive system.</li>
+      <li><strong>Some <code>.gitignore</code> features do not work here:</strong> negation with <code>!</code>, character ranges with <code>[ ]</code>, and escaping a leading <code>#</code> with a backslash.</li>
+      <li><strong>Invalid lines are skipped.</strong> Valid lines still work, so a typo costs you one rule, not the file.</li>
+    </ul>
+
+    <h2 id="ordering">Order matters: the last match wins</h2>
+    <p>For each changed file GitHub reads the file from top to bottom and uses the owners of the <strong>last line that matches</strong>. Earlier matches are discarded, not added. That is what lets you write a broad default and refine it, and it is also the usual reason a pull request goes to the wrong team.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 880 280" role="img" aria-label="A changed notebook file is compared with four CODEOWNERS lines; lines one, two and three match, line four does not; the third line is the last match and its owner, analytics-engineering, is the only owner requested">
+        <defs>
+          <marker id="fig-cf-2-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-cf-2-g" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box blue" x="20" y="105" width="250" height="120" rx="10"/>
+        <text class="t-b" x="145" y="128" text-anchor="middle">Changed file</text>
+        <text class="t-m" x="145" y="154" text-anchor="middle">SALES_GLD/</text>
+        <text class="t-m" x="145" y="172" text-anchor="middle">NB_SALES_GLD_ChurnScore.Notebook/</text>
+        <text class="t-m" x="145" y="190" text-anchor="middle">notebook-content.py</text>
+        <path class="ln" d="M272 165H290"/>
+        <path class="ln" d="M290 46V208"/>
+        <path class="ln" d="M290 46H308" marker-end="url(#fig-cf-2-a)"/>
+        <path class="ln" d="M290 100H308" marker-end="url(#fig-cf-2-a)"/>
+        <path class="ln" d="M290 154H308" marker-end="url(#fig-cf-2-a)"/>
+        <path class="ln" d="M290 208H308" marker-end="url(#fig-cf-2-a)"/>
+        <rect class="box plain" x="310" y="24" width="300" height="44" rx="8"/>
+        <text class="t-m" x="322" y="43">*</text>
+        <text class="t-s" x="322" y="59">@contoso-org/data-platform</text>
+        <text class="t-s" x="598" y="50" text-anchor="end">match, overridden</text>
+        <rect class="box plain" x="310" y="78" width="300" height="44" rx="8"/>
+        <text class="t-m" x="322" y="97">*.Notebook/</text>
+        <text class="t-s" x="322" y="113">@contoso-org/data-engineering</text>
+        <text class="t-s" x="598" y="104" text-anchor="end">match, overridden</text>
+        <rect class="box green" x="310" y="132" width="300" height="44" rx="8"/>
+        <text class="t-m" x="322" y="151">/SALES_GLD/</text>
+        <text class="t-s" x="322" y="167">@contoso-org/analytics-engineering</text>
+        <text class="t-s" x="598" y="158" text-anchor="end">match, last wins</text>
+        <rect class="box gray dashed" x="310" y="186" width="300" height="44" rx="8"/>
+        <text class="t-m" x="322" y="205">/.github/</text>
+        <text class="t-s" x="322" y="221">@contoso-org/data-platform</text>
+        <text class="t-s" x="598" y="212" text-anchor="end">no match</text>
+        <path class="ln green thick" d="M612 154H648" marker-end="url(#fig-cf-2-g)"/>
+        <rect class="box green" x="650" y="105" width="210" height="100" rx="10"/>
+        <text class="t-s" x="755" y="132" text-anchor="middle">Effective owner</text>
+        <text class="t-b" x="755" y="156" text-anchor="middle">analytics-engineering</text>
+        <text class="t-s" x="755" y="178" text-anchor="middle">from line 3 only</text>
+        <text class="t-s" x="440" y="264" text-anchor="middle">Lines 1 and 2 also match, but only the last matching line decides.</text>
+      </svg>
+      <figcaption><b>Go from general to specific.</b> Put the catch-all first and the most specific rules last. If a later line is meant to add an owner rather than replace one, repeat the earlier owners on it.</figcaption>
+    </figure>
+
+    <h2 id="owners">Owners: users, teams and email</h2>
+    <table>
+      <thead><tr><th>Form</th><th>Example</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td>Team</td><td><code>@contoso-org/data-engineering</code></td><td><strong>Recommended.</strong> Membership changes without editing the file. The team must be visible and have Write access to the repository, even if every member already has access some other way.</td></tr>
+        <tr><td>User</td><td><code>@example-user</code></td><td>Must have Write access. Use sparingly: when the person leaves, the line silently stops working.</td></tr>
+        <tr><td>Email</td><td><code>user@contoso.com</code></td><td>Resolves to the account that has that address. Not available for Enterprise Managed Users.</td></tr>
+      </tbody>
+    </table>
+    <h3 id="same-line">Several owners belong on one line</h3>
+    <p>Owners listed on the <strong>same line</strong> share the pattern, and an approval from <strong>any one</strong> of them satisfies the requirement. Owners on <strong>separate lines</strong> do not combine: the last line replaces the earlier ones.</p>
+<pre data-title="Wrong and right"><code class="language-text"># Wrong: only the last line applies, so only data-platform is the owner
+/SALES_GLD/   @contoso-org/analytics-engineering
+/SALES_GLD/   @contoso-org/data-platform
+
+# Right: both teams are owners, and either one can approve
+/SALES_GLD/   @contoso-org/analytics-engineering @contoso-org/data-platform</code></pre>
+    <div class="callout warning"><p class="callout-title">A silent failure that is easy to copy</p><p>A common first draft lists the members of the owning team one per line under a single <code>*</code>. Only the last person is then the owner, and everyone else is never asked. Put the people in a team and name the team once.</p></div>
+    <div class="callout important"><p class="callout-title">Owners must be able to write</p><p>If a named user or team does not exist, or lacks Write access, GitHub assigns nobody for that line and shows no error on the pull request. Check team access before you rely on a line. The <a href="notifications.html#troubleshooting">troubleshooting guide</a> lists the other silent causes.</p></div>
+    <p>If you need two different teams to <em>both</em> approve a change, a single line cannot do it. The ruleset has a separate <em>required reviewers</em> rule for that, covered on the <a href="fabric-example.html#both-teams">next page</a>.</p>
+
+    <h2 id="protect-file">Protect the file itself</h2>
+    <p>Whoever controls <code>CODEOWNERS</code> controls who must review everything else. If a developer can change the file and approve their own change, the whole mechanism is optional. Close the loop by owning the file, and the folder that holds your workflows:</p>
+<pre data-title="Last lines of .github/CODEOWNERS"><code class="language-text">/.github/   @contoso-org/data-platform</code></pre>
+    <p>With the code-owner rule enabled, a pull request that edits <code>CODEOWNERS</code> or a workflow now needs the platform team's approval, exactly as it should.</p>
+
+    <h2 id="validate">Validate before you rely on it</h2>
+    <ul class="checklist">
+      <li>Open the file on GitHub. Invalid lines are highlighted with an explanation.</li>
+      <li>Browse to a file you expect to be owned and hover over the shield icon in its header. The tooltip names the owner and the line of <code>CODEOWNERS</code> it came from.</li>
+      <li>List the errors programmatically if you manage many repositories: the REST API has an endpoint that lists CODEOWNERS errors for a repository.</li>
+      <li>Open a test pull request that touches one path per rule, then read the <em>Reviewers</em> list. Every owner you expect should appear, and nobody else.</li>
+      <li>Confirm that each owning team has Write access and is visible, by opening the repository's access settings and the team page.</li>
+    </ul>
+    <table>
+      <thead><tr><th>Mistake</th><th>What happens</th></tr></thead>
+      <tbody>
+        <tr><td>Owner or team does not exist, or lacks Write access</td><td>No owner is assigned for that line, and no error appears on the pull request.</td></tr>
+        <tr><td>Syntax error in a line</td><td>That line is skipped. Highlighted when you view the file.</td></tr>
+        <tr><td>File is not on the base branch</td><td>No review requests, even though the file exists somewhere else.</td></tr>
+        <tr><td>File over 3 MB</td><td>Not loaded at all. No owners are requested.</td></tr>
+        <tr><td>Path case differs from the repository</td><td>The pattern matches nothing.</td></tr>
+        <tr><td>Folder renamed in the repository</td><td>The old pattern matches nothing. For Fabric, renaming an item or a workspace folder renames the Git folder.</td></tr>
+      </tbody>
+    </table>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p><ul>
+      <li>Put <code>CODEOWNERS</code> in <code>.github/</code> on the branch that pull requests target. Only the first file found is read.</li>
+      <li>The last matching line wins and earlier matches are discarded. Order from general to specific.</li>
+      <li>Name teams, put co-owners on the same line, and give every team Write access.</li>
+      <li>Own <code>.github/</code> with the platform team so the file cannot be changed without its approval.</li>
+      <li>Failures are silent, so test with a pull request and read the Reviewers list.</li>
+    </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://docs.github.com/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners">About code owners</a></li>
+        <li><a href="https://git-scm.com/docs/gitignore#_pattern_format">gitignore pattern format</a></li>
+        <li><a href="https://docs.github.com/organizations/managing-user-access-to-your-organizations-repositories/managing-repository-roles/managing-team-access-to-an-organization-repository">Managing team access to an organization repository</a></li>
+        <li><a href="https://docs.github.com/repositories/working-with-files/managing-files/creating-new-files">Creating new files</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

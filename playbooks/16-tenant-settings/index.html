@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Overview and how settings work · Tenant Settings</title>
+<meta name="description" content="What tenant settings are, where to find them, how scoping, delegation and propagation work, and where each group of settings is covered.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="16-tenant-settings" data-page="index.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 16 · Tenant Settings</p>
+      <h1>Tenant Settings Reference and Decision Guide</h1>
+      <p class="lede">Tenant settings are the switchboard that decides which Microsoft Fabric and Power BI features people in your organization can use. This guide explains how the switchboard works, gives you a repeatable way to decide each switch, and documents the settings that matter most with a recommended posture for security-conscious enterprises.</p>
+      <ul class="chips"><li><b>Audience</b> Fabric administrators, security and governance leads</li><li><b>Role needed</b> Fabric Administrator</li><li><b>Format</b> Reference plus decision guide</li></ul>
+    </header>
+<h2 id="purpose">What this guide gives you</h2>
+<p>A new Fabric tenant arrives with defaults chosen for broad adoption. Some of those defaults are fine, some quietly open data paths that a regulated or security-conscious organization would not choose, and a few change in meaning as features mature. Administrators then face dozens of switches with short descriptions and no guidance on <em>who</em> should get each one.</p>
+<p>This playbook closes that gap in three ways.</p>
+<ul>
+  <li><strong>A mental model.</strong> How a setting is evaluated, how groups and exceptions combine, how delegation to domains, capacities and workspaces works, and why tenant settings are governance controls rather than a security boundary.</li>
+  <li><strong>A decision method.</strong> A short framework, a security-group pattern and a rollout sequence so every setting is decided once, owned, and reviewed.</li>
+  <li><strong>A reference.</strong> For each verified setting: its default, a typical enterprise posture (<em>Enable for all</em>, <em>Enable for specific groups</em> or <em>Disable</em>), what it controls, the risk or benefit, and practical notes.</li>
+</ul>
+<div class="callout learn"><p class="callout-title">Verified against Microsoft Learn</p>
+<p>Names, locations, defaults, group support and delegation were checked against the Fabric admin documentation and the tenant settings index. Where a default is not documented, the reference says <em>Not stated</em> instead of guessing. Names and preview labels change, so before acting on a setting, confirm it in your own portal and on <a href="https://learn.microsoft.com/fabric/admin/tenant-settings-index">Tenant settings index</a>.</p></div>
+
+<h2 id="where">Where tenant settings live</h2>
+<p>Tenant settings are managed by someone holding the <strong>Fabric Administrator</strong> role (assigned in Microsoft 365 or Microsoft Entra ID). Fabric organizes them in groups such as Export and sharing, Integration, Developer, OneLake and Copilot.</p>
+<ol class="steps">
+  <li><strong>Open the OneLake catalog</strong><p>Select <em>OneLake catalog</em>, then the <em>Govern</em> tab.</p></li>
+  <li><strong>Go to Configurations</strong><p>Choose <em>Configurations</em>, then <em>Tenant settings</em>. The same area also surfaces capacity and workspace administration.</p></li>
+  <li><strong>Expand a group and a setting</strong><p>Each setting shows a toggle, an <em>Apply to</em> choice, optional group pickers and, where delegation is supported, extra options for domain, capacity or workspace admins. Select <em>Apply</em> to save.</p></li>
+</ol>
+<div class="callout note"><p class="callout-title">Older portal layout</p>
+<p>Portal layouts roll out in stages by region. If you do not see the Govern tab, use the gear icon, <em>Admin portal</em>, then <em>Tenant settings</em>. The settings are the same.</p></div>
+
+<h2 id="states">The five states of a setting</h2>
+<p>Most settings can be shaped with groups. A setting is evaluated for each user in the order shown below.</p>
+<figure class="diagram">
+<svg class="dg" viewBox="0 0 880 290" role="img" aria-label="A setting evaluates in order: is it switched on, is the user in scope, is the user in an exception group. Failing the first two or matching an exception blocks the user">
+<defs><marker id="fig-eval-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker></defs>
+<rect class="box purple" x="20" y="90" width="170" height="56" rx="28"/>
+<text class="t-b" x="105" y="122" text-anchor="middle">Setting enabled?</text>
+<rect class="box purple" x="250" y="90" width="210" height="56" rx="28"/>
+<text class="t-b" x="355" y="114.8" text-anchor="middle">User in scope?</text>
+<text class="t-s" x="355" y="129.6" text-anchor="middle">whole org or a listed group</text>
+<rect class="box purple" x="520" y="90" width="170" height="56" rx="28"/>
+<text class="t-b" x="605" y="122" text-anchor="middle">In an except group?</text>
+<rect class="box green" x="750" y="90" width="110" height="56" rx="10"/>
+<text class="t-b" x="805" y="122" text-anchor="middle">Allowed</text>
+<rect class="box red" x="20" y="200" width="170" height="56" rx="10"/>
+<text class="t-b" x="105" y="224.8" text-anchor="middle">Blocked</text>
+<text class="t-s" x="105" y="239.6" text-anchor="middle">switch is off</text>
+<rect class="box red" x="250" y="200" width="210" height="56" rx="10"/>
+<text class="t-b" x="355" y="224.8" text-anchor="middle">Blocked</text>
+<text class="t-s" x="355" y="239.6" text-anchor="middle">not in an allowed group</text>
+<rect class="box red" x="520" y="200" width="170" height="56" rx="10"/>
+<text class="t-b" x="605" y="224.8" text-anchor="middle">Blocked</text>
+<text class="t-s" x="605" y="239.6" text-anchor="middle">most restrictive wins</text>
+<path class="ln" d="M190 118L248 118" marker-end="url(#fig-eval-a)"/>
+<text class="t-s c-green" x="219" y="110" text-anchor="middle">yes</text>
+<path class="ln" d="M460 118L518 118" marker-end="url(#fig-eval-a)"/>
+<text class="t-s c-green" x="489" y="110" text-anchor="middle">yes</text>
+<path class="ln" d="M690 118L748 118" marker-end="url(#fig-eval-a)"/>
+<text class="t-s c-green" x="719" y="110" text-anchor="middle">no</text>
+<path class="ln" d="M105 146L105 198" marker-end="url(#fig-eval-a)"/>
+<text class="t-s c-red" x="117" y="176">no</text>
+<path class="ln" d="M355 146L355 198" marker-end="url(#fig-eval-a)"/>
+<text class="t-s c-red" x="367" y="176">no</text>
+<path class="ln" d="M605 146L605 198" marker-end="url(#fig-eval-a)"/>
+<text class="t-s c-red" x="617" y="176">yes</text>
+<text class="t-s" x="440" y="276" text-anchor="middle">Org-wide-only settings have no group step: the switch decides.</text>
+</svg>
+<figcaption><b>How one setting is evaluated for one user.</b> Three checks decide the outcome. Exception groups always win because the most restrictive setting for a user applies; settings that apply to the entire organization skip the group check.</figcaption>
+</figure>
+<table>
+  <thead><tr><th>State</th><th>Meaning</th><th>Typical use</th></tr></thead>
+  <tbody>
+    <tr><td><strong>Disabled for the entire organization</strong></td><td>Nobody gets the feature.</td><td>Features you have decided against, or have not reviewed yet.</td></tr>
+    <tr><td><strong>Enabled for the entire organization</strong></td><td>Everybody gets it.</td><td>Low-risk convenience features.</td></tr>
+    <tr><td><strong>Enabled for the entire organization except specific security groups</strong></td><td>Everybody except members of the excluded groups.</td><td>Broadly useful features where a restricted population must be carved out.</td></tr>
+    <tr><td><strong>Enabled for specific security groups</strong></td><td>Only members of the listed groups.</td><td>The default pattern for anything that moves data or code out of governed stores.</td></tr>
+    <tr><td><strong>Enabled for specific security groups except specific security groups</strong></td><td>Members of the allow groups who are not in an exception group.</td><td>Allow-list with a hard stop for restricted users.</td></tr>
+  </tbody>
+</table>
+<div class="callout important"><p class="callout-title">The most restrictive setting wins</p>
+<p>When a user falls under both an allow group and an exception group, the exception applies. This is what makes a small, well-owned exception group an effective safety net for the highest-risk population.</p></div>
+
+<h3 id="org-only">Settings that apply to the whole organization</h3>
+<p>Some settings show a note that they apply to the entire organization and offer no group picker. For these, the toggle is the only control, so the decision is all or nothing. Plan compensating controls such as policy, review and monitoring where you cannot scope them.</p>
+<ul>
+  <li><a href="workspace-git-onelake.html#s-block-myworkspace">Block users from reassigning personal workspaces (My Workspace)</a></li>
+  <li><a href="content-models.html#s-gen1-dataflows">Create and use Gen1 dataflows</a></li>
+  <li><a href="integration-api.html#s-block-resourcekey">Block ResourceKey Authentication</a></li>
+  <li><a href="integration-api.html#s-arcgis">Use ArcGIS Maps for Power BI</a> and <a href="integration-api.html#s-azure-maps-visual">Users can use the Azure Maps visual</a></li>
+  <li><a href="integration-api.html#s-onedrive-view">Users can view Power BI files saved in OneDrive and SharePoint</a> and <a href="integration-api.html#s-onedrive-share">Users can share links to Power BI files stored in OneDrive and SharePoint through Power BI Desktop</a></li>
+  <li><a href="integration-api.html#s-eventstream-key-auth">Allow non-Entra ID auth in Eventstream</a></li>
+  <li><a href="content-models.html#s-certified-visuals-only">Add and use certified visuals only (block uncertified)</a></li>
+  <li><a href="ai-preview-other.html#s-explore">Users with view permission can launch Explore</a></li>
+  <li><a href="ai-preview-other.html#s-ux-experiments">Help Power BI optimize your experience</a></li>
+  <li><a href="workspace-git-onelake.html#s-onelake-file-explorer">Users can sync data in OneLake with the OneLake File Explorer app</a></li>
+</ul>
+<div class="callout learn"><p class="callout-title">Confirm group support in your portal</p>
+<p>Scoping options can change as features evolve. A setting that has no group picker in your portal is organization-wide at that point in time, whatever this list says.</p></div>
+
+<h2 id="hierarchy">Hierarchy and delegation</h2>
+<p>The tenant is the top of a four-level hierarchy. A Fabric administrator can leave a setting at tenant level, or delegate it so that lower-level administrators can override it for their own scope.</p>
+<figure class="diagram">
+<svg class="dg" viewBox="0 0 860 340" role="img" aria-label="Tenant settings start at the tenant. Each setting may be delegated to either domains or capacities, never both, and then to workspaces. Some settings can also be delegated directly to workspaces">
+<defs><marker id="fig-hier-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker><marker id="fig-hier-a-blue" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar blue" d="M0 0L10 5L0 10z"/></marker><marker id="fig-hier-a-gray" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar gray" d="M0 0L10 5L0 10z"/></marker><marker id="fig-hier-a-purple" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar purple" d="M0 0L10 5L0 10z"/></marker></defs>
+<rect class="zone purple" x="290" y="24" width="250" height="272" rx="12"/>
+<text class="t-s" x="304" y="43">Either one, never both</text>
+<rect class="box purple" x="20" y="112" width="190" height="96" rx="10"/>
+<text class="t-h" x="115" y="150" text-anchor="middle">Tenant</text>
+<text class="t-s" x="115" y="165.4" text-anchor="middle">Fabric administrator</text>
+<text class="t-s" x="115" y="179.9" text-anchor="middle">every setting starts here</text>
+<rect class="box blue" x="310" y="58" width="210" height="84" rx="10"/>
+<text class="t-h" x="415" y="82.7" text-anchor="middle">Domain</text>
+<text class="t-s" x="415" y="98.1" text-anchor="middle">domain admin</text>
+<text class="t-s" x="415" y="112.6" text-anchor="middle">a few settings, such as</text>
+<text class="t-s" x="415" y="127.1" text-anchor="middle">certification and labels</text>
+<rect class="box blue" x="310" y="180" width="210" height="84" rx="10"/>
+<text class="t-h" x="415" y="204.7" text-anchor="middle">Capacity</text>
+<text class="t-s" x="415" y="220.1" text-anchor="middle">capacity admin</text>
+<text class="t-s" x="415" y="234.6" text-anchor="middle">Delegated tenant</text>
+<text class="t-s" x="415" y="249.1" text-anchor="middle">settings tab</text>
+<rect class="box green" x="640" y="112" width="200" height="96" rx="10"/>
+<text class="t-h" x="740" y="142.7" text-anchor="middle">Workspace</text>
+<text class="t-s" x="740" y="158.1" text-anchor="middle">workspace admin</text>
+<text class="t-s" x="740" y="172.6" text-anchor="middle">only where delegated</text>
+<text class="t-s" x="740" y="187.1" text-anchor="middle">and supported</text>
+<path class="ln purple" d="M210 160L250 160L250 100L308 100" marker-end="url(#fig-hier-a-purple)"/>
+<path class="ln purple" d="M250 160L250 222L308 222" marker-end="url(#fig-hier-a-purple)"/>
+<rect class="pill-bg" x="216" y="152" width="68" height="15"/>
+<text class="t-s" x="250" y="163.5" text-anchor="middle">delegates</text>
+<path class="ln blue" d="M520 100L580 100L580 150L638 150" marker-end="url(#fig-hier-a-blue)"/>
+<path class="ln blue" d="M520 222L580 222L580 170L638 170" marker-end="url(#fig-hier-a-blue)"/>
+<rect class="pill-bg" x="546" y="152" width="68" height="15"/>
+<text class="t-s" x="580" y="163.5" text-anchor="middle">delegates</text>
+<path class="ln dash gray" d="M115 208L115 320L740 320L740 210" marker-end="url(#fig-hier-a-gray)"/>
+<rect class="pill-bg" x="296" y="312" width="264" height="15"/>
+<text class="t-s" x="428" y="323.5" text-anchor="middle">direct delegation, supported settings only</text>
+</svg>
+<figcaption><b>Delegation path.</b> The Fabric administrator owns every setting. Where a setting supports delegation, it passes to domain admins or capacity admins (not both for the same setting) and can reach workspace admins; the dashed route skips the middle layer for settings that support direct workspace delegation.</figcaption>
+</figure>
+<table>
+  <thead><tr><th>Level</th><th>Who</th><th>Where the override lives</th><th>Examples</th></tr></thead>
+  <tbody>
+    <tr><td><strong>Tenant</strong></td><td>Fabric administrator</td><td>Tenant settings</td><td>Every setting.</td></tr>
+    <tr><td><strong>Capacity</strong></td><td>Capacity admin</td><td>Capacity settings, <em>Delegated tenant settings</em> tab, with <em>Override tenant admin selection</em></td><td><a href="workspace-git-onelake.html#s-fabric-items">Users can create Fabric items</a> (delegated automatically), the Copilot and Azure OpenAI settings, Git switches, Azure AI services processing.</td></tr>
+    <tr><td><strong>Domain</strong></td><td>Domain admin</td><td>Domain settings, <em>Delegated settings</em> tab</td><td><a href="export-sharing.html#s-certification">Certification</a> and <a href="content-models.html#s-label-domain-default">Domain admins can set default sensitivity labels for their domains</a>.</td></tr>
+    <tr><td><strong>Workspace</strong></td><td>Workspace admin</td><td>Workspace settings, only where delegated and supported</td><td><a href="ai-preview-other.html#s-copilot-approved">Only show approved items in the standalone Copilot in Power BI experience</a>, <a href="workspace-git-onelake.html#s-onelake-sas-auth">Authenticate with OneLake user-delegated SAS tokens</a>, Git switches, workspace network rules.</td></tr>
+  </tbody>
+</table>
+<ul>
+  <li>A setting is delegated <strong>through domains or through capacities, not both</strong>, which keeps ownership unambiguous.</li>
+  <li>After delegating to a domain or capacity, some settings can be delegated again to workspaces. Tenant administrators can also delegate directly to workspaces. Some settings offer no workspace option.</li>
+  <li>An override at a lower level affects only the workspaces or items in that scope.</li>
+</ul>
+<div class="callout warning"><p class="callout-title">Delegation moves the decision, not the accountability</p>
+<p>A delegated setting can end up different from your tenant choice in individual capacities, domains or workspaces. If you delegate, also schedule a review of the overrides. The administration APIs list capacity, domain and workspace overrides, which makes this checkable (see <a href="operations.html#snapshot">Snapshot-and-diff</a>).</p></div>
+
+<h2 id="propagation">Propagation, audit and the API</h2>
+<ul>
+  <li><strong>Propagation.</strong> Changes can take up to about 15 minutes to reach every user. Some features take longer: <a href="workspace-git-onelake.html#s-block-public">Block Public Internet Access</a> can take 10 to 20 minutes. Tell users to sign out and in before testing.</li>
+  <li><strong>The settings API.</strong> The Fabric administration API returns every tenant setting with its state and group lists, which makes inventory and drift detection scriptable. See the next table.</li>
+  <li><strong>Audit.</strong> Delegation changes and many data-movement events appear in the Microsoft Purview audit log. For tenant-level toggles, confirm what your log records and rely on snapshots for state. Operation names are listed on the <a href="operations.html#audit">operations page</a>.</li>
+</ul>
+<dl class="kv">
+  <dt>Endpoint</dt><dd><code>GET https://api.fabric.microsoft.com/v1/admin/tenantsettings</code>, with an optional <code>continuationToken</code> for paging.</dd>
+  <dt>Permissions</dt><dd>Caller is a Fabric administrator or a service principal. Delegated scope <code>Tenant.Read.All</code> or <code>Tenant.ReadWrite.All</code>. Limit of 25 requests per minute.</dd>
+  <dt>Key fields</dt><dd><code>settingName</code>, <code>title</code>, <code>enabled</code>, <code>canSpecifySecurityGroups</code>, <code>enabledSecurityGroups</code>, <code>excludedSecurityGroups</code>, <code>delegateToCapacity</code>, <code>delegateToDomain</code>, <code>delegateToWorkspace</code>, <code>properties</code>, <code>tenantSettingGroup</code>.</dd>
+  <dt>Overrides</dt><dd>Separate list operations return the overrides set on capacities, domains and workspaces. An update operation changes a tenant setting from code.</dd>
+</dl>
+
+<h2 id="not-a-boundary">Tenant settings are not a security boundary</h2>
+<p>A tenant setting switches a <em>feature</em> on or off for a population. It does not revoke the underlying permission. A user with Read and Build permission on a semantic model can still query it through any path whose own setting is open, and row-level security still filters the result on every path.</p>
+<figure class="diagram">
+<svg class="dg" viewBox="0 0 880 296" role="img" aria-label="Disabling the Export to Excel setting blocks one path, but a user with Build permission can still reach model data through Analyze in Excel, XMLA clients and the Execute Queries API, each gated by its own setting">
+<defs><marker id="fig-bound-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker><marker id="fig-bound-a-orange" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar orange" d="M0 0L10 5L0 10z"/></marker><marker id="fig-bound-a-red" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar red" d="M0 0L10 5L0 10z"/></marker></defs>
+<rect class="box blue" x="20" y="100" width="170" height="96" rx="10"/>
+<text class="t-h" x="105" y="136.2" text-anchor="middle">User with</text>
+<text class="t-h" x="105" y="154.2" text-anchor="middle">Read and Build</text>
+<text class="t-s" x="105" y="169.6" text-anchor="middle">on the semantic model</text>
+<rect class="box purple" x="700" y="100" width="160" height="96" rx="10"/>
+<text class="t-h" x="780" y="138" text-anchor="middle">Semantic model</text>
+<text class="t-s" x="780" y="153.4" text-anchor="middle">RLS and OLS</text>
+<text class="t-s" x="780" y="167.9" text-anchor="middle">still apply</text>
+<rect class="box red" x="300" y="14" width="270" height="52" rx="10"/>
+<text class="t-b" x="435" y="36.8" text-anchor="middle">Export to Excel or .csv</text>
+<text class="t-s" x="435" y="51.6" text-anchor="middle">tenant setting: disabled</text>
+<path class="ln dash red" d="M190 148L244 148L244 40L298 40" marker-end="url(#fig-bound-a-red)"/>
+<rect class="pill-bg" x="216" y="32" width="56" height="15"/>
+<text class="t-s" x="244" y="43.5" text-anchor="middle">blocked</text>
+<path class="ln dash red" d="M570 40L630 40"/>
+<rect class="box orange" x="300" y="84" width="270" height="52" rx="10"/>
+<text class="t-b" x="435" y="106.8" text-anchor="middle">Analyze in Excel</text>
+<text class="t-s" x="435" y="121.6" text-anchor="middle">own setting: live connection</text>
+<path class="ln orange" d="M190 148L244 148L244 110L298 110" marker-end="url(#fig-bound-a-orange)"/>
+<path class="ln orange" d="M570 110L630 110L630 148L698 148" marker-end="url(#fig-bound-a-orange)"/>
+<rect class="box orange" x="300" y="154" width="270" height="52" rx="10"/>
+<text class="t-b" x="435" y="176.8" text-anchor="middle">XMLA client tools</text>
+<text class="t-s" x="435" y="191.6" text-anchor="middle">own setting plus capacity mode</text>
+<path class="ln orange" d="M190 148L244 148L244 180L298 180" marker-end="url(#fig-bound-a-orange)"/>
+<path class="ln orange" d="M570 180L630 180L630 148L698 148" marker-end="url(#fig-bound-a-orange)"/>
+<rect class="box orange" x="300" y="224" width="270" height="52" rx="10"/>
+<text class="t-b" x="435" y="246.8" text-anchor="middle">Execute Queries API</text>
+<text class="t-s" x="435" y="261.6" text-anchor="middle">own setting: REST API</text>
+<path class="ln orange" d="M190 148L244 148L244 250L298 250" marker-end="url(#fig-bound-a-orange)"/>
+<path class="ln orange" d="M570 250L630 250L630 148L698 148" marker-end="url(#fig-bound-a-orange)"/>
+</svg>
+<figcaption><b>Each egress path has its own switch.</b> Closing one path does not close the others. Row-level security still filters what each path returns, but only permissions decide whether the user can query the model at all.</figcaption>
+</figure>
+<p>The practical consequences are worth stating plainly.</p>
+<ul>
+  <li><strong>Close the whole family.</strong> If your intent is "no bulk extraction", review export, Analyze in Excel, XMLA, Execute Queries and download settings together.</li>
+  <li><strong>Permissions come first.</strong> Workspace roles, item permissions, Build permission, row-level security and OneLake security decide what a person can read. Tenant settings decide which tools they may use to read it.</li>
+  <li><strong>Labels and monitoring complete the picture.</strong> Sensitivity labels protect exported files on supported paths; audit logs and usage monitoring show what actually happened.</li>
+</ul>
+
+<h2 id="reading">How the reference pages read</h2>
+<p>Each reference page uses the same fields so settings can be compared quickly.</p>
+<table>
+  <thead><tr><th>Field</th><th>What it tells you</th></tr></thead>
+  <tbody>
+    <tr><td><strong>Setting</strong></td><td>The exact name used in the tenant settings page and index. Where Learn uses two spellings, the alternative is mentioned in the notes.</td></tr>
+    <tr><td><strong>Default</strong></td><td>On or Off when the documentation states it; <em>Not stated</em> otherwise. Capture your own defaults with the API before you change anything.</td></tr>
+    <tr><td><strong>Typical posture</strong></td><td>My recommended starting point for a security-conscious enterprise. It is advice, not a Microsoft recommendation, and it should be adjusted to your risk appetite.</td></tr>
+    <tr><td><strong>What it controls; risk or benefit</strong></td><td>The behavior behind the toggle and the trade-off.</td></tr>
+    <tr><td><strong>Notes</strong></td><td>Scoping, delegation, dependencies, audit events and compensating controls.</td></tr>
+  </tbody>
+</table>
+<table>
+  <thead><tr><th>Posture</th><th>Meaning</th><th>Used for</th></tr></thead>
+  <tbody>
+    <tr><td class="yes">Enable for all</td><td>On for the entire organization.</td><td>Low-risk features and guardrails that should apply to everyone.</td></tr>
+    <tr><td class="maybe">Enable for specific groups</td><td>On for named security groups, optionally minus an exception group.</td><td>Capabilities with real value and real exposure: exports, downloads, APIs, Git, Copilot pilots.</td></tr>
+    <tr><td class="no">Disable</td><td>Off for the entire organization.</td><td>Legacy, public, third-party-processing or preview features without an approved use case.</td></tr>
+    <tr><td><strong>Decide per organization</strong></td><td>Depends on network design, licensing or policy.</td><td>Private Link, customer-managed keys, Purview integration, privacy settings.</td></tr>
+  </tbody>
+</table>
+<p>A <span class="badge preview">Preview</span> badge means Microsoft Learn labels the setting or its feature as preview. Treat preview features as candidates for a sandbox group, and confirm status on Learn before widening access.</p>
+
+<h2 id="map">Where to go next</h2>
+<div class="cards">
+  <a class="card purple" href="framework.html"><span class="card-num">02</span><h3>Decision framework and rollout</h3><p>Security-group pattern, rollout phases and review cadence.</p></a>
+  <a class="card red" href="export-sharing.html"><span class="card-num">03</span><h3>Export and sharing</h3><p>Exports, links, publish to web, guests and external data sharing.</p></a>
+  <a class="card blue" href="content-models.html"><span class="card-num">04</span><h3>Content, models and discovery</h3><p>Labels, discovery, apps, visuals, legacy dataflows and datamarts.</p></a>
+  <a class="card teal" href="integration-api.html"><span class="card-num">05</span><h3>Integration, developer and APIs</h3><p>XMLA, Execute Queries, service principals and admin APIs.</p></a>
+  <a class="card green" href="workspace-git-onelake.html"><span class="card-num">06</span><h3>Workspaces, Git, OneLake and items</h3><p>Fabric items, Git, OneLake access, networking and encryption.</p></a>
+  <a class="card orange" href="ai-preview-other.html"><span class="card-num">07</span><h3>AI, preview and experimental</h3><p>Copilot, agents, preview item types, audit and usage.</p></a>
+  <a class="card silver" href="matrix.html"><span class="card-num">08</span><h3>Quick reference matrix</h3><p>Every setting, one row, with default and posture.</p></a>
+  <a class="card gold" href="operations.html"><span class="card-num">09</span><h3>Change control and troubleshooting</h3><p>Change records, drift detection, audit events and symptom-to-setting guide.</p></a>
+</div>
+
+<div class="takeaways"><p class="tk-title">Key takeaways</p>
+<ul>
+  <li>Snapshot every tenant setting with the administration API before you change anything, and keep that snapshot as the baseline.</li>
+  <li>Use <em>Enabled for specific groups</em> as the default pattern for anything that moves data or code out of governed stores, and keep an exception group for restricted populations.</li>
+  <li>Remember that exception groups win and that some settings cannot be scoped at all; plan compensating controls for those.</li>
+  <li>Treat tenant settings as feature gates, not a security boundary: permissions, labels, network controls and audit do the rest.</li>
+  <li>Decide whether to delegate a setting to capacities or domains, and then review the overrides on a schedule.</li>
+</ul></div>
+
+<section class="refs">
+  <h2 id="refs">References</h2>
+  <ul>
+    <li><a href="https://learn.microsoft.com/fabric/admin/about-tenant-settings">About tenant settings</a></li>
+    <li><a href="https://learn.microsoft.com/fabric/admin/tenant-settings-index">Tenant settings index</a></li>
+    <li><a href="https://learn.microsoft.com/fabric/admin/delegate-settings">Delegate tenant settings</a></li>
+    <li><a href="https://learn.microsoft.com/fabric/admin/capacity-settings">Manage your Fabric capacity: delegated tenant settings</a></li>
+    <li><a href="https://learn.microsoft.com/rest/api/fabric/admin/tenants/list-tenant-settings">Tenants: List Tenant Settings (Fabric REST API)</a></li>
+    <li><a href="https://learn.microsoft.com/fabric/admin/admin-center">What is the admin portal?</a></li>
+  </ul>
+</section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

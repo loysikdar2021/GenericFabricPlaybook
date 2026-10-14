@@ -1,0 +1,18 @@
+{
+  "id": "09-variable-libraries",
+  "number": "09",
+  "title": "Variable Libraries",
+  "short": "Variable Libraries",
+  "summary": "Hold stage-specific values (item IDs, connections, sizes, flags) in one Fabric item with a value set per stage, and let pipelines, notebooks, dataflows and shortcuts read the active set at run time.",
+  "category": "alm",
+  "level": "Intermediate",
+  "audience": "Data engineers, platform engineers, release managers",
+  "readingTime": "65 min",
+  "pages": [
+    { "file": "index.html", "title": "Overview", "description": "The problem with stage-specific values scattered through items, what a variable library is and is not, when to use it, prerequisites and a map of the playbook." },
+    { "file": "concepts.html", "title": "Concepts and anatomy", "description": "Variable types, default and alternative value sets, the active value set as workspace state, naming rules, limits and the permission model." },
+    { "file": "build-and-consume.html", "title": "Create and consume variables", "description": "Create a library, then read it from pipelines, notebooks, dataflows, shortcuts and other items, with the supported types and limits of each consumer." },
+    { "file": "cicd-promotion.html", "title": "Promotion, Git and automation", "description": "How libraries behave in deployment pipelines and Git, the step after the first deployment, deployment rules compared, the REST API and a scripted activation." },
+    { "file": "example-and-operations.html", "title": "Worked example and operations", "description": "A DEV, TST and PRD example end to end, anti-patterns, a troubleshooting table and the validation checklist." }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "id": "11-org-apps",
+  "number": "11",
+  "title": "Organizational Apps",
+  "short": "Org Apps",
+  "summary": "Package reports, notebooks, real-time dashboards and other Fabric items into governed, audience-aware org apps, and manage their access, ALM and lifecycle.",
+  "category": "analytics",
+  "level": "Intermediate",
+  "audience": "BI developers, Fabric and Power BI administrators, analytics architects",
+  "readingTime": "65 min",
+  "pages": [
+    { "file": "index.html", "title": "Overview", "description": "What org apps are, when to use them, status of the capabilities, prerequisites at a glance and a map of the playbook." },
+    { "file": "concepts.html", "title": "Concepts and choosing an app model", "description": "Anatomy of an org app, live references versus snapshots, how access propagates, and a decision table against workspace apps, embedding, template apps and Fabric Apps." },
+    { "file": "prerequisites.html", "title": "Prerequisites and governance", "description": "Tenant settings, workspace types and capacity, per-user licenses, workspace roles, the write-and-reshare rule and a pre-flight checklist." },
+    { "file": "build.html", "title": "Build and customize an org app", "description": "Audience-first design, step-by-step creation, content curation, navigation, overview page, branding, preview and save." },
+    { "file": "content.html", "title": "Integrating Fabric and Power BI items", "description": "Supported item types, what each grants to consumers, Direct Lake and Real-Time Dashboard identity models, and where access is not propagated." },
+    { "file": "access-alm.html", "title": "Access, ALM and lifecycle", "description": "Sharing, audiences, revoking access, Git integration, deployment pipelines, updating and deleting an org app." },
+    { "file": "practices.html", "title": "Practices, pitfalls and roadmap", "description": "Best practices, symptom-to-fix troubleshooting, consumer surfaces, how to track capability changes, and a final checklist." }
+  ]
+}

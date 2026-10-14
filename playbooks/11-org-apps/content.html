@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Integrating Fabric and Power BI items · Org Apps</title>
+<meta name="description" content="Which item types an org app can include, what each grants to consumers, how Direct Lake and Real-Time Dashboard identity models change what viewers need, and where you must still grant data access yourself.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="11-org-apps" data-page="content.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 11 · Organizational Apps</p>
+      <h1>Integrating Fabric and Power BI items</h1>
+      <p class="lede">An org app is only as useful as the items you can put in it and only as safe as your understanding of what each item type does to access. This page covers every supported item type, what consumers experience, what the app grants automatically, and what you still have to grant yourself.</p>
+    </header>
+
+    <h2 id="supported">What you can include</h2>
+    <p>Items come from the app's own workspace and are picked with <strong>Add content</strong>. The documentation lists Power BI reports, paginated reports, Fabric notebooks, Real-Time Dashboards, Maps and Fabric Apps (preview), plus navigation elements you add yourself: overview, sections and links.</p>
+    <table>
+      <thead><tr><th>Item type</th><th>Documented status</th><th>Consumer experience</th><th>Granted by the app</th><th>Still your job</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Power BI report</strong></td><td><span class="badge info">Supported</span></td><td>Fully interactive report</td><td>Read on the report and on its semantic model, in the same or another workspace</td><td>Data-layer access behind the model (Direct Lake with single sign-on)</td></tr>
+        <tr><td><strong>Paginated report</strong></td><td><span class="badge info">Supported</span></td><td>Rendered report; email subscriptions are not supported</td><td>Read on the report and on its semantic model</td><td>A paginated report referenced by a report visual is not covered</td></tr>
+        <tr><td><strong>Fabric notebook</strong></td><td><span class="badge info">Supported</span> (verify)</td><td>Read-only view with interactive outputs</td><td>Read on the notebook</td><td>What the saved outputs reveal</td></tr>
+        <tr><td><strong>Real-Time Dashboard</strong></td><td><span class="badge info">Supported</span></td><td>Live KQL-based tiles</td><td>Read on the dashboard</td><td>Access to the KQL database, unless the editor's identity is used</td></tr>
+        <tr><td><strong>Map</strong></td><td><span class="badge info">Supported</span></td><td>Map layers over real-time and historical location data</td><td>Read on the map</td><td>Access to the map's data sources</td></tr>
+        <tr><td><strong>Fabric App</strong></td><td><span class="badge preview">Preview</span></td><td>The hosted application</td><td>Read and Execute</td><td>The app's related items (databases it reads or writes)</td></tr>
+        <tr><td><strong>Link</strong></td><td>Navigation element</td><td>Opens embedded or in a new tab</td><td>Nothing</td><td>Whatever the target requires</td></tr>
+      </tbody>
+    </table>
+    <p>Classic dashboards and scorecards are not eligible items. Plan around that if your current workspace app leans on them.</p>
+
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 880 350" role="img" aria-label="The org app grants Read on every included item and on the semantic model behind reports and paginated reports, but not on data stores behind real-time items or Direct Lake models, nor on a Fabric App's related items">
+        <defs>
+          <marker id="fig-cnt-1-ag" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-cnt-1-ar" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar red" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box green" x="20" y="150" width="130" height="100" rx="12"/>
+        <text class="t-h" x="85" y="196" text-anchor="middle">Org app</text>
+        <text class="t-s" x="85" y="214" text-anchor="middle">grants access</text>
+        <rect class="box blue" x="250" y="40" width="210" height="36" rx="8"/>
+        <text class="t-b" x="355" y="55" text-anchor="middle">Power BI report</text>
+        <text class="t-s" x="355" y="69" text-anchor="middle">Read: item + model</text>
+        <rect class="box blue" x="250" y="90" width="210" height="36" rx="8"/>
+        <text class="t-b" x="355" y="105" text-anchor="middle">Paginated report</text>
+        <text class="t-s" x="355" y="119" text-anchor="middle">Read: item + model</text>
+        <rect class="box blue" x="250" y="140" width="210" height="36" rx="8"/>
+        <text class="t-b" x="355" y="155" text-anchor="middle">Notebook</text>
+        <text class="t-s" x="355" y="169" text-anchor="middle">Read: read-only view</text>
+        <rect class="box blue" x="250" y="190" width="210" height="36" rx="8"/>
+        <text class="t-b" x="355" y="205" text-anchor="middle">Real-Time Dashboard</text>
+        <text class="t-s" x="355" y="219" text-anchor="middle">Read: item only</text>
+        <rect class="box blue" x="250" y="240" width="210" height="36" rx="8"/>
+        <text class="t-b" x="355" y="255" text-anchor="middle">Map</text>
+        <text class="t-s" x="355" y="269" text-anchor="middle">Read: item only</text>
+        <rect class="box blue" x="250" y="290" width="210" height="36" rx="8"/>
+        <text class="t-b" x="355" y="305" text-anchor="middle">Fabric App (preview)</text>
+        <text class="t-s" x="355" y="319" text-anchor="middle">Read + Execute</text>
+
+        <rect class="box blue" x="620" y="40" width="240" height="88" rx="10"/>
+        <text class="t-b" x="740" y="72" text-anchor="middle">Semantic model</text>
+        <text class="t-s" x="740" y="90" text-anchor="middle">same or another workspace</text>
+        <text class="t-s" x="740" y="106" text-anchor="middle">Read granted by the app</text>
+        <rect class="box gray" x="620" y="186" width="240" height="92" rx="10"/>
+        <text class="t-b" x="740" y="208" text-anchor="middle">Data stores</text>
+        <text class="t-s" x="740" y="226" text-anchor="middle">eventhouse, lakehouse,</text>
+        <text class="t-s" x="740" y="241" text-anchor="middle">warehouse behind the items</text>
+        <text class="t-s c-red" x="740" y="258" text-anchor="middle">not granted by the app</text>
+        <rect class="box gray" x="620" y="290" width="240" height="44" rx="10"/>
+        <text class="t-b" x="740" y="309" text-anchor="middle">Fabric App related items</text>
+        <text class="t-s c-red" x="740" y="324" text-anchor="middle">not managed by the app</text>
+
+        <path class="ln green" d="M150 200H200V58H248" marker-end="url(#fig-cnt-1-ag)"/>
+        <path class="ln green" d="M150 200H200V108H248" marker-end="url(#fig-cnt-1-ag)"/>
+        <path class="ln green" d="M150 200H200V158H248" marker-end="url(#fig-cnt-1-ag)"/>
+        <path class="ln green" d="M150 200H200V208H248" marker-end="url(#fig-cnt-1-ag)"/>
+        <path class="ln green" d="M150 200H200V258H248" marker-end="url(#fig-cnt-1-ag)"/>
+        <path class="ln green" d="M150 200H200V308H248" marker-end="url(#fig-cnt-1-ag)"/>
+        <path class="ln green" d="M460 58H618" marker-end="url(#fig-cnt-1-ag)"/>
+        <path class="ln green" d="M460 108H618" marker-end="url(#fig-cnt-1-ag)"/>
+        <path class="ln red dash" d="M460 208H618" marker-end="url(#fig-cnt-1-ar)"/>
+        <path class="ln red dash" d="M460 258H618" marker-end="url(#fig-cnt-1-ar)"/>
+        <path class="ln red dash" d="M460 308H618" marker-end="url(#fig-cnt-1-ar)"/>
+        <rect class="pill-bg" x="514" y="38" width="52" height="14"/>
+        <text class="t-s" x="540" y="49" text-anchor="middle">Read</text>
+        <rect class="pill-bg" x="499" y="190" width="82" height="14"/>
+        <text class="t-s c-red" x="540" y="201" text-anchor="middle">not granted</text>
+      </svg>
+      <figcaption><b>Where access stops.</b> The documentation's propagation list covers the included items and the semantic models behind reports and paginated reports. It does not mention the data stores behind real-time items or Direct Lake models, so those grants, shown as dashed red edges, are yours to design and test.</figcaption>
+    </figure>
+
+    <h2 id="reports">Power BI reports and their models</h2>
+    <p>Reports are the common case and the simplest: add them from the picker. When a user is given access to the app, the platform grants Read on the report and on the semantic model behind it. The part that used to be painful is cross-workspace models. If a report in workspace A is built on a model in workspace B, sharing the app from workspace A grants the user access to the model in B, provided the app's author has the right to reshare that model.</p>
+    <div class="callout warning"><p class="callout-title">Read on the model is not read on the data</p>
+      <p>Item permissions and data permissions are different layers. The app grants the first. Whether a consumer can actually query the data depends on how the model connects to its source.</p></div>
+    <h3 id="direct-lake">Direct Lake models: what consumers need</h3>
+    <p>A common assumption is that consumers always need <code>ReadData</code> on the lakehouse. That is only one of several cases. The identity the model uses to read the data decides what consumers need, and Direct Lake uses single sign-on (the consumer's identity) by default.</p>
+    <table>
+      <thead><tr><th>Direct Lake configuration</th><th>Identity used</th><th>What a consumer needs beyond the app's grants</th></tr></thead>
+      <tbody>
+        <tr><td><strong>On SQL analytics endpoint, single sign-on (default)</strong></td><td>The consumer</td><td>Read on the lakehouse or warehouse item and SELECT on the tables through the SQL analytics endpoint; no direct OneLake read is required</td></tr>
+        <tr><td><strong>On OneLake, single sign-on, OneLake security off</strong></td><td>The consumer</td><td>Read and ReadAll on the Fabric item; workspace Contributors and above have them, Viewers do not</td></tr>
+        <tr><td><strong>On OneLake, single sign-on, OneLake security on</strong></td><td>The consumer</td><td>Membership in a OneLake security role that grants read; object-level and row-level rules are enforced per user</td></tr>
+        <tr><td><strong>Either mode, fixed identity (single sign-on disabled on the cloud connection)</strong></td><td>The connection's identity</td><td>Nothing at the data layer; grant the fixed identity Read and SELECT (or ReadAll) and do not give consumers permissions on the source item</td></tr>
+      </tbody>
+    </table>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 880 300" role="img" aria-label="With single sign-on the lakehouse checks the consumer's own rights; with a fixed identity a cloud connection reads the lakehouse and the consumer needs no data-layer rights">
+        <defs>
+          <marker id="fig-cnt-2-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="lane" x="16" y="16" width="848" height="124"/>
+        <text class="t-h" x="32" y="38">Single sign-on (default)</text>
+        <rect class="box gray" x="40" y="56" width="130" height="48" rx="8"/>
+        <text class="t-b" x="105" y="76" text-anchor="middle">Consumer</text>
+        <text class="t-s" x="105" y="92" text-anchor="middle">has app access</text>
+        <rect class="box blue" x="250" y="56" width="150" height="48" rx="8"/>
+        <text class="t-b" x="325" y="76" text-anchor="middle">Semantic model</text>
+        <text class="t-s" x="325" y="92" text-anchor="middle">Direct Lake</text>
+        <rect class="box blue" x="730" y="56" width="130" height="48" rx="8"/>
+        <text class="t-b" x="795" y="76" text-anchor="middle">Lakehouse</text>
+        <text class="t-s" x="795" y="92" text-anchor="middle">or SQL endpoint</text>
+        <path class="ln" d="M170 80H248" marker-end="url(#fig-cnt-2-a)"/>
+        <rect class="pill-bg" x="188" y="62" width="42" height="14"/>
+        <text class="t-s" x="209" y="73" text-anchor="middle">opens</text>
+        <path class="ln" d="M400 80H728" marker-end="url(#fig-cnt-2-a)"/>
+        <rect class="pill-bg" x="490" y="62" width="150" height="14"/>
+        <text class="t-s" x="565" y="73" text-anchor="middle">as the consumer</text>
+        <text class="t-s c-orange" x="40" y="124">needs data-layer rights</text>
+        <text class="t-s c-orange" x="860" y="124" text-anchor="end">Read + SELECT, or ReadAll or a OneLake security role</text>
+
+        <rect class="lane" x="16" y="158" width="848" height="124"/>
+        <text class="t-h" x="32" y="180">Fixed identity (single sign-on off)</text>
+        <rect class="box gray" x="40" y="198" width="130" height="48" rx="8"/>
+        <text class="t-b" x="105" y="218" text-anchor="middle">Consumer</text>
+        <text class="t-s" x="105" y="234" text-anchor="middle">has app access</text>
+        <rect class="box blue" x="250" y="198" width="150" height="48" rx="8"/>
+        <text class="t-b" x="325" y="218" text-anchor="middle">Semantic model</text>
+        <text class="t-s" x="325" y="234" text-anchor="middle">Direct Lake</text>
+        <rect class="box purple" x="490" y="198" width="150" height="48" rx="8"/>
+        <text class="t-b" x="565" y="218" text-anchor="middle">Cloud connection</text>
+        <text class="t-s" x="565" y="234" text-anchor="middle">fixed identity</text>
+        <rect class="box blue" x="730" y="198" width="130" height="48" rx="8"/>
+        <text class="t-b" x="795" y="218" text-anchor="middle">Lakehouse</text>
+        <text class="t-s" x="795" y="234" text-anchor="middle">or SQL endpoint</text>
+        <path class="ln" d="M170 222H248" marker-end="url(#fig-cnt-2-a)"/>
+        <rect class="pill-bg" x="188" y="204" width="42" height="14"/>
+        <text class="t-s" x="209" y="215" text-anchor="middle">opens</text>
+        <path class="ln" d="M400 222H488" marker-end="url(#fig-cnt-2-a)"/>
+        <rect class="pill-bg" x="426" y="204" width="36" height="14"/>
+        <text class="t-s" x="444" y="215" text-anchor="middle">uses</text>
+        <path class="ln" d="M640 222H728" marker-end="url(#fig-cnt-2-a)"/>
+        <rect class="pill-bg" x="662" y="204" width="44" height="14"/>
+        <text class="t-s" x="684" y="215" text-anchor="middle">reads</text>
+        <text class="t-s c-green" x="40" y="266">no data-layer rights needed</text>
+        <text class="t-s c-green" x="860" y="266" text-anchor="end">the connection's identity needs Read + SELECT or ReadAll</text>
+      </svg>
+      <figcaption><b>Who the lakehouse sees.</b> With single sign-on the data layer evaluates each consumer, so consumers need data-layer rights. With a fixed identity it evaluates one connection, and consumers need only the grants the app provides.</figcaption>
+    </figure>
+
+    <p>For a broad internal audience that should see curated data only, the fixed-identity pattern with row-level security in the model is usually the cleanest: consumers hold Read on the app, report and model, and nothing on the lakehouse. For audiences who already have governed access to the lakehouse, single sign-on keeps the source in charge. Whichever you choose, the semantic model owner needs read access to the source tables so the model can be framed during refresh.</p>
+    <div class="callout important"><p class="callout-title">Row-level security needs Read-only users</p>
+      <p>Model-level data access rules apply to users with Read, which is what app consumers hold. They are not enforced for users with Write permission, which includes workspace Admins, Members and Contributors. Test security with accounts that match your consumers, not with your own.</p></div>
+    <h3 id="chained">Chained and composite models, and the paginated visual exception</h3>
+    <ul>
+      <li><strong>Chained models.</strong> The documentation describes propagation to the semantic model behind each included report. If a model is itself built on other models, treat the upstream models as dependencies, grant or verify access to them explicitly, and test with a consumer account.</li>
+      <li><strong>Reports that embed a paginated report visual.</strong> The report depends on a paginated report item that the app does not grant. Include the paginated report in the app, or grant access to it separately.</li>
+      <li><strong>Standards.</strong> Report design, naming and testing standards live in <a href="../12-power-bi-report-development/index.html">Power BI Report Development Standards</a>.</li>
+    </ul>
+
+    <h2 id="paginated">Paginated reports</h2>
+    <p>Paginated reports are the pixel-perfect output for statements, order confirmations and other operational documents. You build them with Power BI Report Builder, typically against a semantic model or a lakehouse SQL analytics endpoint. They are a supported item type in an org app: they appear in the item picker, and access to the report grants access to its semantic model automatically, which workspace apps did not do.</p>
+    <ul>
+      <li><strong>Subscriptions.</strong> Email subscriptions from within an org app are supported for Power BI reports only, not for paginated reports.</li>
+      <li><strong>Source-controlled and deployable.</strong> The Git and deployment-pipeline lists carry a preview label for paginated reports; confirm before you rely on them in a release process (<a href="access-alm.html#alm">ALM</a>).</li>
+      <li><strong>Direct connections.</strong> When a paginated report connects straight to a SQL analytics endpoint instead of a semantic model, there is no model for the app to grant, and the identity and permissions of that connection are your responsibility. Test it with a consumer account.</li>
+      <li><strong>Migration.</strong> Moving paginated reports into Fabric is covered in <a href="../13-paginated-report-migration/index.html">Paginated Report Migration</a>.</li>
+    </ul>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p>
+      <p>You may still find older guidance that says paginated reports are not a supported item type and calls support a roadmap item. The org app article lists paginated reports as an included item. Re-read the <a href="https://learn.microsoft.com/power-bi/explore-reports/org-app-items">Get started article</a> before you decide, and check the capacity requirements for paginated reports separately.</p></div>
+
+    <h2 id="notebooks">Notebooks</h2>
+    <p>A notebook in an app is a document: markdown, code, tables, charts and widgets that explain a method or tell a story next to a report. Consumers see it in a read-only mode. Interactive outputs such as rich dataframe previews, built-in charts and outputs from libraries like Plotly remain interactive, but anything a consumer changes is not saved and resets when the page is refreshed.</p>
+    <ul>
+      <li><strong>Read, not run.</strong> The documentation lists Read access for included notebooks. Running a notebook needs execute permission, which the app does not grant, so design for a read-only experience.</li>
+      <li><strong>What is saved is what is shown.</strong> Consumers see the notebook as it was saved, with its saved cell outputs. Treat it like a published document: re-run and save it deliberately, and test how outputs look to a consumer after a change.</li>
+      <li><strong>Outputs are a data surface.</strong> Anyone with Read can see tables and charts in saved outputs. Clear outputs that contain sensitive rows, keep secrets and connection strings out of cells and outputs, and review the tenant setting that lets users with read or write permission download data from notebook outputs.</li>
+      <li><strong>Write for readers.</strong> Lead with a markdown summary, hide setup cells, keep outputs small, and do not rely on parameters or widgets that need a running session.</li>
+    </ul>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p>
+      <p><a href="https://learn.microsoft.com/fabric/data-engineering/notebook-in-app">How to integrate notebooks with Org app</a> still shows a preview banner, while the main org app article lists notebooks as an included item without a preview label. Check both before you commit a design to notebook-based storytelling.</p></div>
+
+    <h2 id="realtime">Real-Time Dashboards</h2>
+    <p>A Real-Time Dashboard turns streaming or near-real-time data into KQL-driven tiles, typically over a KQL database in an eventhouse fed by an eventstream. In an app it lets one navigation hold both strategic analysis (reports) and operational monitoring (live tiles) for use cases such as store traffic, device telemetry or site activity.</p>
+    <p>Prerequisites: a workspace on a Fabric-enabled capacity, a KQL database with data, and a dashboard whose data sources are reusable references to databases in the same workspace. Create the dashboard from <strong>New item &gt; Real-Time Dashboard</strong>, add a data source, then add tiles by KQL query or with Copilot, and use parameters so filters reach the query early.</p>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p>
+      <p>Learn tutorials say a tenant administrator must enable creation of Real-Time Dashboards, but the exact setting name is not confirmed in the tenant settings reference and the creation article lists no tenant prerequisite. Look for the setting in your admin portal and check the <a href="https://learn.microsoft.com/fabric/real-time-intelligence/dashboard-real-time-create">Create a Real-Time Dashboard</a> article.</p></div>
+    <h3 id="rtd-identity">Who the dashboard queries as</h3>
+    <p>The app grants Read on the dashboard item. Whether tiles show data depends on a separate setting: the identity model for the data source.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 880 360" role="img" aria-label="With pass-through identity the dashboard queries the database as the viewer, who needs database access; with the dashboard editor's identity a cloud connection queries on the viewer's behalf and the viewer needs no database access">
+        <defs>
+          <marker id="fig-cnt-3-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <text class="t-h" x="20" y="24">Pass-through identity (default)</text>
+        <text class="t-h" x="450" y="24">Dashboard editor's identity</text>
+        <rect class="zone" x="20" y="36" width="420" height="312" rx="12"/>
+        <rect class="box gray" x="130" y="50" width="200" height="40" rx="8"/>
+        <text class="t-b" x="230" y="75" text-anchor="middle">Viewer</text>
+        <rect class="box blue" x="130" y="126" width="200" height="40" rx="8"/>
+        <text class="t-b" x="230" y="151" text-anchor="middle">Real-Time Dashboard</text>
+        <rect class="box blue" x="130" y="278" width="200" height="40" rx="8"/>
+        <text class="t-b" x="230" y="303" text-anchor="middle">KQL database</text>
+        <path class="ln" d="M230 90V124" marker-end="url(#fig-cnt-3-a)"/>
+        <path class="ln" d="M230 166V276" marker-end="url(#fig-cnt-3-a)"/>
+        <text class="t-s" x="242" y="112">opens</text>
+        <text class="t-s" x="242" y="226">queries as the viewer</text>
+        <text class="t-s c-red" x="230" y="338" text-anchor="middle">viewers without database access see no data</text>
+
+        <rect class="zone purple" x="450" y="36" width="420" height="312" rx="12"/>
+        <rect class="box gray" x="560" y="50" width="200" height="40" rx="8"/>
+        <text class="t-b" x="660" y="75" text-anchor="middle">Viewer</text>
+        <rect class="box blue" x="560" y="126" width="200" height="40" rx="8"/>
+        <text class="t-b" x="660" y="151" text-anchor="middle">Real-Time Dashboard</text>
+        <rect class="box purple" x="560" y="202" width="200" height="40" rx="8"/>
+        <text class="t-b" x="660" y="227" text-anchor="middle">Cloud connection</text>
+        <rect class="box blue" x="560" y="278" width="200" height="40" rx="8"/>
+        <text class="t-b" x="660" y="303" text-anchor="middle">KQL database</text>
+        <path class="ln" d="M660 90V124" marker-end="url(#fig-cnt-3-a)"/>
+        <path class="ln" d="M660 166V200" marker-end="url(#fig-cnt-3-a)"/>
+        <path class="ln" d="M660 242V276" marker-end="url(#fig-cnt-3-a)"/>
+        <text class="t-s" x="672" y="112">opens</text>
+        <text class="t-s" x="672" y="188">uses the editor's connection</text>
+        <text class="t-s" x="672" y="264">queries as the connection</text>
+        <text class="t-s c-green" x="660" y="338" text-anchor="middle">viewers need no direct database access</text>
+      </svg>
+      <figcaption><b>Two identity models.</b> Pass-through enforces source security per viewer; the editor's identity gives every viewer the same view of the data without direct database access.</figcaption>
+    </figure>
+    <table>
+      <thead><tr><th>Dashboard permission</th><th>Data source model</th><th>Result for a viewer</th></tr></thead>
+      <tbody>
+        <tr><td>View</td><td>Pass-through identity</td><td>Opens the dashboard; sees data only with their own access to the source</td></tr>
+        <tr><td>View</td><td>Dashboard editor's identity</td><td>Sees the data through the editor's connection and cannot edit</td></tr>
+        <tr><td>Edit</td><td>Pass-through identity</td><td>Can edit; sees tile data only with source access</td></tr>
+        <tr><td>Edit</td><td>Dashboard editor's identity</td><td>Can view and edit</td></tr>
+      </tbody>
+    </table>
+    <ul>
+      <li><strong>Choose pass-through</strong> when the source system should enforce access and consumers already hold it. The app alone will not give them that access.</li>
+      <li><strong>Choose the editor's identity</strong> when consumers should get insight without raw access and you want one consistent view. Each editor who changes the dashboard must set up their own cloud connection, and when no valid connection exists viewers see data only with their own access, so treat the connection as an operational dependency with a named owner.</li>
+      <li><strong>Mind the load.</strong> Live refresh keeps queries running while the dashboard is open. Set a sensible refresh rate limit, push filters into parameters and base queries, and watch eventhouse load as the audience grows.</li>
+    </ul>
+
+    <h2 id="maps">Maps</h2>
+    <p>A Fabric map is an item that visualizes real-time event data from an eventhouse and historical or static spatial data from a lakehouse as layers. In an app it gives an operations audience geographic context next to reports. The app grants Read on the map item; viewers also need access to the data sources behind its layers, so apply the same reasoning as for Real-Time Dashboards and test with a consumer account. Check the Learn article for the current status of the Maps workload.</p>
+
+    <h2 id="fabric-apps">Fabric Apps (preview)</h2>
+    <p>A Fabric App is a different artifact from an org app: a hosted application with a data model defined in TypeScript, a generated GraphQL API and authentication through Fabric single sign-on. You can include one in an org app so it sits in the same navigation as your reports.</p>
+    <ul>
+      <li>Adding a user to the org app grants Read and Execute on the Fabric App and removing the user revokes them.</li>
+      <li>The app does not manage access to the Fabric App's related items, the databases it reads or writes. A recipient may be able to open the app and still fail when it touches data, so grant those items directly.</li>
+      <li>Creating Fabric Apps needs a Fabric capacity workspace, a tenant setting (labeled slightly differently on two Learn pages) and a supported region.</li>
+      <li>Preview status means you should plan for change, and own the code and the secrets hygiene in it.</li>
+    </ul>
+
+    <h2 id="combining">Combining item types well</h2>
+    <table>
+      <thead><tr><th>Pattern</th><th>Elements</th><th>Why it works</th><th>Watch out</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Insight with method</strong></td><td>Overview, report, notebook explaining the calculations</td><td>Builds trust in numbers without a separate document</td><td>Notebook outputs must be safe for the whole audience</td></tr>
+        <tr><td><strong>Strategic plus operational</strong></td><td>KPI report, Real-Time Dashboard, map</td><td>One place for the weekly review and the live view</td><td>Identity model of the live items; capacity load</td></tr>
+        <tr><td><strong>Statements and analysis</strong></td><td>Interactive report, paginated report for the printable output</td><td>Exploration and formal documents side by side</td><td>Subscriptions apply to the report only; paginated visual dependency</td></tr>
+        <tr><td><strong>Workflow</strong></td><td>Reports plus a Fabric App for feedback or approvals</td><td>Closes the loop from insight to action</td><td>Preview status; related items need explicit access</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="access-checks">Access you must still verify</h2>
+    <ul class="checklist">
+      <li>Every Direct Lake model has a documented identity mode, and consumers hold exactly the data-layer rights that mode requires.</li>
+      <li>Every Real-Time Dashboard and map has a decided identity model and a named owner for any cloud connection it uses.</li>
+      <li>Reports that contain a paginated report visual have the paginated report included or separately granted.</li>
+      <li>Fabric Apps have their related items granted directly.</li>
+      <li>Notebook outputs have been reviewed for sensitive rows, and the notebook download setting is as intended.</li>
+      <li>One account per audience has opened every item in a test run, including items backed by models in other workspaces.</li>
+    </ul>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p><ul>
+      <li>Org apps can include paginated reports, notebooks, Real-Time Dashboards, Maps and Fabric Apps (preview) alongside reports; classic dashboards and scorecards are not eligible.</li>
+      <li>The app grants Read on items and on the semantic models behind reports and paginated reports. It does not grant the data layer behind them.</li>
+      <li>For Direct Lake, decide single sign-on versus a fixed identity per model and grant accordingly; "ReadData on the lakehouse" is only one case.</li>
+      <li>For Real-Time Dashboards, choose pass-through or the editor's identity on purpose; the dashboard grant alone does not show data.</li>
+      <li>Notebooks are read-only documents whose saved outputs everyone with access can see.</li>
+    </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/power-bi/explore-reports/org-app-items">Get started with org apps</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/fundamentals/direct-lake-security-integration">Integrate Direct Lake security</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/notebook-in-app">How to integrate notebooks with Org app</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/real-time-intelligence/dashboard-real-time-create">Create a Real-Time Dashboard</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/real-time-intelligence/dashboard-permissions">Real-Time Dashboard permissions</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/real-time-intelligence/map/about-fabric-maps">What is Fabric Maps?</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/apps/overview">What is Fabric Apps (preview)?</a></li>
+        <li><a href="https://learn.microsoft.com/power-bi/collaborate-share/end-user-subscribe">Email subscriptions for reports</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

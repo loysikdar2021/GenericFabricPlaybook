@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI, preview and experimental · Tenant Settings</title>
+<meta name="description" content="Reference for Copilot and Azure OpenAI, agents, preview item types, experiments, audit and usage settings.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="16-tenant-settings" data-page="ai-preview-other.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 16 · Tenant Settings</p>
+      <h1>AI, preview and experimental settings</h1>
+      <p class="lede">Settings that govern Copilot and Azure OpenAI features, agents, preview item types, experiments, Microsoft 365 data sharing, and audit and usage reporting. These change fastest, so confirm status before widening access.</p>
+      <ul class="chips"><li><b>Portal groups</b> Copilot, Microsoft Fabric, Explore, Audit and usage</li><li><b>Default stance</b> Pilot groups, sandbox for preview</li><li><b>Verify</b> Status changes often</li></ul>
+    </header>
+<h2 id="copilot">Copilot and Azure OpenAI</h2>
+<p>Copilot features run on Azure OpenAI models and use the signed-in user's permissions to read data. Several independent switches decide whether a user gets them: the tenant setting, capacity settings, region settings and an optional subprocessor setting.</p>
+<figure class="diagram">
+<svg class="dg" viewBox="0 0 880 320" role="img" aria-label="Copilot and Azure OpenAI features need the tenant setting and capacity settings, plus region settings when the capacity is outside covered regions; the OpenAI subprocessor setting is separate and off by default. Item permissions still bound what Copilot can read">
+<defs><marker id="fig-cop-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker><marker id="fig-cop-a-purple" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar purple" d="M0 0L10 5L0 10z"/></marker></defs>
+<rect class="box purple" x="20" y="20" width="340" height="56" rx="10"/>
+<text class="t-b" x="190" y="44.8" text-anchor="middle">Tenant: Copilot and Azure OpenAI</text>
+<text class="t-s" x="190" y="59.6" text-anchor="middle">enabled for all or specific groups</text>
+<path class="ln" d="M360 48L430 48"/>
+<rect class="box blue" x="20" y="92" width="340" height="56" rx="10"/>
+<text class="t-b" x="190" y="116.8" text-anchor="middle">Capacity: Copilot settings</text>
+<text class="t-s" x="190" y="131.6" text-anchor="middle">capacity admins can set it per capacity</text>
+<path class="ln" d="M360 120L430 120"/>
+<rect class="box orange" x="20" y="164" width="340" height="56" rx="10"/>
+<text class="t-b" x="190" y="188.8" text-anchor="middle">Region: cross-geo settings</text>
+<text class="t-s" x="190" y="203.6" text-anchor="middle">only if the region is outside EU or US coverage</text>
+<path class="ln" d="M360 192L430 192"/>
+<rect class="box gray dashed" x="20" y="236" width="340" height="56" rx="10"/>
+<text class="t-b" x="190" y="260.8" text-anchor="middle">Optional: OpenAI as subprocessor</text>
+<text class="t-s" x="190" y="275.6" text-anchor="middle">off by default; needs legal review</text>
+<path class="ln" d="M360 264L430 264"/>
+<path class="ln" d="M430 48L430 264"/>
+<path class="ln" d="M430 148L498 148" marker-end="url(#fig-cop-a)"/>
+<rect class="box green" x="500" y="100" width="190" height="96" rx="10"/>
+<text class="t-h" x="595" y="138" text-anchor="middle">Copilot and AI</text>
+<text class="t-s" x="595" y="153.4" text-anchor="middle">features available</text>
+<text class="t-s" x="595" y="167.9" text-anchor="middle">to the user</text>
+<path class="ln purple" d="M690 148L738 148" marker-end="url(#fig-cop-a-purple)"/>
+<rect class="box purple" x="740" y="100" width="130" height="96" rx="10"/>
+<text class="t-b" x="805" y="137.5" text-anchor="middle">Item permissions</text>
+<text class="t-s" x="805" y="152.4" text-anchor="middle">still bound what</text>
+<text class="t-s" x="805" y="166.9" text-anchor="middle">Copilot reads</text>
+</svg>
+<figcaption><b>Copilot gating.</b> Gates stack: the tenant setting, the capacity, the region and the subprocessor choices are all independent decisions. Copilot never widens a user's item permissions.</figcaption>
+</figure>
+<h3 id="s-copilot-main">Users can use Copilot and other features powered by Azure OpenAI</h3>
+<dl class="kv">
+<dt>Where</dt><dd>Copilot and Azure OpenAI Service</dd>
+<dt>Default</dt><dd>On</dd>
+<dt>Typical posture</dt><dd><strong>Enable for specific groups</strong> — On by default, so a deliberate decision is needed.</dd>
+<dt>Scope and delegation</dt><dd>Supports specific security groups and exceptions. Managed at tenant and capacity levels.</dd>
+<dt>What it controls</dt><dd>Lets users use Copilot and Fabric AI agents and other Azure OpenAI powered features. Data agents depend on this setting. The service may run background jobs at no charge to the tenant capacity to support these experiences.</dd>
+<dt>Risk or benefit</dt><dd>Prompts and context data are sent to the model service, and what a user can ask is bounded by their own permissions. Copilot consumption is billed to a capacity, and the results are only as good as the model metadata behind them.</dd>
+<dt>Notes</dt><dd>Because it is on by default, deliberately choose who gets it: enable for pilot groups trained on prompting and data-handling rules, widen as policy matures. Capacity admins can enable or disable per capacity, which lets you place Copilot users on a dedicated capacity.</dd>
+</dl>
+<h3 id="s-copilot-subprocessor">Users can use Copilot, AI Agents and other AI experiences powered by OpenAI as a Microsoft Subprocessor</h3>
+<dl class="kv">
+<dt>Where</dt><dd>Copilot and Azure OpenAI Service</dd>
+<dt>Default</dt><dd>Off</dd>
+<dt>Typical posture</dt><dd><strong>Disable</strong> — Distinct subprocessor terms need a legal decision.</dd>
+<dt>Scope and delegation</dt><dd>Supports specific security groups and exceptions. Tenant and capacity; if disabled at tenant a capacity cannot enable it.</dd>
+<dt>What it controls</dt><dd>Lets users use Copilot, agents and other AI experiences powered by OpenAI-operated models, where OpenAI acts as a Microsoft subprocessor.</dd>
+<dt>Risk or benefit</dt><dd>Different data-processing commitments, availability limits and compliance exclusions apply than for Azure OpenAI.</dd>
+<dt>Notes</dt><dd>Leave off until legal and security review the subprocessor terms. A companion setting governs processing of this data outside your capacity's region; Learn documents the commitments, availability limits and compliance exclusions in a separate OpenAI-as-subprocessor article.</dd>
+</dl>
+<table class="tight">
+<thead><tr><th>Setting</th><th>Default</th><th>Typical posture</th><th>What it controls; risk or benefit</th><th>Notes</th></tr></thead>
+<tbody>
+<tr id="s-copilot-subprocessor-geo"><td><strong>Data sent to OpenAI as a Microsoft Subprocessor can be processed outside your capacity's geographic region, compliance boundary, or national cloud instance</strong></td><td>Off</td><td class="no">Disable</td><td>Applies only when your capacity is outside the EU data boundary and the US and you use OpenAI-operated models. When on, service background jobs may run across geographic boundaries.</td><td>Sibling of the Azure OpenAI cross-geography setting for the subprocessor path; decide both together with data-residency owners.</td></tr>
+<tr id="s-copilot-cross-geo"><td><strong>Data sent to Azure OpenAI can be processed outside your capacity's geographic region, compliance boundary, or national cloud instance</strong></td><td>Off</td><td class="no">Disable</td><td>Applies only when your capacity is outside the EU data boundary and the US and the AI features are not available in-region. When on, service background jobs may process data across geographic boundaries.</td><td>Enable only where data-residency policy permits. A sibling setting covers storing data outside the region. <em>Managed at tenant and capacity levels.</em></td></tr>
+<tr id="s-copilot-storage-geo"><td><strong>Data sent to Azure OpenAI can be stored outside your capacity's geographic region, compliance boundary, or national cloud instance</strong></td><td>Off</td><td class="no">Disable</td><td>Applies only to capacities outside the EU data boundary and the US that use Copilot in notebooks and data agents. Conversation history is stored for as long as the user allows, 28 days if not removed.</td><td>Needed for conversation history features in those regions; decide with data-residency owners.</td></tr>
+<tr id="s-copilot-capacities"><td><strong>Capacities can be designated as Fabric Copilot capacities</strong></td><td>On</td><td class="maybe">Enable for specific groups</td><td>Lets capacity admins designate capacities as Copilot capacities to consolidate users' Copilot usage and billing on one capacity. Capacity admins can see item names tied to users' Copilot activity in the Capacity Metrics app. Learn also calls them Copilot in Fabric capacities.</td><td>Enable for the capacity administrators' group, then designate a single Copilot capacity so usage and billing are visible in one place.</td></tr>
+<tr id="s-copilot-standalone"><td><strong>Users can access a standalone, cross-item Power BI Copilot experience</strong> <span class="badge preview">Preview</span></td><td>Off</td><td class="maybe">Enable for specific groups</td><td>Gives users a standalone Copilot experience in the left navigation to find, analyze and discuss items across Fabric. Requires the Azure OpenAI setting at tenant level. Also governs the Power BI agent in Microsoft 365.</td><td>Pilot together with the approved-items setting below. The Copilot admin page spells the name as standalone, cross-item Copilot in Power BI experience.</td></tr>
+<tr id="s-copilot-approved"><td><strong>Only show approved items in the standalone Copilot in Power BI experience</strong> <span class="badge preview">Preview</span></td><td>Off</td><td class="yes">Enable for all</td><td>Limits the standalone Copilot to apps, data agents and items marked approved for Copilot; users can still attach other items manually and permissions always apply. Previously called Only show AI-prepped items in the standalone Copilot in Power BI experience. It applies to the Power BI agent as well, where it becomes mandatory if turned on for standalone Copilot.</td><td>Turn on when you enable the standalone experience so Copilot points at curated content. <em>Delegated to workspace admins by default.</em></td></tr>
+<tr id="s-fabric-copilot"><td><strong>Users can use Fabric Copilot</strong> <span class="badge preview">Preview</span></td><td>Not stated</td><td class="maybe">Enable for specific groups</td><td>Lets users create Fabric Copilot sessions and send prompts. When off, users cannot start new sessions or send prompts, and session history is read-only. Documented in the settings index.</td><td>Pilot first.</td></tr>
+<tr id="s-purview-ai"><td><strong>Allow Microsoft Purview to secure AI interactions</strong></td><td>Not stated</td><td>Decide per organization</td><td>Lets Purview access, process and store Copilot prompts and responses, including metadata, for classification, DSPM for AI, Audit, Insider Risk, Communication Compliance and eDiscovery. A paid Purview capability.</td><td>Enable if you license Purview for AI governance; it is not covered by Copilot pricing.</td></tr>
+</tbody></table>
+<h3 id="copilot-rollout">A rollout approach for Copilot</h3>
+<ol class="steps">
+  <li><strong>Choose the capacity</strong><p>Designate a Copilot capacity (if you enable that setting) or choose an existing one so usage and billing are visible in one place.</p></li>
+  <li><strong>Create a pilot group</strong><p>Enable the tenant setting for a pilot allow group, and decide in advance what data-handling rules apply to prompts.</p></li>
+  <li><strong>Check the region settings</strong><p>If your capacity is outside the covered regions, decide whether the cross-geography processing and storage settings are acceptable. Keep them off until the answer is yes.</p></li>
+  <li><strong>Measure</strong><p>Review consumption in the Capacity Metrics app, review audit events and gather user feedback.</p></li>
+  <li><strong>Widen by group</strong><p>Broaden to more groups after training, and keep a clear process for turning features off quickly.</p></li>
+</ol>
+<div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p>
+<p>Which Copilot and AI features are in preview, and which regions they support, changes often. Check the <a href="https://learn.microsoft.com/fabric/fundamentals/copilot-fabric-overview">Copilot in Fabric overview</a> and the feature-status page it links to before widening any group. Turning on the Azure OpenAI setting also accepts the preview terms for AI features in preview.</p></div>
+
+<div class="callout note"><p class="callout-title">Two names for one group</p>
+<p>The settings index lists this group as <em>Copilot and Azure OpenAI Service</em>, while the Copilot admin article calls it <em>Copilot and AI</em> and covers agents too. Look for the setting names rather than the group heading.</p></div>
+
+<h2 id="agents">Agents</h2>
+<p>Fabric agents build on the same AI settings. Learn documents no separate tenant setting for data agents: they depend on the Copilot and Azure OpenAI setting and on <a href="workspace-git-onelake.html#s-fabric-items">Users can create Fabric items</a>. The settings below govern what leaves the agent's boundary.</p>
+<div class="callout warning"><p class="callout-title">Agents can be consumed outside Fabric</p>
+<p>Users can configure a data agent to be consumed from other services, such as Microsoft Foundry, Microsoft Copilot Studio, Microsoft 365 Copilot or an MCP server. Responses returned to those services can leave Fabric's compliance boundary or region and are handled under that service's terms. Decide who may publish agents before you enable the feature widely.</p></div>
+<table class="tight">
+<thead><tr><th>Setting</th><th>Default</th><th>Typical posture</th><th>What it controls; risk or benefit</th><th>Notes</th></tr></thead>
+<tbody>
+<tr id="s-data-agent-foundry"><td><strong>Fabric data agents can send operational metadata for observability in Microsoft Foundry</strong></td><td>Not stated</td><td class="no">Disable</td><td>Sends operational metadata (agent names, data source names, reasoning step IDs, conversation IDs) to a configured Application Insights resource, which can be outside your tenant's region or boundary. Access needs read permission on that resource.</td><td>Enable only with a governed Application Insights and Foundry setup.</td></tr>
+<tr id="s-ops-agents"><td><strong>Enable operations agents</strong></td><td>Not stated</td><td class="maybe">Enable for specific groups</td><td>Lets users create operations agents that use Azure OpenAI to build operations plans and recommend actions for real-time data. Using it means agreeing to the preview terms for the feature.</td><td>Sandbox use; require human approval of any action. <em>Tenant and capacity levels.</em></td></tr>
+<tr id="s-ops-agents-agent365"><td><strong>Enable sending Operations Agents observability data to Agent 365</strong> <span class="badge preview">Preview</span></td><td>Not stated</td><td class="no">Disable</td><td>Lets data about operations agents (item info, creator user ID, Entra Agent ID, prompts, tools) be processed and stored by Agent 365, possibly outside your region or compliance boundary.</td><td>Enable only if you use Agent 365 governance.</td></tr>
+<tr id="s-ops-agents-insights"><td><strong>Insights for operations agents</strong> <span class="badge preview">Preview</span></td><td>Not stated</td><td class="maybe">Enable for specific groups</td><td>Lets users view summarized insights about events generated by operations agents.</td><td>Follows the operations-agent decision.</td></tr>
+</tbody></table>
+
+<h2 id="ai-services">Azure AI services and Azure Maps services</h2>
+<p>Prebuilt Azure AI services and Azure Maps powered features can run outside the capacity's region when the service is not available there. Both settings are managed at tenant and, for AI services, capacity level.</p>
+<table class="tight">
+<thead><tr><th>Setting</th><th>Default</th><th>Typical posture</th><th>What it controls; risk or benefit</th><th>Notes</th></tr></thead>
+<tbody>
+<tr id="s-azure-ai-services"><td><strong>Allow data processing outside geographic region for Azure AI services</strong></td><td>Not stated</td><td class="no">Disable</td><td>Applies to prebuilt Azure AI services in Fabric for capacities in regions not covered by those services; data may then be processed outside the region.</td><td>Disable unless a documented requirement exists. <em>Managed at tenant and capacity levels.</em></td></tr>
+<tr id="s-azure-maps-services"><td><strong>Users can use Azure Maps services, and Data sent to Azure Maps can be processed outside your capacity's geographic region, compliance boundary or national cloud instance</strong></td><td>Not stated</td><td class="maybe">Enable for specific groups</td><td>Lets users access features powered by Azure Maps services (separate from the Azure Maps visual setting), with a companion setting for cross-region processing. A third setting covers Azure Maps Weather Services (preview), sourced from AccuWeather.</td><td>Enable for geospatial users; leave cross-region processing off unless your region needs it.</td></tr>
+</tbody></table>
+
+<h2 id="m365">Microsoft 365 integration and privacy</h2>
+<p>These settings decide how much Fabric metadata flows into Microsoft 365 services, and whether Microsoft prompts users for feedback.</p>
+<table class="tight">
+<thead><tr><th>Setting</th><th>Default</th><th>Typical posture</th><th>What it controls; risk or benefit</th><th>Notes</th></tr></thead>
+<tbody>
+<tr id="s-m365-share"><td><strong>Share Fabric data with your Microsoft 365 services</strong></td><td>On <em>Enabled automatically only when the Fabric and Microsoft 365 tenants are in the same geographic region.</em></td><td>Decide per organization</td><td>Lets Fabric metadata and some content text (report titles, axis labels, data agent instructions, open and share history) be stored and displayed in Microsoft 365 services to improve search and recommendations. Users see only content they can access.</td><td>Decide with your Microsoft 365 owners; disabling is supported.</td></tr>
+<tr id="s-product-feedback"><td><strong>Product Feedback</strong></td><td>Not stated</td><td>Decide per organization</td><td>Lets Microsoft prompt users for in-product feedback surveys. Participation is voluntary.</td><td>Organization preference.</td></tr>
+<tr id="s-conferences"><td><strong>Users can be informed of upcoming conferences featuring Microsoft Fabric when they are logged in to Fabric</strong></td><td>Not stated</td><td class="no">Disable</td><td>Shows in-product notifications about upcoming Fabric conferences.</td><td>Noise; disable.</td></tr>
+</tbody></table>
+
+<h2 id="preview-items">Preview item types</h2>
+<p>Preview item types appear in the Microsoft Fabric tenant settings group. Preview features can change, move or be retired, may not honor every governance control, and often carry separate terms. Keep them off for the organization and enable them for a sandbox group on an isolated capacity.</p>
+<table class="tight">
+<thead><tr><th>Setting</th><th>Default</th><th>Typical posture</th><th>What it controls; risk or benefit</th><th>Notes</th></tr></thead>
+<tbody>
+<tr id="s-ontology"><td><strong>Users can create Ontology items</strong> <span class="badge preview">Preview</span></td><td>Not stated</td><td class="no">Disable</td><td>Lets users create ontologies that unify enterprise semantics for context-aware AI agents.</td><td>Meant to give AI agents context, so decide it together with the agent and Copilot settings.</td></tr>
+<tr id="s-digital-twin"><td><strong>Users can create Digital Twin Builder items</strong> <span class="badge preview">Preview</span></td><td>Not stated</td><td class="no">Disable</td><td>Lets users build digital twins of real-world environments and processes.</td><td>Sandbox capacity first.</td></tr>
+<tr id="s-ml-endpoints"><td><strong>ML models can serve real-time predictions from API endpoints</strong> <span class="badge preview">Preview</span></td><td>Not stated</td><td class="no">Disable</td><td>Lets users create real-time predictions from model and version endpoints; batch predictions still work when off.</td><td>Disabling blocks only real-time serving; batch scoring is unaffected.</td></tr>
+<tr id="s-anomaly-detection"><td><strong>Detect anomalies in Real-Time Intelligence</strong> <span class="badge preview">Preview</span></td><td>Not stated</td><td class="no">Disable</td><td>Lets users apply statistical anomaly detection to real-time data.</td><td>Sandbox group only.</td></tr>
+<tr id="s-event-schemas"><td><strong>Enable Event Schema Sets in Real-Time Hub</strong> <span class="badge preview">Preview</span></td><td>Not stated</td><td class="no">Disable</td><td>Lets users define event structure and format through schemas with group-level access control.</td><td>Keep in a sandbox while it is labeled preview.</td></tr>
+<tr id="s-dbt-jobs"><td><strong>Users can create dbt job items</strong> <span class="badge preview">Preview</span></td><td>Not stated</td><td class="no">Disable</td><td>Lets users import, author and run dbt projects in Fabric without a separate CLI environment.</td><td>Review how repositories and connection secrets are handled before enabling.</td></tr>
+<tr id="s-mirrored-catalog"><td><strong>Enable new mirrored catalog items</strong> <span class="badge preview">Preview</span></td><td>Not stated</td><td class="no">Disable</td><td>Lets users create mirrored catalog items that mirror external catalog tables into OneLake through shortcuts. Affects only item types still in preview.</td><td>Item types that are already generally available are not affected.</td></tr>
+<tr id="s-fabric-apps"><td><strong>Enable Fabric App Items</strong> <span class="badge preview">Preview</span></td><td>Not stated</td><td class="no">Disable</td><td>Lets users create Fabric apps, a Fabric-native suite for building application backends.</td><td>A new class of workload: require an architecture review before use.</td></tr>
+<tr id="s-fabric-apps-anon"><td><strong>Enable anonymous data access for Fabric Apps</strong> <span class="badge preview">Preview</span></td><td>Not stated</td><td class="no">Disable</td><td>Lets users enable anonymous data access for Fabric apps meant for public consumption; can be limited to specific users or groups.</td><td>Anonymous access is public exposure: keep off, or enable for a named group with a documented public-data case.</td></tr>
+<tr id="s-databricks-storage"><td><strong>Users can create Azure Databricks Storage items</strong> <span class="badge preview">Preview</span></td><td>Not stated</td><td class="no">Disable</td><td>Lets users create Azure Databricks storage items that use OneLake for storage.</td><td>Review Databricks access paths together with the OneLake external-apps setting.</td></tr>
+</tbody></table>
+<h3 id="rti">Real-Time Intelligence</h3>
+<table class="tight">
+<thead><tr><th>Setting</th><th>Default</th><th>Typical posture</th><th>What it controls; risk or benefit</th><th>Notes</th></tr></thead>
+<tbody>
+<tr id="s-kusto-embedded"><td><strong>Allow Real-Time Dashboards to include embedded app visuals</strong></td><td>Not stated</td><td class="no">Disable</td><td>Lets Real-Time Dashboards accept embedded app visuals, which are external apps embedded as iframes.</td><td>Disable unless a vetted app needs it.</td></tr>
+</tbody></table>
+<p>Eventstream key authentication is covered with the integration settings: <a href="integration-api.html#s-eventstream-key-auth">Allow non-Entra ID auth in Eventstream</a>.</p>
+<div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p>
+<p>Preview labels come from the Learn settings pages and the settings index. A setting without a badge may still depend on a preview feature, and a badged setting may reach general availability without a documentation update. Confirm status on <a href="https://learn.microsoft.com/fabric/admin/tenant-settings-index">Tenant settings index</a> before you widen access.</p></div>
+
+<h2 id="experimental">Exploration and experiments</h2>
+<p>Two organization-wide settings affect the interface people see rather than data paths. Both are easy to underestimate because they leak into training and support.</p>
+<h3 id="s-explore">Users with view permission can launch Explore</h3>
+<dl class="kv">
+<dt>Where</dt><dd>Explore settings</dd>
+<dt>Status</dt><dd><span class="badge preview">Preview</span> Labeled preview on Microsoft Learn.</dd>
+<dt>Default</dt><dd>On — By default people with View permission can launch Explore.</dd>
+<dt>Typical posture</dt><dd><strong>Disable</strong> — Preview feature that widens ad hoc access for viewers.</dd>
+<dt>Scope and delegation</dt><dd>Applies to the entire organization only; groups cannot be selected.</dd>
+<dt>What it controls</dt><dd>Explore is a lightweight visual tool for ad hoc analysis without building a report. This setting lets people with only View permission on a semantic model launch it from the model and from connected items. If you turn the setting off, only users with Build permission can use Explore, and Lakehouses always need Build. Model owners can also restrict it per semantic model.</dd>
+<dt>Risk or benefit</dt><dd>Viewers can query beyond the curated report, which strengthens agility and weakens consistency: different people may produce different numbers from the same model. Permissions and row-level security still apply.</dd>
+<dt>Notes</dt><dd>Org-wide only. Disable until report-consumer governance, such as certified models, is ready.</dd>
+</dl>
+<h3 id="s-ux-experiments">Help Power BI optimize your experience</h3>
+<dl class="kv">
+<dt>Where</dt><dd>User experience experiments</dd>
+<dt>Default</dt><dd>Not stated</dd>
+<dt>Typical posture</dt><dd><strong>Disable</strong> — Consistency for training and support.</dd>
+<dt>Scope and delegation</dt><dd>Applies to the entire organization only; groups cannot be selected.</dd>
+<dt>What it controls</dt><dd>Lets the Power BI team show some users minor variations in content, layout and design before they go live for everyone. Different users in one tenant may see different interfaces.</dd>
+<dt>Risk or benefit</dt><dd>Inconsistent screens complicate training material, runbooks and support tickets, and make procedure documents drift from what users see.</dd>
+<dt>Notes</dt><dd>Org-wide only. Disable so everyone sees the same generally available interface.</dd>
+</dl>
+
+<h2 id="audit-usage">Audit and usage settings</h2>
+<p>These settings decide who can see usage information and where diagnostic data goes. Several expose user names and e-mail addresses, so they are privacy decisions as well as monitoring ones.</p>
+<table class="tight">
+<thead><tr><th>Setting</th><th>Default</th><th>Typical posture</th><th>What it controls; risk or benefit</th><th>Notes</th></tr></thead>
+<tbody>
+<tr id="s-usage-metrics"><td><strong>Usage metrics for content creators</strong></td><td>Not stated</td><td class="yes">Enable for all</td><td>Lets content creators see usage metrics for items they have permission to.</td><td>Useful for retiring unused content.</td></tr>
+<tr id="s-usage-per-user"><td><strong>Per-user data in usage metrics for content creators</strong></td><td>On</td><td>Decide per organization</td><td>Shows user names and e-mail addresses in usage reports; excluded users appear as Unnamed.</td><td>Privacy decision; exclude groups where staff identity must be protected.</td></tr>
+<tr id="s-usage-capacity-metrics"><td><strong>Show user data in the Fabric Capacity Metrics app and reports</strong></td><td>On</td><td>Decide per organization</td><td>Shows active-user names and e-mail addresses in the Capacity Metrics app.</td><td>Keep on for capacity troubleshooting; decide against privacy policy.</td></tr>
+<tr id="s-log-analytics"><td><strong>Azure Log Analytics connections for workspace administrators</strong></td><td>Not stated</td><td class="maybe">Enable for specific groups</td><td>Lets admins and Premium workspace owners connect workspaces to Azure Log Analytics.</td><td>Scope to platform operations.</td></tr>
+<tr id="s-ws-monitoring"><td><strong>Workspace admins can turn on monitoring for their workspaces</strong> <span class="badge preview">Preview</span></td><td>Not stated</td><td class="maybe">Enable for specific groups</td><td>Lets workspace admins turn on workspace monitoring, which creates a read-only Eventhouse with a KQL database that receives logs.</td><td>Allows detailed telemetry; consumes capacity.</td></tr>
+<tr id="s-query-text"><td><strong>Microsoft can store query text to aid in support investigations</strong></td><td>On</td><td>Decide per organization</td><td>Lets Microsoft store query text generated when users use items such as reports and dashboards, to debug performance and functionality. Turning it off may hinder support.</td><td>Learn recommends leaving it on for support; disable only if policy forbids storing query text.</td></tr>
+</tbody></table>
+<div class="callout tip"><p class="callout-title">Monitoring belongs in the standard</p>
+<p>Tenant settings tell you what is allowed; usage metrics, the Purview audit log and capacity metrics tell you what happens. Decide the audit retention and who reviews it as part of the same standard.</p></div>
+
+<div class="takeaways"><p class="tk-title">Key takeaways</p>
+<ul>
+  <li>Copilot is on by default: choose who gets it deliberately, pilot first, and keep the subprocessor and cross-geography settings off until reviewed.</li>
+  <li>Data agents depend on the Copilot setting and Fabric item creation; there is no separate data-agent switch to rely on.</li>
+  <li>Keep preview item types off for the organization and enable them for a sandbox group.</li>
+  <li>Disable Explore and user-experience experiments until you can train and support what users will see.</li>
+  <li>Treat usage and query-text settings as privacy decisions and document the choice.</li>
+</ul></div>
+
+<section class="refs">
+  <h2 id="refs">References</h2>
+  <ul>
+    <li><a href="https://learn.microsoft.com/fabric/admin/service-admin-portal-copilot">Copilot and Azure OpenAI tenant settings</a></li>
+    <li><a href="https://learn.microsoft.com/fabric/fundamentals/copilot-fabric-overview">Overview of Copilot in Fabric</a></li>
+    <li><a href="https://learn.microsoft.com/fabric/fundamentals/copilot-openai-subprocessor">OpenAI as a subprocessor in Microsoft Fabric</a></li>
+    <li><a href="https://learn.microsoft.com/fabric/admin/service-admin-portal-audit-usage">Audit and usage tenant settings</a></li>
+    <li><a href="https://learn.microsoft.com/fabric/admin/admin-share-power-bi-metadata-microsoft-365-services">Share Fabric data with your Microsoft 365 services</a></li>
+    <li><a href="https://learn.microsoft.com/fabric/admin/service-admin-portal-microsoft-fabric-tenant-settings">Microsoft Fabric tenant settings</a></li>
+    <li><a href="https://learn.microsoft.com/fabric/admin/service-admin-portal-user-experience-experiments">User experience experiments tenant setting</a></li>
+    <li><a href="https://learn.microsoft.com/power-bi/explore-reports/explore-data-service">Explore data in the service</a></li>
+  </ul>
+</section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Results model and tolerances · QA Validation</title>
+<meta name="description" content="The results and run tables, the PASS, WARN, FAIL, ERROR and SKIPPED status model, severity, and how to design tolerances, warning bands and expected-reject accounting.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="15-qa-validation" data-page="results-model.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 15 · QA Validation</p>
+      <h1>Results model and tolerances</h1>
+      <p class="lede">Define the shape of a result before you write any check. This page specifies the results and run tables, the status and severity model that drives promotion gates, and how to choose tolerances so that checks fail when the data is wrong and stay quiet when it is merely imperfect.</p>
+    </header>
+
+    <h2 id="expected-actual">Every check is expected versus actual</h2>
+    <p>The most useful design decision in the framework is that every check, however different its SQL, reduces to two numbers and a rule. A row count compares two counts. A uniqueness check expects zero duplicate keys and reports how many there are. A schema check expects zero missing columns. A freshness check expects data no older than a limit and reports its age. Once everything is a pair of numbers, one table, one status model and one tolerance mechanism cover all of them, and reports and alerts do not need to know what a check does.</p>
+    <table>
+      <thead><tr><th>Check</th><th>Expected</th><th>Actual</th><th>Rule</th></tr></thead>
+      <tbody>
+        <tr><td>Row count</td><td>Rows in the source (after the stated filter)</td><td>Rows in the target</td><td><code>eq</code></td></tr>
+        <tr><td>Transformation</td><td>0 mismatching rows</td><td>Rows missing, extra or different</td><td><code>eq</code></td></tr>
+        <tr><td>Schema contract</td><td>0 missing, mistyped or unexpected columns</td><td>Violation count</td><td><code>eq</code></td></tr>
+        <tr><td>Freshness</td><td>Maximum allowed age in hours</td><td>Observed age in hours</td><td><code>le</code></td></tr>
+        <tr><td>Metric reconciliation</td><td>Independently recalculated total</td><td>Total in the Gold table</td><td><code>eq</code> with absolute tolerance</td></tr>
+        <tr><td>Completeness</td><td>Minimum percent populated</td><td>Observed percent populated</td><td><code>ge</code></td></tr>
+        <tr><td>Key uniqueness</td><td>0 duplicate key values</td><td>Surplus rows per key</td><td><code>eq</code></td></tr>
+        <tr><td>Drift</td><td>Baseline mean of the last runs</td><td>Today's value</td><td><code>eq</code> with tolerance of k standard deviations</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="schema">The results schema</h2>
+    <p>Three tables live in the results lakehouse, in a <code>qa</code> schema. Only the first two are required.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 310" role="img" aria-label="validation_runs has one row per run and validation_results has many rows per run linked by run_id; an optional validation_config table configures the tests; a semantic model reads results and runs">
+        <defs>
+          <marker id="fig-res-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-res-1-ab" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar blue" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box gray dashed" x="20" y="30" width="230" height="110" rx="10"/>
+        <text class="t-h" x="135" y="56" text-anchor="middle">validation_config</text>
+        <text class="t-s" x="135" y="78" text-anchor="middle">test_name · suite · check_type</text>
+        <text class="t-s" x="135" y="94" text-anchor="middle">enabled · severity · tolerance</text>
+        <text class="t-s" x="135" y="110" text-anchor="middle">params (JSON)</text>
+        <text class="t-s" x="135" y="128" text-anchor="middle">optional control table</text>
+        <rect class="box blue" x="20" y="170" width="230" height="110" rx="10"/>
+        <text class="t-h" x="135" y="196" text-anchor="middle">validation_runs</text>
+        <text class="t-s" x="135" y="218" text-anchor="middle">run_id · suite · environment</text>
+        <text class="t-s" x="135" y="234" text-anchor="middle">started_at · finished_at</text>
+        <text class="t-s" x="135" y="250" text-anchor="middle">counts · blocking_failures</text>
+        <text class="t-s" x="135" y="266" text-anchor="middle">gate (OPEN or BLOCKED)</text>
+        <rect class="box accent" x="340" y="60" width="260" height="190" rx="12"/>
+        <text class="t-h t-w" x="470" y="90" text-anchor="middle">validation_results</text>
+        <text class="t-s t-w" x="470" y="114" text-anchor="middle">run_id · run_ts · suite</text>
+        <text class="t-s t-w" x="470" y="132" text-anchor="middle">test_name · check_type</text>
+        <text class="t-s t-w" x="470" y="150" text-anchor="middle">severity · status</text>
+        <text class="t-s t-w" x="470" y="168" text-anchor="middle">expected · actual · variance</text>
+        <text class="t-s t-w" x="470" y="186" text-anchor="middle">tolerance · fail_threshold</text>
+        <text class="t-s t-w" x="470" y="204" text-anchor="middle">message · detail · duration_s</text>
+        <text class="t-s t-w" x="470" y="228" text-anchor="middle">one row per check per run</text>
+        <rect class="box blue" x="700" y="95" width="180" height="120" rx="10"/>
+        <text class="t-h" x="790" y="122" text-anchor="middle">Semantic model</text>
+        <text class="t-s" x="790" y="144" text-anchor="middle">Direct Lake</text>
+        <text class="t-s" x="790" y="162" text-anchor="middle">pass rate</text>
+        <text class="t-s" x="790" y="178" text-anchor="middle">blocking failures</text>
+        <text class="t-s" x="790" y="194" text-anchor="middle">trend and drift</text>
+        <path class="ln dash" d="M250 85H320V105H338" marker-end="url(#fig-res-1-a)"/>
+        <path class="ln" d="M250 225H290V205H338" marker-end="url(#fig-res-1-a)"/>
+        <path class="ln blue" d="M600 155H698" marker-end="url(#fig-res-1-ab)"/>
+        <rect class="pill-bg" x="254" y="60" width="82" height="14"/>
+        <text class="t-s" x="295" y="71" text-anchor="middle">by test_name</text>
+        <rect class="pill-bg" x="254" y="232" width="84" height="14"/>
+        <text class="t-s" x="296" y="243" text-anchor="middle">1 : n run_id</text>
+        <rect class="pill-bg" x="622" y="138" width="56" height="14"/>
+        <text class="t-s" x="650" y="149" text-anchor="middle">feeds</text>
+      </svg>
+      <figcaption><b>Data model.</b> One run produces one row in <code>validation_runs</code> and many rows in <code>validation_results</code>, joined on <code>run_id</code>. The optional configuration table is the control table that drives the runner (see <a href="../10-control-table-pipelines/index.html">Control-Table-Driven Pipelines</a>).</figcaption>
+    </figure>
+
+    <h3 id="results-table">validation_results</h3>
+    <table>
+      <thead><tr><th>Column</th><th>Type</th><th>Meaning</th></tr></thead>
+      <tbody>
+        <tr><td><code>run_id</code></td><td>STRING</td><td>Identifier shared by all rows of one run. Pass the pipeline run ID when orchestrated; the notebook generates a GUID otherwise.</td></tr>
+        <tr><td><code>suite</code>, <code>environment</code></td><td>STRING</td><td>The configuration suite that ran and the environment (<code>DEV</code>, <code>TST</code>, <code>PRD</code>).</td></tr>
+        <tr><td><code>test_name</code></td><td>STRING</td><td>Stable, human-readable identifier such as <code>dim_customer.rowcount</code>. Trends and alerts key on it, so renaming a test breaks its history.</td></tr>
+        <tr><td><code>check_type</code></td><td>STRING</td><td><code>rowcount</code>, <code>transformation</code>, <code>schema</code>, <code>freshness</code>, <code>metric</code> and so on.</td></tr>
+        <tr><td><code>severity</code></td><td>STRING</td><td><code>blocker</code>, <code>warning</code> or <code>info</code>: what a non-passing result does to the gate.</td></tr>
+        <tr><td><code>status</code></td><td>STRING</td><td><code>PASS</code>, <code>WARN</code>, <code>FAIL</code>, <code>ERROR</code> or <code>SKIPPED</code>.</td></tr>
+        <tr><td><code>source_object</code>, <code>target_object</code></td><td>STRING</td><td>Fully qualified names compared (empty for single-table checks).</td></tr>
+        <tr><td><code>rule</code></td><td>STRING</td><td><code>eq</code>, <code>le</code> or <code>ge</code>: how actual is compared with expected.</td></tr>
+        <tr><td><code>expected</code>, <code>actual</code></td><td>DOUBLE</td><td>The two numbers being compared.</td></tr>
+        <tr><td><code>variance</code>, <code>variance_pct</code></td><td>DOUBLE</td><td><code>actual - expected</code>, and the same as a percentage of expected (NULL when expected is 0).</td></tr>
+        <tr><td><code>tolerance</code>, <code>tolerance_type</code></td><td>DOUBLE, STRING</td><td>The breach that still counts as PASS, absolute or percent.</td></tr>
+        <tr><td><code>fail_threshold</code></td><td>DOUBLE</td><td>Breach limit between WARN and FAIL. NULL means no WARN band.</td></tr>
+        <tr><td><code>message</code></td><td>STRING</td><td>One readable sentence: <code>source=18,204 target=18,204</code>.</td></tr>
+        <tr><td><code>detail</code></td><td>STRING</td><td>JSON text: sample offending rows, missing column names, anything that helps triage. Keep it small.</td></tr>
+        <tr><td><code>duration_s</code></td><td>DOUBLE</td><td>Wall-clock seconds for the check; the raw material for your own performance baseline.</td></tr>
+        <tr><td><code>run_ts</code></td><td>TIMESTAMP</td><td>UTC instant the batch was written.</td></tr>
+      </tbody>
+    </table>
+<pre data-title="Spark SQL: run once in the results lakehouse"><code class="language-sql">CREATE SCHEMA IF NOT EXISTS qa;
+
+CREATE TABLE IF NOT EXISTS qa.validation_results (
+  run_id          STRING,
+  suite           STRING,
+  environment     STRING,
+  test_name       STRING,
+  check_type      STRING,
+  severity        STRING,
+  status          STRING,
+  source_object   STRING,
+  target_object   STRING,
+  rule            STRING,
+  expected        DOUBLE,
+  actual          DOUBLE,
+  variance        DOUBLE,
+  variance_pct    DOUBLE,
+  tolerance       DOUBLE,
+  tolerance_type  STRING,
+  fail_threshold  DOUBLE,
+  message         STRING,
+  detail          STRING,
+  duration_s      DOUBLE,
+  run_ts          TIMESTAMP
+) USING DELTA;</code></pre>
+    <div class="callout note"><p class="callout-title">No constraints on the results table, on purpose</p><p>The writer must never fail because of its own schema. A result that is slightly malformed is recoverable; a run whose results were not written at all is not. Enforce non-null columns in the notebook, keep the column order identical between the table and the DataFrame, and extend the schema only by adding columns.</p></div>
+
+    <h3 id="runs-table">validation_runs</h3>
+    <p>One row per run, written after the results. It makes &quot;what was the last run and did it block?&quot; a one-row lookup instead of an aggregation, and it is what an alert or a dashboard card should read.</p>
+<pre data-title="Spark SQL: run once in the results lakehouse"><code class="language-sql">CREATE TABLE IF NOT EXISTS qa.validation_runs (
+  run_id             STRING,
+  suite              STRING,
+  environment        STRING,
+  framework_version  STRING,
+  as_of_date         DATE,
+  started_at         TIMESTAMP,
+  finished_at        TIMESTAMP,
+  total_checks       INT,
+  passed             INT,
+  warned             INT,
+  failed             INT,
+  errored            INT,
+  skipped            INT,
+  blocking_failures  INT,
+  gate               STRING
+) USING DELTA;</code></pre>
+
+    <h3 id="config-table">validation_config (optional)</h3>
+    <p>Hold the check definitions in Python while the suite is small, because the configuration is then reviewed and versioned together with the notebook. Move to a control table when non-developers need to switch checks on and off, when the list is long, or when different environments need different tolerances. <a href="core-checks.html#config">The harness page</a> shows both forms.</p>
+<pre data-title="Spark SQL: optional control table"><code class="language-sql">CREATE TABLE IF NOT EXISTS qa.validation_config (
+  test_name       STRING,
+  suite           STRING,
+  check_type      STRING,
+  enabled         BOOLEAN,
+  severity        STRING,
+  source          STRING,
+  target          STRING,
+  rule            STRING,
+  tolerance       DOUBLE,
+  tolerance_type  STRING,
+  fail_threshold  DOUBLE,
+  params          STRING,   -- JSON: columns, filters, expressions, thresholds
+  owner_role      STRING,   -- a role such as 'domain data steward', not a person
+  notes           STRING
+) USING DELTA;</code></pre>
+
+    <h2 id="status">Status and severity</h2>
+    <p>Status says what happened; severity says how much it matters. Keeping them separate lets the same failing check be a blocker in PRD and a warning in DEV without changing its logic.</p>
+    <table>
+      <thead><tr><th>Status</th><th>Meaning</th><th>Set by</th><th>Counts against the gate?</th></tr></thead>
+      <tbody>
+        <tr><td><span class="badge ga">PASS</span></td><td>Breach is within the tolerance.</td><td><code>evaluate()</code></td><td>No</td></tr>
+        <tr><td><span class="badge warn">WARN</span></td><td>Breach is beyond tolerance but within the fail threshold.</td><td><code>evaluate()</code></td><td>No; reported and alertable</td></tr>
+        <tr><td><span class="badge warn">FAIL</span></td><td>Breach is beyond the fail threshold (or tolerance when no WARN band is set).</td><td><code>evaluate()</code></td><td>Yes, when severity is <code>blocker</code></td></tr>
+        <tr><td><span class="badge warn">ERROR</span></td><td>The check could not run or produced no comparable numbers.</td><td>Runner (exception handler)</td><td>Yes, when severity is <code>blocker</code></td></tr>
+        <tr><td><span class="badge neutral">SKIPPED</span></td><td>The check was not attempted: disabled for this environment, or a prerequisite check failed.</td><td>Runner, before the check starts</td><td>No, but visible in reports</td></tr>
+      </tbody>
+    </table>
+    <table>
+      <thead><tr><th>Severity</th><th>Use for</th><th>Effect on promotion</th></tr></thead>
+      <tbody>
+        <tr><td><code>blocker</code></td><td>Anything that makes the data wrong or unusable downstream: lost rows, wrong measures, broken contracts, stale data past its SLA</td><td>A <code>FAIL</code> or <code>ERROR</code> sets the run gate to <code>BLOCKED</code></td></tr>
+        <tr><td><code>warning</code></td><td>Quality signals the owner wants to see but would not stop a release for: drift, small completeness dips, known orphans</td><td>Reported and alertable, never blocks</td></tr>
+        <tr><td><code>info</code></td><td>Metrics collected for trending only</td><td>None</td></tr>
+      </tbody>
+    </table>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 335" role="img" aria-label="Status decision path: if the check errored the status is ERROR; if the breach is within tolerance it is PASS; within the fail threshold it is WARN; otherwise FAIL; ERROR and FAIL on blocker checks set the gate to BLOCKED">
+        <defs>
+          <marker id="fig-res-2-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-res-2-ar" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar red" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box purple" x="20" y="60" width="190" height="54" rx="27"/>
+        <text class="t-b" x="115" y="92" text-anchor="middle">Ran without error?</text>
+        <rect class="box purple" x="270" y="60" width="210" height="54" rx="27"/>
+        <text class="t-b" x="375" y="92" text-anchor="middle">Breach within tolerance?</text>
+        <rect class="box purple" x="540" y="60" width="190" height="54" rx="27"/>
+        <text class="t-b" x="635" y="92" text-anchor="middle">Within fail threshold?</text>
+        <path class="ln" d="M210 87H268" marker-end="url(#fig-res-2-a)"/>
+        <path class="ln" d="M480 87H538" marker-end="url(#fig-res-2-a)"/>
+        <path class="ln" d="M115 114V172" marker-end="url(#fig-res-2-a)"/>
+        <path class="ln" d="M375 114V172" marker-end="url(#fig-res-2-a)"/>
+        <path class="ln" d="M635 114V172" marker-end="url(#fig-res-2-a)"/>
+        <path class="ln" d="M730 87H830V172" marker-end="url(#fig-res-2-a)"/>
+        <text class="t-s c-green" x="239" y="78" text-anchor="middle">yes</text>
+        <text class="t-s c-red" x="127" y="146">no</text>
+        <text class="t-s c-red" x="509" y="78" text-anchor="middle">no</text>
+        <text class="t-s c-green" x="387" y="146">yes</text>
+        <text class="t-s c-green" x="647" y="146">yes</text>
+        <text class="t-s c-red" x="760" y="78" text-anchor="middle">no</text>
+        <rect class="box red" x="40" y="174" width="150" height="52" rx="10"/>
+        <text class="t-h" x="115" y="197" text-anchor="middle">ERROR</text>
+        <text class="t-s" x="115" y="214" text-anchor="middle">could not run</text>
+        <rect class="box green" x="300" y="174" width="150" height="52" rx="10"/>
+        <text class="t-h" x="375" y="197" text-anchor="middle">PASS</text>
+        <text class="t-s" x="375" y="214" text-anchor="middle">within tolerance</text>
+        <rect class="box orange" x="560" y="174" width="150" height="52" rx="10"/>
+        <text class="t-h" x="635" y="197" text-anchor="middle">WARN</text>
+        <text class="t-s" x="635" y="214" text-anchor="middle">report, do not block</text>
+        <rect class="box red" x="780" y="174" width="100" height="52" rx="10"/>
+        <text class="t-h" x="830" y="197" text-anchor="middle">FAIL</text>
+        <text class="t-s" x="830" y="214" text-anchor="middle">data wrong</text>
+        <rect class="box purple" x="200" y="262" width="500" height="50" rx="10"/>
+        <text class="t-b" x="450" y="292" text-anchor="middle">Gate is BLOCKED if any blocker is FAIL or ERROR</text>
+        <path class="ln red" d="M115 226V287H198" marker-end="url(#fig-res-2-ar)"/>
+        <path class="ln red" d="M830 226V287H702" marker-end="url(#fig-res-2-ar)"/>
+      </svg>
+      <figcaption><b>From numbers to a verdict.</b> The first question is whether the check ran at all; only then are expected and actual compared. WARN and PASS never block; ERROR and FAIL block when the check is a blocker. SKIPPED is assigned by the runner before any of this happens.</figcaption>
+    </figure>
+
+    <h2 id="tolerance">Threshold and tolerance design</h2>
+    <h3 id="breach">How a status is derived</h3>
+    <p>The evaluator computes <code>variance = actual - expected</code>, converts it to a non-negative <em>breach</em> that depends on the rule, optionally expresses the breach as a percentage of expected, and then compares it with two limits.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 250" role="img" aria-label="Breach scale: PASS up to the tolerance, WARN between tolerance and fail threshold, FAIL beyond; below, how breach is computed for the eq, le and ge rules">
+        <defs>
+          <marker id="fig-res-3-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <text class="t-b" x="60" y="30">breach = how far actual falls outside the allowed region</text>
+        <rect class="box green" x="60" y="46" width="240" height="54" rx="0"/>
+        <text class="t-h" x="180" y="70" text-anchor="middle">PASS</text>
+        <text class="t-s" x="180" y="88" text-anchor="middle">breach at most tolerance</text>
+        <rect class="box orange" x="300" y="46" width="260" height="54" rx="0"/>
+        <text class="t-h" x="430" y="70" text-anchor="middle">WARN</text>
+        <text class="t-s" x="430" y="88" text-anchor="middle">up to fail_threshold</text>
+        <rect class="box red" x="560" y="46" width="290" height="54" rx="0"/>
+        <text class="t-h" x="705" y="70" text-anchor="middle">FAIL</text>
+        <text class="t-s" x="705" y="88" text-anchor="middle">beyond fail_threshold</text>
+        <path class="ln thin" d="M60 100V114"/>
+        <path class="ln thin" d="M300 100V114"/>
+        <path class="ln thin" d="M560 100V114"/>
+        <text class="t-m" x="60" y="128" text-anchor="middle">0</text>
+        <text class="t-m" x="300" y="128" text-anchor="middle">tolerance</text>
+        <text class="t-m" x="560" y="128" text-anchor="middle">fail_threshold</text>
+        <path class="ln" d="M60 146H842" marker-end="url(#fig-res-3-a)"/>
+        <rect class="pill-bg" x="402" y="139" width="116" height="14"/>
+        <text class="t-s" x="460" y="150" text-anchor="middle">increasing breach</text>
+        <text class="t-s" x="60" y="178">How breach is computed for each rule</text>
+        <rect class="box gray" x="60" y="190" width="240" height="42" rx="8"/>
+        <text class="t-m" x="180" y="215" text-anchor="middle">eq: |actual - expected|</text>
+        <rect class="box gray" x="330" y="190" width="250" height="42" rx="8"/>
+        <text class="t-m" x="455" y="215" text-anchor="middle">le: max(actual - expected, 0)</text>
+        <rect class="box gray" x="610" y="190" width="240" height="42" rx="8"/>
+        <text class="t-m" x="730" y="215" text-anchor="middle">ge: max(expected - actual, 0)</text>
+      </svg>
+      <figcaption><b>One scale for every check.</b> Equality checks breach in both directions; a freshness check (<code>le</code>) breaches only when data is older than the limit; a completeness check (<code>ge</code>) only when the percentage falls short.</figcaption>
+    </figure>
+    <ul>
+      <li><strong><code>tolerance</code></strong> is the breach you accept silently. The default is zero, and zero is correct for counts, key violations and schema checks.</li>
+      <li><strong><code>fail_threshold</code></strong> is the breach beyond which the result is a failure. Set it only when you want an intermediate WARN band; leave it NULL otherwise.</li>
+      <li><strong><code>tolerance_type</code></strong> is <code>absolute</code> (units of the metric) or <code>percent</code> (of expected). Percent is meaningless when expected is zero, so use absolute for violation counts.</li>
+    </ul>
+
+    <h3 id="tolerance-guidance">Choosing tolerances</h3>
+    <table>
+      <thead><tr><th>Situation</th><th>Rule and tolerance</th><th>Reasoning</th></tr></thead>
+      <tbody>
+        <tr><td>Row count of a copy or lossless transformation</td><td><code>eq</code>, 0</td><td>Any difference is a defect. A tolerance here hides lost rows.</td></tr>
+        <tr><td>Row count where the pipeline deliberately filters or dedupes</td><td><code>eq</code>, 0, with the same filter on the expected side</td><td>Express the intended drop in the check (see <a href="#reject-accounting">reject accounting</a>) rather than loosening the tolerance.</td></tr>
+        <tr><td>Sum of decimals recalculated independently</td><td><code>eq</code>, absolute, half a unit in the last stored decimal place</td><td>Rounding order and engines differ at the last digit; nothing larger is explained by rounding.</td></tr>
+        <tr><td>Measure derived by division (for example FTE)</td><td><code>eq</code>, absolute, 10 to the minus (scale) divided by 2</td><td>Compare at the scale you store. Never compare doubles for equality.</td></tr>
+        <tr><td>Freshness</td><td><code>le</code>, limit in hours, optional <code>fail_threshold</code> at twice the limit</td><td>A WARN band gives the on-call team time to react before consumers are affected.</td></tr>
+        <tr><td>Completeness or coverage</td><td><code>ge</code>, minimum percent, observed in the source</td><td>Derive the floor from the source data, not from a round number.</td></tr>
+        <tr><td>Distribution drift</td><td><code>eq</code> against baseline mean, tolerance of k standard deviations, severity <code>warning</code></td><td>Statistical checks are noisy; they inform the owner and do not block releases.</td></tr>
+        <tr><td>Known, documented exceptions (for example legacy orphans)</td><td><code>le</code>, the documented count, severity <code>warning</code></td><td>A ceiling catches regressions without pretending the exception does not exist. Record the owner and the reason in the configuration.</td></tr>
+      </tbody>
+    </table>
+    <div class="callout warning"><p class="callout-title">Never widen a tolerance to turn a check green</p><p>Changing a tolerance is a change to the definition of correct. Make it a reviewed change with a stated reason and an owner (see <a href="operations.html#change-control">change control</a>). A tolerance that was raised during an incident and never lowered is the most common way a validation suite quietly stops validating.</p></div>
+
+    <h3 id="reject-accounting">Reject accounting instead of fuzzy counts</h3>
+    <p>When a pipeline legitimately drops rows (duplicates, rows failing a quality rule, late data routed to a quarantine table), do not compare raw counts with a loose tolerance. State the equation: <code>expected = source rows - duplicates - rejected rows</code>, where each term is its own count from the same snapshot. The check then passes with a tolerance of zero when the pipeline does what it claims, and fails when it drops anything unexplained. <a href="advanced-checks.html#reconcile">Layer reconciliation</a> implements this.</p>
+
+    <h3 id="precision">Precision and timing pitfalls</h3>
+    <ul>
+      <li><strong>Doubles.</strong> The results table stores numbers as doubles, which are exact for integers up to about 9 x 10<sup>15</sup> and for decimals to roughly 15 significant digits. For balances beyond that, compute the variance in SQL as a decimal, compare there and store the comparison outcome.</li>
+      <li><strong>Data in flight.</strong> A check that runs while a load is writing may read the source at one version and the target at another. Run validation after the load completes, or pin both sides to the same Delta version.</li>
+      <li><strong>Time-dependent logic.</strong> Anything that depends on the current date (period flags, fiscal-year windows) must use the run's <code>as_of_date</code> parameter on the expected side and be validated shortly after the table is refreshed. See <a href="advanced-checks.html#derived">derived calendar columns</a>.</li>
+    </ul>
+
+    <h2 id="queries">Reading the results</h2>
+    <p>These queries are the contract that dashboards and alerts build on. They run in a notebook SQL cell or in the lakehouse SQL editor.</p>
+<pre data-title="Spark SQL: failing checks in the latest run of a suite"><code class="language-sql">WITH latest AS (
+  SELECT run_id
+  FROM qa.validation_runs
+  WHERE suite = 'standard'
+  ORDER BY started_at DESC
+  LIMIT 1
+)
+SELECT test_name, check_type, severity, status, expected, actual, variance, message
+FROM qa.validation_results
+WHERE run_id IN (SELECT run_id FROM latest)
+  AND status IN ('FAIL', 'ERROR')
+ORDER BY CASE severity WHEN 'blocker' THEN 0 WHEN 'warning' THEN 1 ELSE 2 END, test_name;</code></pre>
+<pre data-title="Spark SQL: pass rate by day"><code class="language-sql">SELECT CAST(run_ts AS DATE)                                  AS run_date,
+       COUNT(*)                                              AS checks,
+       count_if(status = 'PASS')                             AS passed,
+       try_divide(count_if(status = 'PASS'), COUNT(*))       AS pass_rate
+FROM qa.validation_results
+WHERE suite = 'standard'
+GROUP BY CAST(run_ts AS DATE)
+ORDER BY run_date;</code></pre>
+<pre data-title="Spark SQL: flaky checks (status changed three or more times in 14 days)"><code class="language-sql">WITH ordered AS (
+  SELECT test_name, status,
+         LAG(status) OVER (PARTITION BY test_name ORDER BY run_ts) AS prev_status
+  FROM qa.validation_results
+  WHERE run_ts &gt;= current_timestamp() - INTERVAL 14 DAYS
+)
+SELECT test_name, count_if(status &lt;&gt; prev_status) AS flips
+FROM ordered
+GROUP BY test_name
+HAVING count_if(status &lt;&gt; prev_status) &gt;= 3
+ORDER BY flips DESC;</code></pre>
+    <p>Illustrative rows for the first query might look like this:</p>
+    <table>
+      <thead><tr><th>test_name</th><th>check_type</th><th>severity</th><th>status</th><th>expected</th><th>actual</th><th>variance</th><th>message</th></tr></thead>
+      <tbody>
+        <tr><td><code>fact_orders.rowcount</code></td><td>rowcount</td><td>blocker</td><td>FAIL</td><td>1,204,331</td><td>1,204,299</td><td>-32</td><td>source=1,204,331 target=1,204,299</td></tr>
+        <tr><td><code>dim_customer.label</code></td><td>transformation</td><td>blocker</td><td>FAIL</td><td>0</td><td>5</td><td>5</td><td>missing_in_target=2 value_mismatches=3</td></tr>
+        <tr><td><code>fact_orders.null_rate.region_id</code></td><td>completeness</td><td>warning</td><td>WARN</td><td>99.9</td><td>99.6</td><td>-0.3</td><td>0.4% of rows have no region</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="maintenance">Retention and maintenance</h2>
+    <ul>
+      <li><strong>Append-only.</strong> Never update or delete result rows to &quot;fix&quot; a history; add a new run instead.</li>
+      <li><strong>Small files.</strong> One append per run creates small files. Schedule <code>OPTIMIZE</code> on both tables, and <code>VACUUM</code> within your retention policy, as part of regular lakehouse table maintenance.</li>
+      <li><strong>Retention.</strong> Keep detailed results for as long as you need trends and audit evidence, and keep <code>validation_runs</code> indefinitely; it is tiny.</li>
+      <li><strong>Evolution.</strong> Add columns; do not rename, retype or drop them. Dashboards and alerts depend on the existing shape.</li>
+      <li><strong>Sensitive data.</strong> <code>detail</code> may carry sample rows. If the validated tables hold regulated or sensitive data (PII, financial, health), sample keys rather than values, or restrict access to the results lakehouse as tightly as to the data.</li>
+    </ul>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p><ul>
+      <li>Reduce every check to expected, actual, rule and tolerance; one schema then serves every report and gate.</li>
+      <li>Keep status (what happened) and severity (what it means) separate, and treat ERROR like FAIL for blockers.</li>
+      <li>Default tolerance to zero and express legitimate drops as arithmetic (reject accounting), not as slack.</li>
+      <li>Use a WARN band for operational signals such as freshness, and compare decimals with an absolute tolerance at the stored scale.</li>
+      <li>Changing a tolerance, a severity or a test name is a reviewed change, because it alters the meaning of history.</li>
+    </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/lakehouse-schemas">What are lakehouse schemas?</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/delta-optimization-and-v-order">Delta Lake table optimization and V-Order</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/lakehouse-table-maintenance">Lakehouse table maintenance (OPTIMIZE and VACUUM)</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/fundamentals/direct-lake-overview">Direct Lake overview</a></li>
+        <li><a href="https://docs.delta.io/delta-constraints/">Delta Lake constraints</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

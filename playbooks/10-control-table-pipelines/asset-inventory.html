@@ -1,0 +1,562 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Asset discovery and inventory · Control tables</title>
+<meta name="description" content="Build an automated inventory of Fabric workspaces and items with the REST APIs: API options, authentication, permissions, pagination, throttling, notebook code, table schemas and administrative uses.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="10-control-table-pipelines" data-page="asset-inventory.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+
+    <header class="page-header">
+      <p class="eyebrow">Playbook 10 · Half A</p>
+      <h1>Asset discovery and inventory</h1>
+      <p class="lede">A scheduled notebook can enumerate every workspace and item you are allowed to see, capture where each one lives and how to connect to it, and publish the result as Delta tables. That catalog is the foundation for naming audits, cost attribution, dynamic orchestration and deployment scripts.</p>
+    </header>
+
+    <h2 id="purpose">What the inventory captures</h2>
+    <p>The discovery notebook connects to the Fabric REST APIs, walks the workspaces it can see and lists the items in each one: lakehouses, warehouses, notebooks, pipelines, semantic models, reports and every other item type the API returns. For each item it records three groups of facts.</p>
+    <dl class="kv">
+      <dt>What it is</dt><dd>Item type and display name, plus the description and folder when the API returns them.</dd>
+      <dt>Where it is</dt><dd>Workspace name and ID, the capacity and domain the workspace is assigned to, and the item ID (GUID). The item's <code>logicalId</code> links the copies of one item across development, test and production when the workspace is under Git or deployment-pipeline control.</dd>
+      <dt>How to connect</dt><dd>For lakehouses and warehouses, the SQL connection string and SQL endpoint ID that programmatic clients need.</dd>
+    </dl>
+    <p>The output is a handful of Spark tables saved in a lakehouse. That turns scattered assets across potentially hundreds of workspaces into one dataset you can query, join and schedule against.</p>
+
+    <h2 id="api-options">Choose the right API</h2>
+    <p>Fabric exposes the same facts through four families of APIs. They differ in scope (what the caller can see), cost (how many calls a full inventory needs) and depth (whether you get schema and lineage).</p>
+    <table>
+      <thead><tr><th>Option</th><th>Endpoints</th><th>Sees</th><th>Limits to design for</th><th>Use it for</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Core list APIs</strong></td><td><code>GET /v1/workspaces</code>, <code>GET /v1/workspaces/{id}/items</code>, Get Lakehouse, Get Warehouse</td><td>Workspaces the caller can access; items need at least the Viewer role in that workspace. Users, service principals and managed identities are supported.</td><td>500 calls per minute under the platform quota; paginated with a continuation token; 429 carries <code>Retry-After</code>. One call per workspace plus one per lakehouse or warehouse.</td><td>Team-scoped inventories and the ID lookups that drive orchestration and CI/CD.</td></tr>
+        <tr><td><strong>Admin list APIs</strong> <span class="badge preview">Preview</span></td><td><code>GET /v1/admin/workspaces</code>, <code>GET /v1/admin/items</code></td><td>Every workspace and active item in the tenant, with capacity, last-updated time and creator principal. Caller must be a Fabric administrator or an allowed service principal.</td><td>200 requests per hour; up to 10,000 records per request; paginated.</td><td>Tenant-wide catalogs in a few calls instead of thousands.</td></tr>
+        <tr><td><strong>Scanner (metadata scanning) APIs</strong></td><td><code>GET admin/workspaces/modified</code>, <code>POST admin/workspaces/getInfo</code>, <code>GET admin/workspaces/scanStatus/{id}</code>, <code>GET admin/workspaces/scanResult/{id}</code> on the Power BI API host</td><td>Tenant-wide items plus lineage, data source details and semantic model schema (tables, columns, measures) when the admin switches are on.</td><td>100 workspaces per <code>getInfo</code>; 500 <code>getInfo</code> and 500 <code>scanResult</code> calls per hour; 16 concurrent scans; results kept 24 hours; <code>modifiedSince</code> must fall within 30 days.</td><td>Governance, lineage and sensitivity reporting; incremental scans.</td></tr>
+        <tr><td><strong>Semantic link helpers</strong></td><td><code>sempy.fabric.list_workspaces()</code>, <code>list_items()</code>, <code>FabricRestClient</code>; <code>sempy.fabric.admin.*</code> for admin variants</td><td>Same data as the core (or admin) REST APIs, returned as pandas-style DataFrames. Authentication is picked up from the notebook.</td><td>Under a service principal only a subset of functions is supported.</td><td>Interactive exploration and quick checks. For scheduled production code, call REST directly so you control retries and paging.</td></tr>
+      </tbody>
+    </table>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 240" role="img" aria-label="Decision path: if you need schema or lineage use the scanner APIs; otherwise if you need the whole tenant use the admin list APIs; otherwise use the core list APIs">
+        <defs>
+          <marker id="inv1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box purple" x="30" y="40" width="220" height="56" rx="28"/>
+        <text class="t-b" x="140" y="73" text-anchor="middle">Need schema or lineage?</text>
+        <rect class="box purple" x="360" y="40" width="220" height="56" rx="28"/>
+        <text class="t-b" x="470" y="73" text-anchor="middle">Need the whole tenant?</text>
+        <rect class="box green" x="690" y="36" width="190" height="64" rx="10"/>
+        <text class="t-b" x="785" y="62" text-anchor="middle">Core list APIs</text>
+        <text class="t-s" x="785" y="80" text-anchor="middle">REST or semantic link</text>
+        <rect class="box blue" x="30" y="150" width="220" height="64" rx="10"/>
+        <text class="t-b" x="140" y="176" text-anchor="middle">Scanner APIs</text>
+        <text class="t-s" x="140" y="194" text-anchor="middle">async scan, 100 workspaces per call</text>
+        <rect class="box blue" x="360" y="150" width="220" height="64" rx="10"/>
+        <text class="t-b" x="470" y="176" text-anchor="middle">Admin list APIs</text>
+        <text class="t-s" x="470" y="194" text-anchor="middle">tenant-wide · preview · 200/hour</text>
+        <path class="ln" d="M250 68H358" marker-end="url(#inv1-a)"/>
+        <path class="ln" d="M580 68H688" marker-end="url(#inv1-a)"/>
+        <path class="ln" d="M140 96V148" marker-end="url(#inv1-a)"/>
+        <path class="ln" d="M470 96V148" marker-end="url(#inv1-a)"/>
+        <text class="t-s c-red" x="304" y="60" text-anchor="middle">no</text>
+        <text class="t-s c-red" x="634" y="60" text-anchor="middle">no</text>
+        <text class="t-s c-green" x="150" y="126">yes</text>
+        <text class="t-s c-green" x="480" y="126">yes</text>
+      </svg>
+      <figcaption><b>API decision path.</b> Start with what you need to know, not with the API you already know. Most orchestration and CI/CD lookups need only the core list APIs.</figcaption>
+    </figure>
+
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p>
+      <p>Both Fabric admin list APIs are documented as preview, and their throttling (documented as 200 requests per hour) is far tighter than the core APIs. Confirm status, limits and response shape in <a href="https://learn.microsoft.com/rest/api/fabric/admin/items/list-items">Admin - List Items</a> before you build a production dependency on them. The admin responses use <code>itemEntities</code> and <code>workspaces</code> arrays and a <code>name</code> field, while the core responses use <code>value</code> and <code>displayName</code>; the notebook below normalizes both.</p></div>
+
+    <h2 id="identity">Identity, permissions and tenant settings</h2>
+    <p>A scheduled inventory should not run as a person. Use a service principal that belongs to a security group, grant the group the access it needs, and keep its secret in Azure Key Vault.</p>
+    <table>
+      <thead><tr><th>Scenario</th><th>Identity</th><th>What it needs</th><th>Tenant settings to enable</th></tr></thead>
+      <tbody>
+        <tr><td>Interactive exploration</td><td>Your user</td><td>Viewer (or higher) role in each workspace you want to list.</td><td>None.</td></tr>
+        <tr><td>Scheduled inventory of the workspaces your platform owns</td><td>Service principal in a security group</td><td>Add the group to each workspace with the Viewer role. No Microsoft Entra API permissions are required for Fabric APIs.</td><td><strong>Service principals can call Fabric public APIs</strong>, scoped to the security group.</td></tr>
+        <tr><td>Tenant-wide inventory through the admin list APIs</td><td>Fabric administrator or an allowed service principal</td><td>No workspace membership needed; the admin role or the admin-API tenant switch provides access.</td><td>The <strong>Admin API settings</strong> switches, scoped to a security group.</td></tr>
+        <tr><td>Scanner APIs</td><td>Service principal or admin delegated token (the two paths are mutually exclusive)</td><td>The app must carry no admin-consent-required Power BI permissions.</td><td><strong>Service principals can access read-only admin APIs</strong>, plus the metadata-scanning switches that return detailed metadata and DAX or mashup expressions.</td></tr>
+      </tbody>
+    </table>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p>
+      <p>Microsoft documents the read-only switch for the Power BI admin APIs (which include the scanner) and a separate switch for Fabric admin APIs used for updates. Check <a href="https://learn.microsoft.com/fabric/admin/enable-service-principal-admin-apis">Enable service principal authentication for admin APIs</a> to see which switch governs the Fabric admin list endpoints in your tenant, and <a href="https://learn.microsoft.com/fabric/governance/metadata-scanning-run">Run metadata scanning</a> for the metadata-scanning switches.</p></div>
+    <p>A service principal can call REST APIs but cannot sign in to the Fabric portal. Grant it the least access that works and review its workspace roles on a schedule.</p>
+
+    <h3 id="token-idioms">Token acquisition idioms</h3>
+    <table>
+      <thead><tr><th>Idiom</th><th>Use when</th><th>Watch out for</th></tr></thead>
+      <tbody>
+        <tr><td><code>notebookutils.credentials.getToken('pbi')</code></td><td>The notebook runs as a user, or interactively. The audience keys are <code>storage</code>, <code>pbi</code>, <code>keyvault</code> and <code>kusto</code>; <code>pbi</code> covers the Power BI and Fabric REST APIs.</td><td>Under a service principal the token has limited scopes (a subset of read/write item scopes) rather than the full Fabric service scope. Tokens expire, so refresh them in long jobs.</td></tr>
+        <tr><td>MSAL client credentials with a Key Vault secret</td><td>Scheduled runs under a service principal, tenant-wide and admin APIs. Microsoft recommends MSAL when you need the full service scope.</td><td>The running identity needs permission to read the secret. <code>getSecret</code> authenticates to Key Vault with the current user's credentials. Rotate the secret and monitor expiry.</td></tr>
+        <tr><td><code>sempy.fabric.FabricRestClient()</code></td><td>Interactive notebooks that already use semantic link.</td><td>Service principal support is a subset of functions.</td></tr>
+        <tr><td><code>DefaultAzureCredential</code></td><td>Not used directly in Fabric notebooks.</td><td>Fabric notebooks do not support it directly. Wrap <code>notebookutils</code> tokens in a custom credential class if an Azure SDK client requires one.</td></tr>
+        <tr><td><code>mssparkutils</code></td><td>Existing code.</td><td>The namespace was renamed to <code>notebookutils</code>; existing calls keep working, but Microsoft recommends upgrading because the old namespace will be retired in the future.</td></tr>
+      </tbody>
+    </table>
+    <div class="callout important"><p class="callout-title">No secrets in code</p>
+      <p>Store the tenant ID, client ID and client secret as Key Vault secrets and read them at run time with <code>notebookutils.credentials.getSecret</code>. Do not print them, pass them as notebook parameters or write them to files. Output redaction in notebooks is best-effort, not a security boundary.</p></div>
+
+    <h2 id="notebook-flow">How the notebook works</h2>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 230" role="img" aria-label="The inventory notebook acquires a token, lists workspaces and items with retries, fetches SQL details in parallel, builds a DataFrame and writes Delta tables that downstream consumers query">
+        <defs>
+          <marker id="inv2-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="zone orange" x="150" y="28" width="457" height="104" rx="12"/>
+        <text class="t-s" x="162" y="124">retry on 429 and 5xx, honor Retry-After</text>
+        <rect class="box gray" x="10" y="48" width="130" height="56" rx="10"/>
+        <text class="t-b" x="75" y="72" text-anchor="middle">Acquire token</text>
+        <text class="t-s" x="75" y="90" text-anchor="middle">MSAL or notebook id</text>
+        <rect class="box blue" x="160" y="48" width="130" height="56" rx="10"/>
+        <text class="t-b" x="225" y="72" text-anchor="middle">List workspaces</text>
+        <text class="t-s" x="225" y="90" text-anchor="middle">paged, skip personal</text>
+        <rect class="box blue" x="310" y="48" width="130" height="56" rx="10"/>
+        <text class="t-b" x="375" y="72" text-anchor="middle">List items</text>
+        <text class="t-s" x="375" y="90" text-anchor="middle">paged per workspace</text>
+        <rect class="box blue" x="460" y="48" width="137" height="56" rx="10"/>
+        <text class="t-b" x="528" y="72" text-anchor="middle">Fetch SQL details</text>
+        <text class="t-s" x="528" y="90" text-anchor="middle">Lakehouse, Warehouse</text>
+        <rect class="box teal" x="620" y="48" width="130" height="56" rx="10"/>
+        <text class="t-b" x="685" y="72" text-anchor="middle">Build DataFrame</text>
+        <text class="t-s" x="685" y="90" text-anchor="middle">explicit schema</text>
+        <rect class="box green" x="770" y="48" width="120" height="56" rx="10"/>
+        <text class="t-b" x="830" y="72" text-anchor="middle">Write Delta</text>
+        <text class="t-s" x="830" y="90" text-anchor="middle">overwrite + history</text>
+        <rect class="box accent" x="590" y="160" width="300" height="52" rx="10"/>
+        <text class="t-b t-w" x="740" y="182" text-anchor="middle">Consumers</text>
+        <text class="t-s t-w" x="740" y="199" text-anchor="middle">SQL, control table, governance reports</text>
+        <path class="ln" d="M140 76H158" marker-end="url(#inv2-a)"/>
+        <path class="ln" d="M290 76H308" marker-end="url(#inv2-a)"/>
+        <path class="ln" d="M440 76H458" marker-end="url(#inv2-a)"/>
+        <path class="ln" d="M597 76H618" marker-end="url(#inv2-a)"/>
+        <path class="ln" d="M750 76H768" marker-end="url(#inv2-a)"/>
+        <path class="ln green" d="M830 104V158" marker-end="url(#inv2-a)"/>
+        <text class="t-s" x="838" y="136">tables</text>
+      </svg>
+      <figcaption><b>Inventory notebook flow.</b> Everything inside the dashed zone talks to the API and must tolerate throttling; everything after it is local Spark work.</figcaption>
+    </figure>
+    <p>Three behaviors of the Fabric list APIs shape the code:</p>
+    <ul>
+      <li><strong>Pagination.</strong> A response that has more data includes <code>continuationToken</code> and <code>continuationUri</code>; the keys are absent on the last page. The original script's <code>$top=5000</code> query option is not a documented parameter of the Fabric list-items API, so it silently returns whatever the default page holds. Always loop on the token.</li>
+      <li><strong>Throttling.</strong> A 429 response carries a <code>Retry-After</code> header in seconds. Honor it instead of using a fixed sleep, and cap parallel detail calls well below the per-minute quota.</li>
+      <li><strong>Different shapes.</strong> Core responses use <code>value</code> and <code>displayName</code>; admin responses use <code>itemEntities</code> or <code>workspaces</code> and <code>name</code>. Normalize once, at the edge.</li>
+    </ul>
+
+    <h2 id="notebook-code">The inventory notebook</h2>
+    <p>Create a notebook named <code>NB_ORCH_HUB_Inventory</code> in the hub workspace, attach <code>LH_ORCH_HUB_Inventory</code> as its default lakehouse, and split the code into cells as shown. The first cell is a parameter cell so a pipeline or schedule can override values.</p>
+
+    <pre data-title="Cell 1 · parameters (notebook, Python)"><code class="language-python"># Mark this cell as a parameter cell.
+SCOPE = "workspace-api"           # "workspace-api" (per workspace) or "admin-api" (tenant-wide, preview)
+USE_SERVICE_PRINCIPAL = False     # True: acquire tokens with MSAL and secrets from Key Vault
+KEY_VAULT_URI = "https://&lt;vault-name&gt;.vault.azure.net/"
+TENANT_ID_SECRET = "inventory-tenant-id"
+CLIENT_ID_SECRET = "inventory-client-id"
+CLIENT_SECRET_SECRET = "inventory-client-secret"
+INCLUDE_TYPES = None              # for example ["Notebook", "Lakehouse"]; None keeps every item type
+FETCH_SQL_DETAILS = True          # one extra GET per Lakehouse and Warehouse
+MAX_WORKERS = 8                   # parallel detail calls; the platform quota is 500 calls per minute
+KEEP_HISTORY = True               # append every snapshot to fabric_inventory_history
+TABLE_PREFIX = "fabric_"</code></pre>
+
+    <pre data-title="Cell 2 · authentication and HTTP helpers (notebook, Python)"><code class="language-python">import time
+import requests
+from concurrent.futures import ThreadPoolExecutor
+from urllib.parse import unquote
+from pyspark.sql import functions as F
+from pyspark.sql.types import StructType, StructField, StringType
+
+FABRIC_API = "https://api.fabric.microsoft.com/v1"
+FABRIC_SCOPE = "https://api.fabric.microsoft.com/.default"
+
+_tokens = {}   # scope -&gt; (token, acquired_at)
+
+def get_token(scope=FABRIC_SCOPE):
+    """Bearer token for the Fabric REST API (or another scope, such as the Power BI API)."""
+    if USE_SERVICE_PRINCIPAL:
+        import msal   # add msal to the notebook environment if it is not already installed
+        secret = lambda name: notebookutils.credentials.getSecret(KEY_VAULT_URI, name)
+        app = msal.ConfidentialClientApplication(
+            client_id=secret(CLIENT_ID_SECRET),
+            client_credential=secret(CLIENT_SECRET_SECRET),
+            authority=f"https://login.microsoftonline.com/{secret(TENANT_ID_SECRET)}",
+        )
+        result = app.acquire_token_for_client(scopes=[scope])
+        if "access_token" not in result:
+            raise RuntimeError(f"Token request failed: {result.get('error')}")
+        return result["access_token"]
+    # Identity of the running notebook: your user, or the identity set on the pipeline activity.
+    return notebookutils.credentials.getToken("pbi")
+
+def bearer(scope=FABRIC_SCOPE):
+    token, acquired = _tokens.get(scope, (None, 0.0))
+    if token is None or time.time() - acquired &gt; 45 * 60:      # refresh well before expiry
+        token = get_token(scope)
+        _tokens[scope] = (token, time.time())
+    return {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+
+def api_get(url, params=None, retries=6):
+    for attempt in range(1, retries + 1):
+        resp = requests.get(url, headers=bearer(), params=params, timeout=60)
+        if resp.status_code == 200:
+            return resp.json()
+        if resp.status_code in (429, 500, 502, 503, 504) and attempt &lt; retries:
+            time.sleep(int(resp.headers.get("Retry-After", min(5 * attempt, 60))))
+            continue
+        raise RuntimeError(f"GET {url} failed: {resp.status_code} {resp.text[:300]}")
+
+def get_all(url, items_key, params=None):
+    """Follow continuationToken until the API stops returning one."""
+    params = dict(params or {})
+    rows = []
+    while True:
+        page = api_get(url, params)
+        rows.extend(page.get(items_key) or [])
+        token = page.get("continuationToken")
+        if not token:
+            return rows
+        params["continuationToken"] = unquote(token)   # tokens can arrive URL-encoded</code></pre>
+
+    <pre data-title="Cell 3 · enumerate workspaces and items (notebook, Python)"><code class="language-python">def list_workspaces():
+    if SCOPE == "admin-api":
+        raw = get_all(f"{FABRIC_API}/admin/workspaces", "workspaces", {"state": "Active"})
+        return [{"workspace_id": w["id"], "workspace_name": w.get("name"), "workspace_type": w.get("type"),
+                 "capacity_id": w.get("capacityId"), "domain_id": w.get("domainId")} for w in raw]
+    raw = get_all(f"{FABRIC_API}/workspaces", "value")
+    return [{"workspace_id": w["id"], "workspace_name": w.get("displayName"), "workspace_type": w.get("type"),
+             "capacity_id": w.get("capacityId"), "domain_id": w.get("domainId")} for w in raw]
+
+def items_for_workspace(ws):
+    raw = get_all(f"{FABRIC_API}/workspaces/{ws['workspace_id']}/items", "value")
+    return [{**ws, "item_id": i["id"], "item_type": i.get("type"), "item_name": i.get("displayName"),
+             "description": i.get("description"), "folder_id": i.get("folderId"),
+             "logical_id": i.get("logicalId")} for i in raw]
+
+def items_tenant_wide(workspaces_by_id):
+    raw = get_all(f"{FABRIC_API}/admin/items", "itemEntities")
+    rows = []
+    for i in raw:
+        ws = workspaces_by_id.get(i.get("workspaceId"), {"workspace_id": i.get("workspaceId")})
+        rows.append({**ws, "item_id": i["id"], "item_type": i.get("type"), "item_name": i.get("name"),
+                     "description": i.get("description"), "last_updated_utc": i.get("lastUpdatedDate"),
+                     "creator_principal_id": (i.get("creatorPrincipal") or {}).get("id")})
+    return rows
+
+workspaces = list_workspaces()
+by_id = {w["workspace_id"]: w for w in workspaces}
+print(f"Workspaces returned: {len(workspaces)}")
+
+if SCOPE == "admin-api":
+    items = items_tenant_wide(by_id)
+else:
+    targets = [w for w in workspaces if w["workspace_type"] == "Workspace"]   # skip personal and admin workspaces
+    items = []
+    for ws in targets:
+        try:
+            items.extend(items_for_workspace(ws))
+        except Exception as exc:   # one inaccessible workspace must not stop the run
+            print(f"Skipped workspace {ws['workspace_id']}: {exc}")
+
+if INCLUDE_TYPES:
+    items = [i for i in items if i["item_type"] in INCLUDE_TYPES]
+print(f"Items returned: {len(items)}")</code></pre>
+
+    <pre data-title="Cell 4 · SQL endpoint details (notebook, Python)"><code class="language-python">def sql_details(row):
+    ws, item = row["workspace_id"], row["item_id"]
+    try:
+        if row["item_type"] == "Lakehouse":
+            props = api_get(f"{FABRIC_API}/workspaces/{ws}/lakehouses/{item}").get("properties") or {}
+            ep = props.get("sqlEndpointProperties") or {}
+            return {"sql_endpoint_id": ep.get("id"), "sql_connection_string": ep.get("connectionString"),
+                    "sql_provisioning_status": ep.get("provisioningStatus")}
+        if row["item_type"] == "Warehouse":
+            props = api_get(f"{FABRIC_API}/workspaces/{ws}/warehouses/{item}").get("properties") or {}
+            return {"sql_connection_string": props.get("connectionString"),
+                    "collation_type": props.get("collationType")}
+    except Exception as exc:
+        return {"detail_error": str(exc)[:500]}
+    return {}
+
+if FETCH_SQL_DETAILS:
+    needs_detail = [r for r in items if r["item_type"] in ("Lakehouse", "Warehouse")]
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
+        for row, extra in zip(needs_detail, pool.map(sql_details, needs_detail)):
+            row.update(extra)</code></pre>
+
+    <pre data-title="Cell 5 · build DataFrames and write Delta tables (notebook, PySpark)"><code class="language-python">COLUMNS = ["workspace_id", "workspace_name", "workspace_type", "capacity_id", "domain_id",
+           "item_id", "item_type", "item_name", "description", "folder_id", "logical_id",
+           "last_updated_utc", "creator_principal_id",
+           "sql_endpoint_id", "sql_connection_string", "sql_provisioning_status", "collation_type", "detail_error"]
+schema = StructType([StructField(c, StringType(), True) for c in COLUMNS])
+
+inventory_df = (spark.createDataFrame([tuple(r.get(c) for c in COLUMNS) for r in items], schema)
+                .withColumn("snapshot_utc", F.current_timestamp()))
+workspaces_df = (spark.createDataFrame(
+        [(w["workspace_id"], w["workspace_name"], w["workspace_type"], w["capacity_id"], w["domain_id"]) for w in workspaces],
+        "workspace_id string, workspace_name string, workspace_type string, capacity_id string, domain_id string")
+    .withColumn("snapshot_utc", F.current_timestamp()))
+
+def save(df, name, mode="overwrite"):
+    writer = df.write.mode(mode).format("delta")
+    writer = writer.option("overwriteSchema", "true") if mode == "overwrite" else writer.option("mergeSchema", "true")
+    writer.saveAsTable(f"{TABLE_PREFIX}{name}")
+
+save(inventory_df, "inventory")
+save(workspaces_df, "workspaces")
+if KEEP_HISTORY:
+    save(inventory_df, "inventory_history", mode="append")
+
+# Narrow, purpose-named tables that orchestration and deployment code can join to directly.
+TYPED = {"notebooks": ("Notebook", "notebook"), "lakehouses": ("Lakehouse", "lakehouse"),
+         "warehouses": ("Warehouse", "warehouse"), "pipelines": ("DataPipeline", "pipeline"),
+         "semantic_models": ("SemanticModel", "semantic_model"), "reports": ("Report", "report")}
+for suffix, (item_type, prefix) in TYPED.items():
+    narrow = (inventory_df.filter(F.col("item_type") == item_type)
+              .selectExpr("workspace_id", "workspace_name", f"item_id as {prefix}_id", f"item_name as {prefix}_name",
+                          "logical_id", "snapshot_utc"))
+    save(narrow, suffix)
+
+display(inventory_df.groupBy("item_type").count().orderBy(F.desc("count")))
+assert inventory_df.count() &gt; 0, "The inventory is empty: check permissions and tenant settings."</code></pre>
+
+    <h3 id="scanner-flow">When you need lineage and schema: the scanner flow</h3>
+    <p>The list APIs return item names and IDs. If you also need lineage, data source details or the tables and columns of semantic models, use the scanner, which is asynchronous and works on chunks of workspaces. Take a full scan first, then run incremental scans for workspaces that changed.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 250" role="img" aria-label="Scanner flow: list modified workspaces, post up to 100 IDs to getInfo, poll scanStatus until Succeeded, then read scanResult within 24 hours; limits listed below the steps">
+        <defs>
+          <marker id="inv4-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <text class="t-s" x="14" y="24">Step 1</text>
+        <text class="t-s" x="244" y="24">Step 2</text>
+        <text class="t-s" x="474" y="24">Step 3</text>
+        <text class="t-s" x="704" y="24">Step 4</text>
+        <rect class="box blue" x="10" y="34" width="190" height="56" rx="10"/>
+        <text class="t-b" x="105" y="58" text-anchor="middle">GET workspaces/modified</text>
+        <text class="t-s" x="105" y="76" text-anchor="middle">full list, or modifiedSince</text>
+        <rect class="box blue" x="240" y="34" width="190" height="56" rx="10"/>
+        <text class="t-b" x="335" y="58" text-anchor="middle">POST workspaces/getInfo</text>
+        <text class="t-s" x="335" y="76" text-anchor="middle">up to 100 IDs per call</text>
+        <rect class="box blue" x="470" y="34" width="190" height="56" rx="10"/>
+        <text class="t-b" x="565" y="58" text-anchor="middle">GET scanStatus/{id}</text>
+        <text class="t-s" x="565" y="76" text-anchor="middle">poll until Succeeded</text>
+        <rect class="box green" x="700" y="34" width="190" height="56" rx="10"/>
+        <text class="t-b" x="795" y="58" text-anchor="middle">GET scanResult/{id}</text>
+        <text class="t-s" x="795" y="76" text-anchor="middle">kept for 24 hours</text>
+        <path class="ln" d="M200 62H238" marker-end="url(#inv4-a)"/>
+        <path class="ln" d="M430 62H468" marker-end="url(#inv4-a)"/>
+        <path class="ln" d="M660 62H698" marker-end="url(#inv4-a)"/>
+        <text class="t-s" x="219" y="54" text-anchor="middle">IDs</text>
+        <text class="t-s" x="449" y="54" text-anchor="middle">scanId</text>
+        <text class="t-s" x="679" y="54" text-anchor="middle">done</text>
+        <rect class="lane" x="10" y="112" width="880" height="124" rx="10"/>
+        <text class="t-b" x="26" y="136">Limits to plan for</text>
+        <text class="t-s" x="26" y="156">getInfo: 500 calls per hour, 100 workspaces per call, at most 16 scans in flight</text>
+        <text class="t-s" x="26" y="174">scanStatus: 10,000 calls per hour; poll every 30 to 60 seconds</text>
+        <text class="t-s" x="26" y="192">scanResult: 500 calls per hour; one call per chunk of workspaces</text>
+        <text class="t-s" x="26" y="218">Incremental run: set modifiedSince to the start of the last scan (within 30 days), then repeat steps 2 to 4 for the changed IDs.</text>
+      </svg>
+      <figcaption><b>Scanner flow.</b> Chunk the workspace list by 100, keep no more than 16 scans in flight, and persist the result you need before the 24-hour window closes.</figcaption>
+    </figure>
+
+    <details class="fold"><summary>Scanner variant: schema, lineage and data sources (Python)</summary>
+      <p>Use this when you need what the list APIs cannot return. It calls the Power BI admin host, so request a token for that resource when you use MSAL (<code>https://analysis.windows.net/powerbi/api/.default</code>). Run it for at most 100 workspace IDs per call and no more than 16 scans at once.</p>
+<pre data-title="scan up to 100 workspaces (notebook, Python)"><code class="language-python">PBI_ADMIN = "https://api.powerbi.com/v1.0/myorg/admin/workspaces"
+PBI_SCOPE = "https://analysis.windows.net/powerbi/api/.default"
+
+def modified_workspace_ids(modified_since_iso=None):
+    """Full list when modified_since_iso is None; otherwise only workspaces changed since then (within 30 days)."""
+    params = {"excludePersonalWorkspaces": "True"}
+    if modified_since_iso:
+        params["modifiedSince"] = modified_since_iso
+    resp = requests.get(f"{PBI_ADMIN}/modified", headers=bearer(PBI_SCOPE), params=params, timeout=60)
+    resp.raise_for_status()
+    return [w["id"] for w in resp.json()]
+
+def scan(workspace_ids, poll_seconds=30):
+    assert 0 &lt; len(workspace_ids) &lt;= 100, "getInfo accepts 1 to 100 workspace IDs"
+    flags = {"lineage": "True", "datasourceDetails": "True", "datasetSchema": "True", "datasetExpressions": "True"}
+    resp = requests.post(f"{PBI_ADMIN}/getInfo", headers={**bearer(PBI_SCOPE), "Content-Type": "application/json"},
+                         params=flags, json={"workspaces": workspace_ids}, timeout=60)
+    resp.raise_for_status()
+    scan_id = resp.json()["id"]
+    while True:
+        status = requests.get(f"{PBI_ADMIN}/scanStatus/{scan_id}", headers=bearer(PBI_SCOPE), timeout=60).json()["status"]
+        if status == "Succeeded":
+            break
+        if status not in ("NotStarted", "Running"):
+            raise RuntimeError(f"Scan {scan_id} ended with status {status}")
+        time.sleep(poll_seconds)          # 30 to 60 seconds is the recommended polling interval
+    result = requests.get(f"{PBI_ADMIN}/scanResult/{scan_id}", headers=bearer(PBI_SCOPE), timeout=120)
+    result.raise_for_status()
+    return result.json()                  # available for 24 hours; persist what you need</code></pre>
+    </details>
+
+    <h2 id="inventory-tables">Inventory tables</h2>
+    <p>Running the notebook creates the tables below in the default lakehouse. They are snapshots: each run overwrites the current tables and, when <code>KEEP_HISTORY</code> is on, appends the inventory to a history table so you can detect items that appeared or disappeared.</p>
+    <table>
+      <thead><tr><th>Table</th><th>Grain</th><th>Key columns</th></tr></thead>
+      <tbody>
+        <tr><td><code>fabric_inventory</code></td><td>One row per item</td><td><code>workspace_id</code>, <code>workspace_name</code>, <code>capacity_id</code>, <code>item_id</code>, <code>item_type</code>, <code>item_name</code>, <code>logical_id</code>, <code>sql_connection_string</code>, <code>sql_endpoint_id</code>, <code>snapshot_utc</code></td></tr>
+        <tr><td><code>fabric_workspaces</code></td><td>One row per workspace</td><td><code>workspace_id</code>, <code>workspace_name</code>, <code>workspace_type</code>, <code>capacity_id</code>, <code>domain_id</code>, <code>snapshot_utc</code></td></tr>
+        <tr><td><code>fabric_notebooks</code> (and <code>_lakehouses</code>, <code>_warehouses</code>, <code>_pipelines</code>, <code>_semantic_models</code>, <code>_reports</code>)</td><td>One row per item of that type</td><td><code>workspace_id</code>, <code>workspace_name</code>, <code>notebook_id</code>, <code>notebook_name</code>, <code>logical_id</code>, <code>snapshot_utc</code></td></tr>
+        <tr><td><code>fabric_inventory_history</code></td><td>One row per item per run</td><td>Same columns as <code>fabric_inventory</code>; use <code>snapshot_utc</code> to diff runs</td></tr>
+      </tbody>
+    </table>
+    <p>Schedule the notebook at the cadence you need (daily is typical), run it under the service principal, and surface freshness by checking <code>max(snapshot_utc)</code> in your health checks. If you run it from a pipeline, add it as the first activity of a nightly "platform housekeeping" pipeline rather than as part of the business loads.</p>
+
+    <h3 id="inventory-pitfalls">Pitfalls</h3>
+    <table>
+      <thead><tr><th>Symptom</th><th>Likely cause</th><th>Fix</th></tr></thead>
+      <tbody>
+        <tr><td>A workspace or its items are missing</td><td>The identity has no role in it (core APIs need Viewer or higher).</td><td>Add the service principal's security group to the workspace, or use the admin list APIs.</td></tr>
+        <tr><td>401 or 403 under a service principal</td><td>Tenant switch off, principal outside the allowed group, or the app carries admin-consent Power BI permissions.</td><td>Re-check the switches and the group; remove admin-consent permissions from the app registration.</td></tr>
+        <tr><td>429 responses</td><td>Too many parallel calls or a repeated run.</td><td>Honor <code>Retry-After</code>, lower <code>MAX_WORKERS</code>, and prefer admin list APIs for very large tenants.</td></tr>
+        <tr><td>Duplicate display names</td><td>Names are unique only per workspace and type.</td><td>Key joins on IDs, or on (<code>workspace_id</code>, <code>item_type</code>, <code>item_name</code>).</td></tr>
+        <tr><td><code>sql_connection_string</code> is null for a new lakehouse</td><td>The SQL endpoint is still provisioning.</td><td>Check <code>sql_provisioning_status</code> and rerun later.</td></tr>
+        <tr><td>Inventory changes between runs for no reason</td><td>Items created or deleted while the run was in progress.</td><td>Treat each run as a point-in-time snapshot and compare through the history table.</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="administration">How the inventory is used for administration</h2>
+    <p>A current, queryable inventory changes administration from workspace-by-workspace clicking into a data-driven practice. Five uses come up repeatedly.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 290" role="img" aria-label="The inventory tables feed five uses: governance and auditing, cost management, security review, orchestration and CI/CD">
+        <defs>
+          <marker id="inv3-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box accent" x="335" y="100" width="230" height="84" rx="12"/>
+        <text class="t-h t-w" x="450" y="136" text-anchor="middle">Inventory tables</text>
+        <text class="t-s t-w" x="450" y="156" text-anchor="middle">items · workspaces · IDs</text>
+        <rect class="box purple" x="20" y="20" width="270" height="56" rx="10"/>
+        <text class="t-b" x="155" y="44" text-anchor="middle">Governance and auditing</text>
+        <text class="t-s" x="155" y="62" text-anchor="middle">flags non-standard names</text>
+        <rect class="box gold" x="20" y="116" width="270" height="56" rx="10"/>
+        <text class="t-b" x="155" y="140" text-anchor="middle">Cost management</text>
+        <text class="t-s" x="155" y="158" text-anchor="middle">attributes items to capacities</text>
+        <rect class="box red" x="20" y="212" width="270" height="56" rx="10"/>
+        <text class="t-b" x="155" y="236" text-anchor="middle">Security review</text>
+        <text class="t-s" x="155" y="254" text-anchor="middle">lists what needs access review</text>
+        <rect class="box teal" x="610" y="48" width="270" height="56" rx="10"/>
+        <text class="t-b" x="745" y="72" text-anchor="middle">Orchestration</text>
+        <text class="t-s" x="745" y="90" text-anchor="middle">resolves notebook and pipeline IDs</text>
+        <rect class="box blue" x="610" y="180" width="270" height="56" rx="10"/>
+        <text class="t-b" x="745" y="204" text-anchor="middle">CI/CD</text>
+        <text class="t-s" x="745" y="222" text-anchor="middle">maps source items to target IDs</text>
+        <path class="ln" d="M335 120L292 56" marker-end="url(#inv3-a)"/>
+        <path class="ln" d="M335 142H292" marker-end="url(#inv3-a)"/>
+        <path class="ln" d="M335 164L292 232" marker-end="url(#inv3-a)"/>
+        <path class="ln" d="M565 120L608 84" marker-end="url(#inv3-a)"/>
+        <path class="ln" d="M565 164L608 200" marker-end="url(#inv3-a)"/>
+      </svg>
+      <figcaption><b>One dataset, five uses.</b> Each consumer asks a different question of the same tables, which is why the inventory is worth keeping fresh.</figcaption>
+    </figure>
+
+    <h3 id="use-governance">1. Governance and auditing</h3>
+    <ul>
+      <li><strong>Complete asset visibility.</strong> The first question of any audit is "what do we have and where?". The inventory answers it with a query.</li>
+      <li><strong>Enforcing standards.</strong> Find workspaces and items that do not follow the naming convention, or workspaces created outside the standard process.</li>
+      <li><strong>Identifying unused assets.</strong> Join the inventory to activity data (the admin activity events, or monitoring data kept in your own tables) to flag notebooks, reports or whole workspaces nobody touches. With the admin items API you also get <code>last_updated_utc</code> and the creator principal ID, which helps find orphaned items.</li>
+    </ul>
+<pre data-title="naming-convention audit (Spark SQL)"><code class="language-sql">SELECT workspace_name, item_type, item_name
+FROM fabric_inventory
+WHERE item_type IN ('Notebook', 'DataPipeline', 'Lakehouse', 'Warehouse')
+  AND NOT item_name RLIKE '^(NB|PL|LH|WH)_[A-Z0-9]+_[A-Z]+_[A-Za-z0-9]+$'
+ORDER BY workspace_name, item_name;
+
+SELECT workspace_name
+FROM fabric_workspaces
+WHERE workspace_type = 'Workspace'
+  AND NOT workspace_name RLIKE '^(DEV|TST|PRD)_[A-Z0-9]+_(BRZ|SLV|GLD|CNSM|DLV|HUB)(_[A-Za-z0-9]+)?$';</code></pre>
+
+    <h3 id="use-orchestration">2. Automation and dynamic orchestration</h3>
+    <p>This is the use that connects the two halves of the playbook. Instead of copying a notebook's ID into a pipeline by hand, you resolve it from the inventory when you seed or synchronize the control table.</p>
+    <ul>
+      <li><strong>Control-table-driven pipelines.</strong> <code>fabric_notebooks</code>, <code>fabric_pipelines</code> and the other typed tables are the source for <code>object_id</code> and <code>target_workspace_id</code> in the control table.</li>
+      <li><strong>Cross-workspace operations.</strong> A central pipeline in an orchestration workspace needs the workspace ID and item ID to start work in a Bronze or Silver workspace. The inventory supplies both.</li>
+    </ul>
+<pre data-title="resolve the IDs the control table needs (Spark SQL)"><code class="language-sql">SELECT workspace_id, workspace_name, notebook_id, notebook_name, logical_id
+FROM fabric_notebooks
+WHERE workspace_name IN ('DEV_SALES_BRZ', 'DEV_SALES_SLV')
+  AND notebook_name IN ('NB_SALES_BRZ_IngestCustomers', 'NB_SALES_BRZ_IngestProducts', 'NB_SALES_SLV_TransformSales');</code></pre>
+    <p>Record the workspace ID and the notebook ID, not just the name. When you <a href="warehouse-objects.html#seed">seed the control table</a>, the sync procedure copies both from the inventory into the control table.</p>
+<pre data-title="find control-table rows that point at items that no longer exist (T-SQL, Warehouse query editor)"><code class="language-sql">SELECT c.task_name, c.object_id
+FROM ctl.control_table AS c
+LEFT JOIN LH_ORCH_HUB_Inventory.dbo.fabric_inventory AS i
+       ON LOWER(i.item_id) = LOWER(c.object_id)
+WHERE c.task_type = 'Notebook'
+  AND c.is_enabled = 1
+  AND i.item_id IS NULL;</code></pre>
+    <p>The warehouse reads the lakehouse inventory through a three-part name because both items sit in the same workspace and cross-database queries are supported there. Run this check as part of the pipeline's guard step so a deleted notebook is caught before the run, not during it.</p>
+
+    <h3 id="use-cost">3. Cost management and optimization</h3>
+    <ul>
+      <li><strong>Resource sprawl.</strong> Count workspaces and items per capacity and per domain, and list workspaces that hold zero or one item.</li>
+      <li><strong>Capacity planning.</strong> The mix of item types (many large warehouses versus many small notebooks) is a first-order signal when you forecast capacity. The inventory gives you the mix; pair it with the capacity metrics for actual consumption.</li>
+    </ul>
+<pre data-title="items per capacity and type, and empty workspaces (Spark SQL)"><code class="language-sql">SELECT w.capacity_id, i.item_type, COUNT(*) AS items
+FROM fabric_inventory i JOIN fabric_workspaces w ON w.workspace_id = i.workspace_id
+GROUP BY w.capacity_id, i.item_type
+ORDER BY w.capacity_id, items DESC;
+
+SELECT w.workspace_name, w.capacity_id, COUNT(i.item_id) AS items
+FROM fabric_workspaces w LEFT JOIN fabric_inventory i ON i.workspace_id = w.workspace_id
+WHERE w.workspace_type = 'Workspace'
+GROUP BY w.workspace_name, w.capacity_id
+HAVING COUNT(i.item_id) &lt;= 1;</code></pre>
+
+    <h3 id="use-security">4. Security and compliance</h3>
+    <ul>
+      <li><strong>Defining the security scope.</strong> You cannot review access on assets you do not know exist. The inventory is the checklist of items whose permissions and sensitivity labels need review.</li>
+      <li><strong>Auditing footprint.</strong> Security teams can use the inventory (and, for lineage and sensitivity details, the scanner output) to confirm that every asset falls under the right governance policy.</li>
+    </ul>
+
+    <h3 id="use-cicd">5. CI/CD and DevOps enablement</h3>
+    <p>A deployment script usually needs the ID of a target workspace or item. Instead of hard-coding it, query the inventory. When workspaces are connected to Git or deployment pipelines, the <code>logical_id</code> identifies the same item across environments, so you can translate a source ID to the target environment's ID.</p>
+<pre data-title="map a development item to its production counterpart (Spark SQL)"><code class="language-sql">SELECT d.item_name, d.item_id AS dev_item_id, p.item_id AS prd_item_id
+FROM fabric_inventory d
+JOIN fabric_inventory p ON p.logical_id = d.logical_id AND p.item_type = d.item_type
+WHERE d.workspace_name = 'DEV_SALES_SLV' AND p.workspace_name = 'PRD_SALES_SLV';</code></pre>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p>
+      <p>The item's <code>logicalId</code> is null when no logical ID has been assigned. Confirm in <a href="https://learn.microsoft.com/rest/api/fabric/core/items/list-items">Items - List Items</a> which of your items carry one before relying on it for environment mapping.</p></div>
+
+    <div class="callout warning"><p class="callout-title">Resolve IDs at sync time, not at run time</p>
+      <p>It is tempting to let the production pipeline look up each notebook ID in the inventory on every run. Do not: a stale or partial inventory then breaks the run. Resolve IDs when you seed or synchronize the control table, validate them in the guard step, and let the run read only the control table.</p></div>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p><ul>
+      <li>Pick the API by the question: scanner for schema and lineage, admin list for tenant-wide, core list for everything scoped to what the identity can see.</li>
+      <li>Run the inventory as a service principal with secrets in Key Vault; use MSAL when the notebook token's scope is too narrow.</li>
+      <li>Follow continuation tokens and honor <code>Retry-After</code>; never rely on a page-size query option.</li>
+      <li>Store IDs and <code>logical_id</code>, key joins on IDs, and keep a history table.</li>
+      <li>Resolve IDs into the control table at sync time and validate them in the guard step.</li>
+    </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/rest/api/fabric/core/workspaces/list-workspaces">Workspaces - List Workspaces (Core)</a></li>
+        <li><a href="https://learn.microsoft.com/rest/api/fabric/core/items/list-items">Items - List Items (Core)</a></li>
+        <li><a href="https://learn.microsoft.com/rest/api/fabric/admin/items/list-items">Items - List Items (Admin)</a></li>
+        <li><a href="https://learn.microsoft.com/rest/api/fabric/admin/workspaces/list-workspaces">Workspaces - List Workspaces (Admin)</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/governance/metadata-scanning-run">Run metadata scanning</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/admin/enable-service-principal-admin-apis">Enable service principal authentication for admin APIs</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/notebookutils/notebookutils-credentials">NotebookUtils credentials utilities</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/notebook-utilities">NotebookUtils (former MSSparkUtils)</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-science/semantic-link-service-principal-support">Service principal support for semantic link</a></li>
+        <li><a href="https://learn.microsoft.com/rest/api/fabric/articles/throttling">Fabric REST API throttling</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

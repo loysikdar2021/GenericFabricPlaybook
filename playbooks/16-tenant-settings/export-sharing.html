@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Export and sharing settings · Tenant Settings</title>
+<meta name="description" content="Reference and recommended posture for export, sharing, guest and external collaboration settings.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="16-tenant-settings" data-page="export-sharing.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 16 · Tenant Settings</p>
+      <h1>Export and sharing settings</h1>
+      <p class="lede">Export, download, link-sharing, guest and external-collaboration settings decide how data leaves the service and who can receive it. They carry the highest exposure in most tenants, so they get the most careful scoping.</p>
+      <ul class="chips"><li><b>Portal group</b> Export and sharing settings</li><li><b>Default stance</b> Specific groups or disable</li><li><b>Pairs with</b> Sensitivity labels, audit</li></ul>
+    </header>
+<h2 id="egress-map">How data leaves the service</h2>
+<p>Every export or sharing setting opens a different door. The useful question is not "is it on" but "how much control travels with the data once it is out". Group the doors by that answer and set each posture accordingly.</p>
+<figure class="diagram">
+<svg class="dg" viewBox="0 0 900 410" role="img" aria-label="Export and sharing paths from a report or semantic model grouped by how much control follows the data: labels and audit travel with Excel and PowerPoint or PDF exports; partial control for live Excel, pbix download, copy and paste and subscriptions; weak control for csv, organization links, publish to web and external data shares">
+<defs><marker id="fig-egress-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker><marker id="fig-egress-a-green" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker><marker id="fig-egress-a-orange" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar orange" d="M0 0L10 5L0 10z"/></marker><marker id="fig-egress-a-red" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar red" d="M0 0L10 5L0 10z"/></marker></defs>
+<rect class="box blue" x="330" y="12" width="240" height="52" rx="10"/>
+<text class="t-b" x="450" y="34.8" text-anchor="middle">Report or semantic model</text>
+<text class="t-s" x="450" y="49.6" text-anchor="middle">in the Fabric service</text>
+<rect class="zone green" x="20" y="100" width="280" height="296" rx="12"/>
+<text class="t-s" x="34" y="119">Labels and audit follow the data</text>
+<rect class="box green" x="32" y="126" width="256" height="52" rx="10"/>
+<text class="t-b" x="160" y="148.8" text-anchor="middle">Export to Excel</text>
+<text class="t-s" x="160" y="163.6" text-anchor="middle">label applied to the file</text>
+<rect class="box green" x="32" y="188" width="256" height="52" rx="10"/>
+<text class="t-b" x="160" y="210.8" text-anchor="middle">PowerPoint and PDF export</text>
+<text class="t-s" x="160" y="225.6" text-anchor="middle">label applied on supported paths</text>
+<path class="ln green" d="M450 64L450 82L160 82L160 98" marker-end="url(#fig-egress-a-green)"/>
+<rect class="zone orange" x="310" y="100" width="280" height="296" rx="12"/>
+<text class="t-s" x="324" y="119">Partly controlled</text>
+<rect class="box orange" x="322" y="126" width="256" height="52" rx="10"/>
+<text class="t-b" x="450" y="148.8" text-anchor="middle">Analyze in Excel (live)</text>
+<text class="t-s" x="450" y="163.6" text-anchor="middle">runs as the user, RLS applies</text>
+<rect class="box orange" x="322" y="188" width="256" height="52" rx="10"/>
+<text class="t-b" x="450" y="210.8" text-anchor="middle">Download .pbix</text>
+<text class="t-s" x="450" y="225.6" text-anchor="middle">full copy of the report</text>
+<rect class="box orange" x="322" y="250" width="256" height="52" rx="10"/>
+<text class="t-b" x="450" y="272.8" text-anchor="middle">Copy and paste visual</text>
+<text class="t-s" x="450" y="287.6" text-anchor="middle">static image, no label follows</text>
+<rect class="box orange" x="322" y="312" width="256" height="52" rx="10"/>
+<text class="t-b" x="450" y="334.8" text-anchor="middle">Email subscriptions</text>
+<text class="t-s" x="450" y="349.6" text-anchor="middle">external recipients need two settings</text>
+<path class="ln orange" d="M450 64L450 82L450 82L450 98" marker-end="url(#fig-egress-a-orange)"/>
+<rect class="zone red" x="600" y="100" width="280" height="296" rx="12"/>
+<text class="t-s" x="614" y="119">Weak or no control</text>
+<rect class="box red" x="612" y="126" width="256" height="52" rx="10"/>
+<text class="t-b" x="740" y="148.8" text-anchor="middle">Export to .csv</text>
+<text class="t-s" x="740" y="163.6" text-anchor="middle">no label-based access control</text>
+<rect class="box red" x="612" y="188" width="256" height="52" rx="10"/>
+<text class="t-b" x="740" y="210.8" text-anchor="middle">Organization-wide link</text>
+<text class="t-s" x="740" y="225.6" text-anchor="middle">anyone in the tenant with the link</text>
+<rect class="box red" x="612" y="250" width="256" height="52" rx="10"/>
+<text class="t-b" x="740" y="272.8" text-anchor="middle">Publish to web</text>
+<text class="t-s" x="740" y="287.6" text-anchor="middle">public, no sign-in</text>
+<rect class="box red" x="612" y="312" width="256" height="52" rx="10"/>
+<text class="t-b" x="740" y="334.8" text-anchor="middle">External data share</text>
+<text class="t-s" x="740" y="349.6" text-anchor="middle">consumer tenant governs it</text>
+<path class="ln red" d="M450 64L450 82L740 82L740 98" marker-end="url(#fig-egress-a-red)"/>
+</svg>
+<figcaption><b>Egress map.</b> Group paths by how much control travels with the data, then set each setting's posture accordingly. The tenant setting decides whether the path exists; labels, permissions and audit decide what it leaks.</figcaption>
+</figure>
+<ul>
+  <li><strong>Labels and audit follow the data.</strong> Excel and PowerPoint or PDF exports carry the item's sensitivity label on supported paths, so these are the safest formats to allow.</li>
+  <li><strong>Partly controlled.</strong> Live Excel connections run as the user, so row-level security still applies, but copies and downloads are outside Fabric once saved.</li>
+  <li><strong>Weak or no control.</strong> CSV, organization-wide links, publish to web and cross-tenant data shares escape label enforcement or authentication. Keep them off or tightly scoped.</li>
+</ul>
+
+<h2 id="export">Export and download</h2>
+<p>These settings apply to the Fabric and Power BI service. Several of them (Excel, CSV, PowerPoint, PDF) also depend on sensitivity labels being deployed first, because the label is what protects the exported file.</p>
+<h3 id="export-persona">Recommended allow groups by persona</h3>
+<p>A practical way to apply the cards below is to decide which persona gets which format, then create one allow group per column.</p>
+<table>
+  <thead><tr><th>Persona</th><th>Excel</th><th>.csv</th><th>PowerPoint, PDF</th><th>Download reports</th><th>Analyze in Excel</th></tr></thead>
+  <tbody>
+    <tr><td><strong>Report consumers</strong></td><td class="maybe">Group</td><td class="no">Block</td><td class="maybe">Group</td><td class="no">Block</td><td class="no">Block</td></tr>
+    <tr><td><strong>Analysts, self-service authors</strong></td><td class="maybe">Group</td><td class="maybe">Group</td><td class="maybe">Group</td><td class="maybe">Group</td><td class="maybe">Group</td></tr>
+    <tr><td><strong>Report and model developers</strong></td><td class="maybe">Group</td><td class="maybe">Group</td><td class="maybe">Group</td><td class="maybe">Group</td><td class="maybe">Group</td></tr>
+    <tr><td><strong>Restricted-data populations</strong></td><td class="no">Exception</td><td class="no">Exception</td><td class="no">Exception</td><td class="no">Exception</td><td class="no">Exception</td></tr>
+  </tbody>
+</table>
+<p>The table is a starting point: it assumes every column is a separate allow group, with one shared exception group for restricted populations that always wins.</p>
+
+<h3 id="s-copy-paste">Copy and paste visuals</h3>
+<dl class="kv">
+<dt>Where</dt><dd>Export and sharing settings</dd>
+<dt>Default</dt><dd>Not stated</dd>
+<dt>Typical posture</dt><dd><strong>Enable for specific groups</strong> — Useful for business communication, but it is an uncontrolled copy path.</dd>
+<dt>Scope and delegation</dt><dd>Supports specific security groups and exceptions.</dd>
+<dt>What it controls</dt><dd>Lets users copy a visual from a tile or report and paste it as a static image into another application.</dd>
+<dt>Risk or benefit</dt><dd>The pasted image carries no lineage, label or access control. Row-level security applied when the visual rendered, but nothing follows the image afterwards. The benefit is cheap slide and e-mail production; the exposure equals photographing the screen, which no tenant setting can prevent.</dd>
+<dt>Notes</dt><dd>Scope to communicators and analysts and exclude groups that handle regulated data. Treat it as a policy and culture control backed by endpoint DLP, not as a technical barrier.</dd>
+</dl>
+<h3 id="s-export-excel">Export to Excel</h3>
+<dl class="kv">
+<dt>Where</dt><dd>Export and sharing settings</dd>
+<dt>Default</dt><dd>Not stated</dd>
+<dt>Typical posture</dt><dd><strong>Enable for specific groups</strong> — High business value; the label applied to the file is the real control.</dd>
+<dt>Scope and delegation</dt><dd>Supports specific security groups and exceptions.</dd>
+<dt>What it controls</dt><dd>Lets users export the data behind a visualization (or a paginated report) to an Excel file.</dd>
+<dt>Risk or benefit</dt><dd>The file is a static copy that leaves the service. Fabric applies the item's sensitivity label to the exported file and protects it according to the label's encryption settings, so labels should be rolled out before this setting is widened.</dd>
+<dt>Notes</dt><dd>Scope to analysts who need offline data. Users with Build permission can still query the model through other paths (live connection, Execute Queries API), so this setting governs the user interface, not access to the data.</dd>
+</dl>
+<h3 id="s-export-csv">Export to .csv</h3>
+<dl class="kv">
+<dt>Where</dt><dd>Export and sharing settings</dd>
+<dt>Default</dt><dd>Not stated</dd>
+<dt>Typical posture</dt><dd><strong>Enable for specific groups</strong> — Plain-text output with no label enforcement.</dd>
+<dt>Scope and delegation</dt><dd>Supports specific security groups and exceptions.</dd>
+<dt>What it controls</dt><dd>Lets users export data from a tile, visualization or paginated report to a .csv file.</dd>
+<dt>Risk or benefit</dt><dd>CSV is the weakest egress path: sensitivity-label-based access control is not enforced on .csv or .txt exports, so the file is plain text once it is downloaded.</dd>
+<dt>Notes</dt><dd>Prefer Excel export (label applied) for general users. Enable CSV only for groups with a documented need and exclude groups that work with restricted data.</dd>
+</dl>
+<h3 id="s-download-reports">Download reports</h3>
+<dl class="kv">
+<dt>Where</dt><dd>Export and sharing settings</dd>
+<dt>Default</dt><dd>Not stated</dd>
+<dt>Typical posture</dt><dd><strong>Enable for specific groups</strong> — Restrict the full-copy path to the people who build reports.</dd>
+<dt>Scope and delegation</dt><dd>Supports specific security groups and exceptions.</dd>
+<dt>What it controls</dt><dd>Lets users download .pbix files and paginated report (.rdl) definitions from the service so they can be edited in Power BI Desktop or Report Builder.</dd>
+<dt>Risk or benefit</dt><dd>A .pbix can contain imported data, queries and model logic, so a download is a full copy of the report and possibly of the data. The benefit is that developers can rework reports locally.</dd>
+<dt>Notes</dt><dd>Scope to report authors and developers. For re-use and source control prefer Git integration and deployment pipelines over manual downloads, which leave no history. Track high-risk assets with the admin APIs and export audit events.</dd>
+</dl>
+<h3 id="s-excel-live">Users can work with semantic models in Excel using a live connection</h3>
+<dl class="kv">
+<dt>Where</dt><dd>Export and sharing settings</dd>
+<dt>Default</dt><dd>On</dd>
+<dt>Typical posture</dt><dd><strong>Enable for specific groups</strong> — Governed live access beats static exports, but start with analysts and widen after training.</dd>
+<dt>Scope and delegation</dt><dd>Supports specific security groups and exceptions.</dd>
+<dt>What it controls</dt><dd>Lets users export data to Excel from a report visual or semantic model, or export a semantic model to an Excel workbook with Analyze in Excel, both with a live connection to the XMLA endpoint.</dd>
+<dt>Risk or benefit</dt><dd>Queries run under the user's identity, so row-level and object-level security still apply and no static copy is made until a workbook is saved with cached results. Heavy pivots can load the capacity, and workbooks can be shared with the cached values inside.</dd>
+<dt>Notes</dt><dd>Works together with the integration-group XMLA setting (see the truth table on the integration page). Users also need Build permission on the semantic model. Audit with the ConnectFromExternalApplication operation.</dd>
+</dl>
+<h3 id="s-export-pptx-pdf">Export reports as PowerPoint presentations or PDF documents</h3>
+<dl class="kv">
+<dt>Where</dt><dd>Export and sharing settings</dd>
+<dt>Default</dt><dd>Not stated</dd>
+<dt>Typical posture</dt><dd><strong>Enable for specific groups</strong> — Common business need; labels and audit make it manageable for named groups.</dd>
+<dt>Scope and delegation</dt><dd>Supports specific security groups and exceptions. Portal offers delegation to domain admins and workspace admins.</dd>
+<dt>What it controls</dt><dd>Lets users export a report from the Fabric or Power BI portal to a PowerPoint file (one slide per page) or a PDF document. Each page is a static, image-based rendering.</dd>
+<dt>Risk or benefit</dt><dd>Row-level and object-level security and the current filters apply at export time, and the sensitivity label is applied on supported export paths. The file can still be forwarded freely, loses lineage and is stale as soon as data refreshes.</dd>
+<dt>Notes</dt><dd>Scope to business reporting groups and exclude restricted populations. Audit ExportReport and ExportArtifact; ExportArtifactDownload records a completed .pptx or .pdf download. Domain delegation lets domains own their policy when you run a federated model.</dd>
+</dl>
+<h3 id="s-export-mhtml">Export reports as MHTML documents</h3>
+<dl class="kv">
+<dt>Where</dt><dd>Export and sharing settings</dd>
+<dt>Default</dt><dd>Not stated</dd>
+<dt>Typical posture</dt><dd><strong>Disable</strong> — Legacy format with no modern use case.</dd>
+<dt>Scope and delegation</dt><dd>Supports specific security groups and exceptions. Portal offers delegation to domain admins and workspace admins.</dd>
+<dt>What it controls</dt><dd>Lets users export paginated reports (.rdl) as MHTML, a single-file web archive. It does not apply to standard Power BI reports.</dd>
+<dt>Risk or benefit</dt><dd>MHTML is a legacy single-file web archive format with limited tooling. It adds another copy of report data outside Fabric and gives consumers little reason to prefer it over PDF or Excel.</dd>
+<dt>Notes</dt><dd>Disable unless a named legacy consumer needs MHTML; if so, enable for the group that owns that integration and record the justification.</dd>
+</dl>
+<h3 id="s-export-word">Export reports as Word documents</h3>
+<dl class="kv">
+<dt>Where</dt><dd>Export and sharing settings</dd>
+<dt>Default</dt><dd>Not stated</dd>
+<dt>Typical posture</dt><dd><strong>Disable</strong> — Editable output undermines report integrity.</dd>
+<dt>Scope and delegation</dt><dd>Supports specific security groups and exceptions. Portal offers delegation to domain admins and workspace admins.</dd>
+<dt>What it controls</dt><dd>Lets users export paginated reports as Word documents (.docx).</dd>
+<dt>Risk or benefit</dt><dd>The output is editable, so recipients can change numbers and layout and break the integrity of an official document. Once exported it is disconnected from lineage and has no protection unless a sensitivity label applies.</dd>
+<dt>Notes</dt><dd>Enable for a specific group only where Word output is a documented requirement, for example formal correspondence. Audit the export events and train users on the policy.</dd>
+</dl>
+
+<h3 id="export-other">Other export formats and outputs</h3>
+<p>These settings behave like the cards above but see less use. XML, image, MHTML and Word exports apply to paginated reports.</p>
+<table class="tight">
+<thead><tr><th>Setting</th><th>Default</th><th>Typical posture</th><th>What it controls; risk or benefit</th><th>Notes</th></tr></thead>
+<tbody>
+<tr id="s-export-xml"><td><strong>Export reports as XML documents</strong></td><td>Not stated</td><td class="no">Disable</td><td>Lets users export paginated reports as XML. Another uncontrolled, machine-readable copy of report data.</td><td>Disable unless an integration consumes it.</td></tr>
+<tr id="s-export-image"><td><strong>Export reports as image files</strong></td><td>Not stated</td><td class="no">Disable</td><td>Lets users use the export report to file API to export reports as image files.</td><td>API-driven; disable unless an approved automation needs it.</td></tr>
+<tr id="s-print"><td><strong>Print dashboards and reports</strong></td><td>Not stated</td><td class="yes">Enable for all</td><td>Lets users print dashboards and reports. Printing adds little exposure beyond what a user can already see on screen.</td><td>Label-based protection does not follow paper; handle that through policy.</td></tr>
+<tr id="s-notebook-download"><td><strong>Users with read or write permission can download data from notebooks</strong></td><td>Not stated</td><td class="maybe">Enable for specific groups</td><td>Lets users with read or write permission download or export data from tables in notebook outputs.</td><td>Another egress path for data engineers; scope to engineering groups.</td></tr>
+<tr id="s-featured-tables"><td><strong>Allow connections to featured tables</strong></td><td>Not stated</td><td class="maybe">Enable for specific groups</td><td>Controls who can use Power BI featured tables in the Excel Data Types Gallery. Connections to featured tables are also disabled when the Excel live-connection setting is off.</td><td>Scope to analysts who use Excel data types; it rides on the live-connection path, so keep the two decisions aligned. Described on the export-and-sharing page but not in the settings index.</td></tr>
+</tbody></table>
+<div class="callout tip"><p class="callout-title">Allow Excel, restrict CSV</p>
+<p>If analysts ask for CSV because Excel feels slow, offer Excel export with a sensitivity label first. The label then protects the file, which CSV cannot do.</p></div>
+
+<h2 id="links">Sharing links and Office integration</h2>
+<p>A link is the most common way content spreads inside a tenant. Three scopes exist, and one tenant setting controls the widest.</p>
+<figure class="diagram">
+<svg class="dg" viewBox="0 0 880 350" role="img" aria-label="Sharing a report by link offers three scopes. The People in your organization scope is controlled by one tenant setting and reaches anyone in the tenant who gets the link; Specific people and People with existing access are narrower. A label guard blocks organization links for protected content">
+<defs><marker id="fig-link-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker><marker id="fig-link-a-green" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker><marker id="fig-link-a-red" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar red" d="M0 0L10 5L0 10z"/></marker></defs>
+<rect class="box accent" x="20" y="107" width="120" height="70" rx="10"/>
+<text class="t-h" x="80" y="139.2" text-anchor="middle">Share</text>
+<text class="t-s" x="80" y="154.6" text-anchor="middle">report link</text>
+<rect class="box red" x="210" y="20" width="340" height="64" rx="10"/>
+<text class="t-b" x="380" y="48.8" text-anchor="middle">People in your organization</text>
+<text class="t-s" x="380" y="63.6" text-anchor="middle">controlled by the shareable-links setting</text>
+<rect class="box green" x="210" y="110" width="340" height="64" rx="10"/>
+<text class="t-b" x="380" y="138.8" text-anchor="middle">Specific people</text>
+<text class="t-s" x="380" y="153.6" text-anchor="middle">named recipients</text>
+<rect class="box green" x="210" y="200" width="340" height="64" rx="10"/>
+<text class="t-b" x="380" y="228.8" text-anchor="middle">People with existing access</text>
+<text class="t-s" x="380" y="243.6" text-anchor="middle">grants no new access</text>
+<rect class="box red" x="620" y="20" width="240" height="64" rx="10"/>
+<text class="t-b" x="740" y="48.8" text-anchor="middle">Anyone in the tenant</text>
+<text class="t-s" x="740" y="63.6" text-anchor="middle">who obtains the link</text>
+<rect class="box green" x="620" y="110" width="240" height="64" rx="10"/>
+<text class="t-b" x="740" y="138.8" text-anchor="middle">Named recipients only</text>
+<text class="t-s" x="740" y="153.6" text-anchor="middle">each one is audited</text>
+<rect class="box green" x="620" y="200" width="240" height="64" rx="10"/>
+<text class="t-b" x="740" y="228.8" text-anchor="middle">Current viewers only</text>
+<text class="t-s" x="740" y="243.6" text-anchor="middle">link is a convenience</text>
+<path class="ln" d="M140 142L174 142L174 52L208 52" marker-end="url(#fig-link-a)"/>
+<path class="ln" d="M140 142L208 142" marker-end="url(#fig-link-a)"/>
+<path class="ln" d="M140 142L174 142L174 232L208 232" marker-end="url(#fig-link-a)"/>
+<path class="ln red" d="M550 52L618 52" marker-end="url(#fig-link-a-red)"/>
+<path class="ln green" d="M550 142L618 142" marker-end="url(#fig-link-a-green)"/>
+<path class="ln green" d="M550 232L618 232" marker-end="url(#fig-link-a-green)"/>
+<rect class="box purple dashed" x="210" y="290" width="650" height="40" rx="10"/>
+<text class="t-b" x="535" y="314" text-anchor="middle">Label guard: protected-label content cannot use the organization link</text>
+</svg>
+<figcaption><b>Link scopes.</b> Disable the organization scope for most people and the other two remain. The label guard is a separate setting that stays useful for the groups you do allow.</figcaption>
+</figure>
+<h3 id="s-shareable-links">Allow shareable links to grant access to everyone in your organization</h3>
+<dl class="kv">
+<dt>Where</dt><dd>Export and sharing settings</dd>
+<dt>Default</dt><dd>Not stated</dd>
+<dt>Typical posture</dt><dd><strong>Disable</strong> — Default to explicit, named access; org-wide links are hard to audit.</dd>
+<dt>Scope and delegation</dt><dd>Supports specific security groups and exceptions.</dd>
+<dt>What it controls</dt><dd>Controls whether users can create People in your organization links. When the setting is off, users with share permission can share a report only by link to Specific people or People with existing access.</dd>
+<dt>Risk or benefit</dt><dd>An organization-wide link grants access to anyone in the tenant who obtains it, bypassing deliberate access lists. Links forwarded in e-mail or chat spread beyond the intended audience and the audit trail shows the link rather than each recipient. The setting has no effect on external users, who cannot use these links.</dd>
+<dt>Notes</dt><dd>Disable broadly and enable for a small group if a business case exists. The narrower setting that stops protected-label content from being shared by organization-wide link can stay on regardless. Inventory existing organization-wide links with the Widely Shared Artifacts - Links Shared To Whole Organization admin API and the GetArtifactLinkSharedToWholeOrgAsAdmin audit operation.</dd>
+</dl>
+<h3 id="s-ppt-addin">Enable Power BI add-in for PowerPoint</h3>
+<dl class="kv">
+<dt>Where</dt><dd>Export and sharing settings</dd>
+<dt>Default</dt><dd>On</dd>
+<dt>Typical posture</dt><dd><strong>Enable for all</strong> — Prefer live, permission-checked embedding to static exports.</dd>
+<dt>Scope and delegation</dt><dd>Supports specific security groups and exceptions.</dd>
+<dt>What it controls</dt><dd>Lets people embed live, interactive Power BI data in PowerPoint. When on, entry points that open a new presentation with the add-in loaded are available in Power BI. It requires the Office admin to allow add-ins.</dd>
+<dt>Risk or benefit</dt><dd>Live embedding is easier to govern than a static export because viewers see data under their own permissions and the content stays connected to the model. The remaining risk is a presenter capturing live data from the screen.</dd>
+<dt>Notes</dt><dd>Turning the setting off only removes the Power BI entry points; people can still start from PowerPoint. To block the add-in completely you must also turn it off on the Office side. Align with your sensitivity-label and Office add-in policies.</dd>
+</dl>
+<h3 id="s-directquery-pbi">Allow DirectQuery connections to Power BI semantic models</h3>
+<dl class="kv">
+<dt>Where</dt><dd>Export and sharing settings</dd>
+<dt>Default</dt><dd>On</dd>
+<dt>Typical posture</dt><dd><strong>Enable for specific groups</strong> — Powerful for developers, a source of dependency sprawl for everyone else.</dd>
+<dt>Scope and delegation</dt><dd>Supports specific security groups and exceptions.</dd>
+<dt>What it controls</dt><dd>Lets users use DirectQuery to connect to Azure Analysis Services or Power BI semantic models. When off, users can no longer publish new composite models on Power BI semantic models to the service. Existing reports keep working and Desktop can still build the models locally.</dd>
+<dt>Risk or benefit</dt><dd>Composite models chain semantic models together, which can degrade performance through query chaining and obscure where data comes from. The benefit is extending a certified model with local data without copying it.</dd>
+<dt>Notes</dt><dd>Live connections to Power BI semantic models and DirectQuery to Analysis Services are not affected by this switch. Enable for model developers, require endorsement of the base model, apply row-level security on the base model, and monitor lineage.</dd>
+</dl>
+<h3 id="email-teams">Email subscriptions, Teams and promotion</h3>
+<p>These settings shape how people discover and receive content. The two external-recipient settings are the ones with real exposure, because they deliver content to inboxes outside your control.</p>
+<table class="tight">
+<thead><tr><th>Setting</th><th>Default</th><th>Typical posture</th><th>What it controls; risk or benefit</th><th>Notes</th></tr></thead>
+<tbody>
+<tr id="s-email-subs"><td><strong>Users can set up email subscriptions</strong></td><td>Not stated</td><td class="yes">Enable for all</td><td>Lets users create e-mail subscriptions to reports and dashboards. Subscriptions deliver content to inboxes, so they follow the recipient's permissions and your mail controls.</td><td>Keep for internal users; restrict the two external-recipient settings below.</td></tr>
+<tr id="s-email-b2b"><td><strong>B2B guest users can set up and be subscribed to email subscriptions</strong></td><td>Not stated</td><td class="no">Disable</td><td>Lets B2B guests create and receive subscriptions. If turned off, the external-recipient setting is turned off automatically.</td><td>Enable only for approved partner scenarios.</td></tr>
+<tr id="s-email-external"><td><strong>Users can send email subscriptions to external users</strong></td><td>Not stated</td><td class="no">Disable</td><td>Lets users subscribe people who are not in your Entra ID to e-mail subscriptions.</td><td>Disable; use governed distribution instead.</td></tr>
+<tr id="s-featured"><td><strong>Featured content</strong></td><td>Not stated</td><td class="maybe">Enable for specific groups</td><td>Lets users promote published content to the Featured section of Power BI Home. By default anyone with the Admin, Member or Contributor role can feature content; admins can also manage featured content in the portal.</td><td>Scope to portal curators.</td></tr>
+<tr id="s-teams-integration"><td><strong>Enable Microsoft Teams integration</strong></td><td>Not stated</td><td class="yes">Enable for all</td><td>Allows the Teams and Power BI integration: chats, the Power BI app for Teams and notifications. Fully enabling or disabling Teams integration also needs the Teams admin.</td><td>Coordinate with the Teams administrator.</td></tr>
+<tr id="s-teams-auto-install"><td><strong>Install Power BI app for Microsoft Teams automatically</strong></td><td>Not stated</td><td class="yes">Enable for all</td><td>Installs the Power BI app in Teams for licensed users when the Teams admin allows it and the user opens the Power BI service in a browser.</td><td>No effect unless the app is allowed in the Teams admin center.</td></tr>
+</tbody></table>
+
+<h2 id="public">Publish to web</h2>
+<p>Publish to web creates a public embed code that anyone, including search engines, can open without signing in. It is the one setting where a mistake becomes world-readable.</p>
+<h3 id="s-publish-to-web">Publish to web</h3>
+<dl class="kv">
+<dt>Where</dt><dd>Export and sharing settings</dd>
+<dt>Default</dt><dd>Not stated</dd>
+<dt>Typical posture</dt><dd><strong>Disable</strong> — Public, unauthenticated access cannot be reconciled with a least-privilege model.</dd>
+<dt>Scope and delegation</dt><dd>Supports specific security groups and exceptions.</dd>
+<dt>What it controls</dt><dd>Lets people publish public reports on the web. Published reports need no authentication to view. Admins review and delete embed codes on the Embed codes page, and can set Choose how embed codes work to Allow only existing embed codes so users must ask an admin for new ones.</dd>
+<dt>Risk or benefit</dt><dd>Anyone with the link, including search engines, can see the report and its underlying data. A leaked embed code cannot be recalled by the report owner alone.</dd>
+<dt>Notes</dt><dd>Disable for the organization. If a public-data use case exists, enable for a small publishing group, use the existing-codes-only option and review embed codes regularly. Audit PublishToWebReport, DeleteEmbedCode and the GetPublishToWebArtifactsAsAdmin operation.</dd>
+</dl>
+<table>
+  <thead><tr><th>Where you see it</th><th>Enabled for all</th><th>Disabled for all</th><th>Specific groups</th></tr></thead>
+  <tbody>
+    <tr><td><strong>Publish to web in the report menu</strong></td><td>Visible to everyone</td><td>Not visible</td><td>Visible only to authorized users</td></tr>
+    <tr><td><strong>Embed codes admin page</strong></td><td>Shows Active, Not supported or Blocked</td><td>Shows Disabled</td><td>Adds an infringed status for unauthorized creators</td></tr>
+    <tr><td><strong>Existing public reports</strong></td><td>Keep working</td><td>All stop working</td><td class="no">Keep rendering for everyone</td></tr>
+  </tbody>
+</table>
+<div class="callout warning"><p class="callout-title">Scoping to groups does not retire existing public reports</p>
+<p>Restricting the setting to specific groups stops new codes from non-members, but existing public reports keep rendering. To take them offline, review the Embed codes page and delete the codes, or disable the setting for the entire organization.</p></div>
+<ol class="steps">
+  <li><strong>Inventory</strong><p>Open the Embed codes admin page, or list public reports with the admin APIs, and record each owner.</p></li>
+  <li><strong>Remove or approve</strong><p>Delete codes that are no longer needed. For ones that stay, record the business owner and the reason the data is public.</p></li>
+  <li><strong>Disable</strong><p>Set the tenant setting to disabled, or enable for a small publisher group with the existing-codes-only option.</p></li>
+  <li><strong>Monitor</strong><p>Alert on <code>PublishToWebReport</code> and review <code>DeleteEmbedCode</code> events.</p></li>
+</ol>
+
+<h2 id="guests">Guests and external collaboration</h2>
+<p>Three different mechanisms are easy to confuse. They use different settings and move data differently, so decide each on its own.</p>
+<table>
+  <thead><tr><th>Mechanism</th><th>What it is</th><th>Controlled by</th><th>Does data move?</th></tr></thead>
+  <tbody>
+    <tr><td><strong>B2B guests in your tenant</strong></td><td>External people are added to your Microsoft Entra directory and given access to items.</td><td><a href="export-sharing.html#s-guest-access">Guest users can access Microsoft Fabric</a>, <a href="export-sharing.html#s-guest-invite">Users can invite guest users to collaborate through item sharing and permissions</a>, <a href="export-sharing.html#s-guest-browse">Guest users can browse and access Fabric content</a>, <a href="export-sharing.html#s-guest-suggested">Users can see guest users in lists of suggested people</a></td><td>No. Guests work inside your tenant under your controls.</td></tr>
+    <tr><td><strong>In-place semantic model sharing</strong></td><td>Guests discover and build on your semantic models from their own tenant.</td><td><a href="export-sharing.html#s-ext-sharing-models">Allow specific users to turn on external data sharing</a>, <a href="export-sharing.html#s-guest-shared-models">Guest users can work with shared semantic models in their own tenants</a></td><td>Queries run against your model; governance stays with the provider.</td></tr>
+    <tr><td><strong>OneLake external data sharing</strong></td><td>A shortcut in the consumer tenant points at your OneLake data. Unrelated to Entra B2B.</td><td><a href="export-sharing.html#s-external-data-sharing">External data sharing</a> and <a href="export-sharing.html#s-accept-external-shares">Users can accept external data shares</a></td><td>Data is read across tenants and can be re-shared by the consumer.</td></tr>
+  </tbody>
+</table>
+<table class="tight">
+<thead><tr><th>Setting</th><th>Default</th><th>Typical posture</th><th>What it controls; risk or benefit</th><th>Notes</th></tr></thead>
+<tbody>
+<tr id="s-guest-access"><td><strong>Guest users can access Microsoft Fabric</strong></td><td>Not stated</td><td class="maybe">Enable for specific groups</td><td>Lets Microsoft Entra B2B guest users access Fabric. When off for the whole organization, guests receive an error and users cannot invite guests through item sharing.</td><td>Scope to a security group that contains only approved guests so access follows your external-collaboration process.</td></tr>
+<tr id="s-guest-invite"><td><strong>Users can invite guest users to collaborate through item sharing and permissions</strong></td><td>Not stated</td><td class="no">Disable</td><td>Lets users invite new guests through Fabric sharing, permissions and subscription experiences. Inviters also need the Microsoft Entra Guest Inviter role. Previously named Share content with external users.</td><td>Prefer guests created through your Entra external-collaboration process, then shared to explicitly.</td></tr>
+<tr id="s-guest-browse"><td><strong>Guest users can browse and access Fabric content</strong></td><td>Not stated</td><td class="no">Disable</td><td>Gives guests the full left-navigation browsing experience. Guests with explicit workspace roles or item permissions keep those even when the setting is off.</td><td>Disable so guests see only what they were granted.</td></tr>
+<tr id="s-guest-suggested"><td><strong>Users can see guest users in lists of suggested people</strong></td><td>Not stated</td><td class="no">Disable</td><td>Controls whether guests appear in people-picker suggestions. Off reduces accidental sharing to externals; users can still share to a guest by typing the full e-mail address.</td><td>Low-cost friction that prevents mis-shares.</td></tr>
+<tr id="s-guest-shared-models"><td><strong>Guest users can work with shared semantic models in their own tenants</strong></td><td>Off</td><td class="no">Disable</td><td>Lets B2B guests who were given a semantic model build on it from their own tenant. When off, guests can still use the model in the provider tenant.</td><td>Keep off unless a partner scenario is approved.</td></tr>
+<tr id="s-ext-sharing-models"><td><strong>Allow specific users to turn on external data sharing</strong></td><td>Not stated</td><td class="no">Disable</td><td>Controls who can turn on in-place sharing of Power BI semantic models with guests from another tenant through Entra B2B. Unrelated to OneLake external data sharing.</td><td>Disable, or enable for a small group of model owners with a defined approval path.</td></tr>
+<tr id="s-accept-external-shares"><td><strong>Users can accept external data shares</strong></td><td>Not stated</td><td class="no">Disable</td><td>Lets specified users accept read-only OneLake links from another organization's tenant; accepted data can be viewed, built on and re-shared inside and outside your tenant.</td><td>Keep off until a partner agreement exists; then enable for a small group. Pair with a documented intake process because your governance, not the provider's, applies to incoming data.</td></tr>
+</tbody></table>
+<h3 id="s-external-data-sharing">External data sharing</h3>
+<dl class="kv">
+<dt>Where</dt><dd>Export and sharing settings</dd>
+<dt>Default</dt><dd>Not stated</dd>
+<dt>Typical posture</dt><dd><strong>Disable</strong> — Cross-tenant sharing needs a deliberate, partner-by-partner decision.</dd>
+<dt>Scope and delegation</dt><dd>Supports specific security groups and exceptions.</dd>
+<dt>What it controls</dt><dd>Lets specified users share read-only links to data in OneLake (lakehouses and additional Fabric items) with collaborators in other Fabric tenants. The link creates a shortcut in the recipient's tenant that points back to your data; nothing is copied.</dd>
+<dt>Risk or benefit</dt><dd>Provider governance does not follow the data: sensitivity-label-based access control is not supported in cross-tenant scenarios, and collaborators can view, build on and re-share the data inside and outside their own tenants.</dd>
+<dt>Notes</dt><dd>The provider tenant enables this setting and the consumer tenant enables Users can accept external data shares. It is unrelated to Entra B2B semantic-model sharing. Keep it off until a partner use case is approved; then enable for a small group of data owners and review existing external shares regularly.</dd>
+</dl>
+<div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p>
+<p>Some Learn articles label the two OneLake external data sharing settings as preview, while the settings index and the feature overview describe them without that label. Confirm the current status before you rely on them: <a href="https://learn.microsoft.com/fabric/governance/external-data-sharing-overview">External data sharing</a>.</p></div>
+<div class="callout important"><p class="callout-title">Guest access needs more than these settings</p>
+<p>Guests also need an invitation path (the Microsoft Entra Guest Inviter role for inviters), licensing and workspace or item permissions. The tenant settings only decide what Fabric allows. Conditional access and cross-tenant access settings in Microsoft Entra ID control the rest.</p></div>
+
+<h2 id="endorsement">Certification and master data</h2>
+<p>These two settings decide who can mark content as a trusted source. They are trust signals rather than access controls, so scope them to named stewards with a written standard.</p>
+<table class="tight">
+<thead><tr><th>Setting</th><th>Default</th><th>Typical posture</th><th>What it controls; risk or benefit</th><th>Notes</th></tr></thead>
+<tbody>
+<tr id="s-certification"><td><strong>Certification</strong></td><td>Not stated</td><td class="maybe">Enable for specific groups</td><td>Chooses who can certify items such as apps, reports and datamarts as trusted sources. The certifier's contact details show next to the badge.</td><td>Scope to a small certifier group backed by a written certification standard; domains can name their own certifiers. <em>Domain admins can override for their domain.</em></td></tr>
+<tr id="s-endorse-master"><td><strong>Endorse master data</strong></td><td>Not stated</td><td class="maybe">Enable for specific groups</td><td>Chooses who can endorse items such as lakehouses and warehouses as master data. The endorser's name and e-mail show with the badge.</td><td>Scope to data stewards.</td></tr>
+</tbody></table>
+
+<div class="takeaways"><p class="tk-title">Key takeaways</p>
+<ul>
+  <li>Allow Excel and PowerPoint or PDF export for groups, keep CSV tighter, and restrict full downloads to people who build reports.</li>
+  <li>Disable organization-wide links for most people; keep the protected-label link guard on for everyone.</li>
+  <li>Disable publish to web, then delete leftover embed codes: group scoping alone does not take existing public reports offline.</li>
+  <li>Treat B2B guests, in-place model sharing and OneLake external data sharing as three separate decisions.</li>
+  <li>Deploy sensitivity labels before widening Excel, PowerPoint and PDF export, because the label is the control on the file.</li>
+</ul></div>
+
+<section class="refs">
+  <h2 id="refs">References</h2>
+  <ul>
+    <li><a href="https://learn.microsoft.com/fabric/admin/service-admin-portal-export-sharing">Export and sharing tenant settings</a></li>
+    <li><a href="https://learn.microsoft.com/fabric/governance/external-data-sharing-overview">External data sharing</a></li>
+    <li><a href="https://learn.microsoft.com/fabric/enterprise/powerbi/service-admin-entra-b2b">Distribute Power BI content to external guest users with Microsoft Entra B2B</a></li>
+    <li><a href="https://learn.microsoft.com/power-bi/collaborate-share/service-publish-to-web">Publish to web from Power BI</a></li>
+    <li><a href="https://learn.microsoft.com/fabric/admin/service-admin-portal-embed-codes">Manage embed codes</a></li>
+    <li><a href="https://learn.microsoft.com/power-bi/enterprise/service-security-sensitivity-label-overview">Sensitivity labels in Power BI</a></li>
+    <li><a href="https://learn.microsoft.com/power-bi/collaborate-share/service-analyze-in-excel">Create Excel workbooks with refreshable Power BI data</a></li>
+  </ul>
+</section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

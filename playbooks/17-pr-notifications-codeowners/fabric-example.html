@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fabric folders and enforcement · PR Notifications</title>
+<meta name="description" content="A worked CODEOWNERS file for a Fabric repository with one folder per workspace, how pull requests are routed to owners, and how to make owner approval mandatory with a ruleset.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="17-pr-notifications-codeowners" data-page="fabric-example.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+
+    <header class="page-header">
+      <p class="eyebrow">Playbook 17 · PR Notifications</p>
+      <h1>Fabric folders and enforcement</h1>
+      <p class="lede">A Fabric repository has a natural ownership map: one folder per workspace, and inside each folder one subfolder per item. This page turns that map into a working CODEOWNERS file, shows what a real pull request does with it, and makes the owners' approval mandatory.</p>
+      <ul class="chips"><li><b>Audience</b> repository admins, workspace and domain leads</li><li><b>Use it for</b> a ready-to-adapt file and the ruleset setting</li></ul>
+    </header>
+
+    <h2 id="scenario">The example repository</h2>
+    <p>The repository follows the layout recommended in the <a href="../05-github-integration/repository-design.html#layout">GitHub integration playbook</a>: one folder per workspace, named like the workspace without its environment prefix, plus a few folders that are not connected to any workspace. Ownership follows the people who answer for each layer.</p>
+<pre data-title="contoso-org/fabric-analytics"><code class="language-text">fabric-analytics/
+├── .github/                  platform team
+│   ├── CODEOWNERS
+│   └── workflows/
+├── SALES_BRZ/                data engineering
+├── SALES_SLV/                data engineering
+├── SALES_GLD/                analytics engineering
+├── SALES_CNSM_WH/            analytics engineering
+├── SALES_CNSM_SM/            BI developers
+├── SALES_DLV/                BI developers
+├── _deploy/                  platform team
+├── _tests/                   data engineering
+└── _admin/                   platform team (by default)</code></pre>
+    <table>
+      <thead><tr><th>Team</th><th>Owns</th><th>Why</th></tr></thead>
+      <tbody>
+        <tr><td><code>@contoso-org/data-engineering</code></td><td>Bronze and silver workspaces, and the tests</td><td>They know the ingestion and cleansing logic and what breaks when it changes.</td></tr>
+        <tr><td><code>@contoso-org/analytics-engineering</code></td><td>Gold and the consumption warehouse</td><td>They own business definitions and the warehouse schema.</td></tr>
+        <tr><td><code>@contoso-org/bi-developers</code></td><td>Semantic models, reports and delivery</td><td>They answer for what business users see.</td></tr>
+        <tr><td><code>@contoso-org/data-platform</code></td><td>Workflows, deployment code, parameter files, and anything unclaimed</td><td>Changes here alter how every environment behaves.</td></tr>
+      </tbody>
+    </table>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 880 376" role="img" aria-label="Nine path patterns grouped under four owning teams: the bronze and silver folders go to data-engineering, the gold and warehouse folders to analytics-engineering, the semantic model and delivery folders to bi-developers, and parameter files, deployment, workflow folders and everything else to data-platform">
+        <defs>
+          <marker id="fig-fe-1-b" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar blue" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-fe-1-g" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-fe-1-p" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar purple" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-fe-1-o" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar orange" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <text class="t-h" x="20" y="24">Path pattern</text>
+        <text class="t-h" x="560" y="24">Owning team</text>
+        <rect class="box blue" x="20" y="40" width="380" height="28" rx="6"/><text class="t-m" x="34" y="59">/SALES_BRZ/</text>
+        <rect class="box blue" x="20" y="76" width="380" height="28" rx="6"/><text class="t-m" x="34" y="95">/SALES_SLV/</text>
+        <rect class="box green" x="20" y="112" width="380" height="28" rx="6"/><text class="t-m" x="34" y="131">/SALES_GLD/</text>
+        <rect class="box green" x="20" y="148" width="380" height="28" rx="6"/><text class="t-m" x="34" y="167">/SALES_CNSM_WH/</text>
+        <rect class="box purple" x="20" y="184" width="380" height="28" rx="6"/><text class="t-m" x="34" y="203">/SALES_CNSM_SM/</text>
+        <rect class="box purple" x="20" y="220" width="380" height="28" rx="6"/><text class="t-m" x="34" y="239">/SALES_DLV/</text>
+        <rect class="box orange dashed" x="20" y="256" width="380" height="28" rx="6"/><text class="t-m" x="34" y="275">parameter.yml  (in any folder, listed after the folders)</text>
+        <rect class="box orange" x="20" y="292" width="380" height="28" rx="6"/><text class="t-m" x="34" y="311">/_deploy/  and  /.github/</text>
+        <rect class="box orange" x="20" y="328" width="380" height="28" rx="6"/><text class="t-m" x="34" y="347">*  (everything else, listed first)</text>
+        <path class="ln blue" d="M402 54H558" marker-end="url(#fig-fe-1-b)"/>
+        <path class="ln blue" d="M402 90H558" marker-end="url(#fig-fe-1-b)"/>
+        <path class="ln green" d="M402 126H558" marker-end="url(#fig-fe-1-g)"/>
+        <path class="ln green" d="M402 162H558" marker-end="url(#fig-fe-1-g)"/>
+        <path class="ln purple" d="M402 198H558" marker-end="url(#fig-fe-1-p)"/>
+        <path class="ln purple" d="M402 234H558" marker-end="url(#fig-fe-1-p)"/>
+        <path class="ln orange dash" d="M402 270H558" marker-end="url(#fig-fe-1-o)"/>
+        <path class="ln orange" d="M402 306H558" marker-end="url(#fig-fe-1-o)"/>
+        <path class="ln orange" d="M402 342H558" marker-end="url(#fig-fe-1-o)"/>
+        <rect class="box blue" x="560" y="40" width="300" height="64" rx="10"/>
+        <text class="t-b" x="710" y="66" text-anchor="middle">data-engineering</text>
+        <text class="t-s" x="710" y="86" text-anchor="middle">bronze and silver workspaces</text>
+        <rect class="box green" x="560" y="112" width="300" height="64" rx="10"/>
+        <text class="t-b" x="710" y="138" text-anchor="middle">analytics-engineering</text>
+        <text class="t-s" x="710" y="158" text-anchor="middle">gold and consumption warehouse</text>
+        <rect class="box purple" x="560" y="184" width="300" height="64" rx="10"/>
+        <text class="t-b" x="710" y="210" text-anchor="middle">bi-developers</text>
+        <text class="t-s" x="710" y="230" text-anchor="middle">semantic models, reports, delivery</text>
+        <rect class="box orange" x="560" y="256" width="300" height="100" rx="10"/>
+        <text class="t-b" x="710" y="284" text-anchor="middle">data-platform</text>
+        <text class="t-s" x="710" y="306" text-anchor="middle">parameter files, deployment code,</text>
+        <text class="t-s" x="710" y="324" text-anchor="middle">workflows, and everything else</text>
+      </svg>
+      <figcaption><b>Folder ownership with two exceptions.</b> Parameter files decide what each environment binds to, so they stay with the platform team even inside another team's folder.</figcaption>
+    </figure>
+
+    <h2 id="file">The CODEOWNERS file</h2>
+<pre data-title=".github/CODEOWNERS"><code class="language-text"># Ownership for contoso-org/fabric-analytics
+# The last matching line wins, so keep the order: general first, specific last.
+
+# Default: anything not claimed below
+*                       @contoso-org/data-platform
+
+# One folder per workspace (the folder is the workspace name without DEV_)
+/SALES_BRZ/             @contoso-org/data-engineering
+/SALES_SLV/             @contoso-org/data-engineering
+/SALES_GLD/             @contoso-org/analytics-engineering
+/SALES_CNSM_WH/         @contoso-org/analytics-engineering
+/SALES_CNSM_SM/         @contoso-org/bi-developers
+/SALES_DLV/             @contoso-org/bi-developers
+
+# Deployment parameters decide what each environment binds to.
+# Listed after the folders so it overrides them, in any folder.
+parameter.yml           @contoso-org/data-platform
+
+# Code that is not connected to a workspace
+/_deploy/               @contoso-org/data-platform
+/_tests/                @contoso-org/data-engineering
+
+# Workflows, this file, and the pull-request template: platform approval always
+/.github/               @contoso-org/data-platform</code></pre>
+    <ul>
+      <li><strong>Line order is the design.</strong> <code>parameter.yml</code> comes after the folder lines, so a parameter file in <code>SALES_GLD/</code> goes to the platform team and not to analytics engineering.</li>
+      <li><strong>One line per team per path.</strong> Where two teams should share a folder, put both on the same line.</li>
+      <li><strong>Matching an item folder.</strong> A Fabric item is a folder named <code>&lt;display name&gt;.&lt;Type&gt;</code>, for example <code>NB_SALES_GLD_ChurnScore.Notebook</code>. A pattern such as <code>*.Notebook/</code> matches every notebook, wherever it is.</li>
+    </ul>
+
+    <h2 id="walkthrough">What a real pull request does</h2>
+    <p>A developer's pull request changes a notebook in the gold folder, a semantic model definition, the gold parameter file and a runbook:</p>
+    <table>
+      <thead><tr><th>Changed file</th><th>Matching lines</th><th>Owner requested</th></tr></thead>
+      <tbody>
+        <tr><td><code>SALES_GLD/NB_SALES_GLD_ChurnScore.Notebook/notebook-content.py</code></td><td><code>*</code>, <code>/SALES_GLD/</code></td><td>analytics-engineering (last match)</td></tr>
+        <tr><td><code>SALES_CNSM_SM/SM_SALES_CNSM_Sales.SemanticModel/definition/model.tmdl</code></td><td><code>*</code>, <code>/SALES_CNSM_SM/</code></td><td>bi-developers</td></tr>
+        <tr><td><code>SALES_GLD/parameter.yml</code></td><td><code>*</code>, <code>/SALES_GLD/</code>, <code>parameter.yml</code></td><td>data-platform (last match)</td></tr>
+        <tr><td><code>_admin/decisions.md</code></td><td><code>*</code></td><td>data-platform</td></tr>
+      </tbody>
+    </table>
+    <p>Three teams are asked to review: analytics-engineering, bi-developers and data-platform. When owner approval is mandatory, each owned path in the change needs an approval from one member of its owning team, so all three must approve before the pull request can merge. That is what you want: the people who answer for each part sign off on that part.</p>
+    <div class="callout tip"><p class="callout-title">Keep pull requests focused</p><p>A pull request that touches many folders will ask many teams, which slows it down. The feature-branch workflow in the <a href="../05-github-integration/branching-workflow.html#pull-request">GitHub integration playbook</a> encourages one change per branch for this reason.</p></div>
+
+    <h2 id="axis">Folders or item types?</h2>
+    <p>You can organise ownership by <em>where</em> an item lives, as above, or by <em>what kind</em> of item it is. Pick one as the main axis, because the last-match rule means the two do not combine.</p>
+    <table>
+      <thead><tr><th></th><th>By workspace folder</th><th>By item type</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Example lines</strong></td><td><code>/SALES_GLD/</code></td><td><code>*.Notebook/</code>, <code>*.SemanticModel/</code>, <code>*.Report/</code></td></tr>
+        <tr><td><strong>Fits when</strong></td><td>Teams are organised by data domain or layer, which matches the workspace layout.</td><td>Teams are organised by skill: engineers for code, BI developers for models and reports.</td></tr>
+        <tr><td><strong>Weakness</strong></td><td>A folder with mixed item types sends model changes to the same team as notebook changes.</td><td>Ownership no longer follows the workspace, and a type line placed late overrides the folder lines.</td></tr>
+      </tbody>
+    </table>
+<pre data-title="By item type (alternative)"><code class="language-text">*                      @contoso-org/data-platform
+*.Notebook/            @contoso-org/data-engineering
+*.DataPipeline/        @contoso-org/data-engineering
+*.SemanticModel/       @contoso-org/bi-developers
+*.Report/              @contoso-org/bi-developers
+parameter.yml          @contoso-org/data-platform
+/.github/              @contoso-org/data-platform</code></pre>
+    <div class="callout important"><p class="callout-title">Renames break paths</p><p>In a Fabric repository the folder names are generated from workspace folders and item names. Renaming an item in Fabric renames its Git folder, and the next commit moves it. A pattern that names the old path then matches nothing, and the item silently falls back to the catch-all owner. Pattern on stable parent folders, and revisit the file whenever you rename a workspace folder.</p></div>
+    <div class="callout tip"><p class="callout-title">Be careful with .platform files</p><p>Every item folder has a <code>.platform</code> file, which is where its identity and display name live. Assigning those to a central team gives them oversight of every new or renamed item, but also makes them a bottleneck for every pull request that adds one. Use it only if the platform team really wants that role.</p></div>
+
+    <h2 id="enforce">Making owner approval mandatory</h2>
+    <p>Out of the box, a CODEOWNERS review request is only a request: the owner is asked, but the merge does not wait for them. To make the approval a requirement, turn on one option in the ruleset that already protects <code>main</code>.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 880 330" role="img" aria-label="Two panels. With the rule off, owners are requested but any approval satisfies the ruleset and the merge can proceed without the owning team. With the rule on, an owner must approve and the merge waits for that approval">
+        <defs>
+          <marker id="fig-fe-2-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="zone orange" x="20" y="16" width="400" height="300" rx="14"/>
+        <text class="t-h" x="38" y="42">Rule off: a suggestion</text>
+        <rect class="box blue" x="60" y="62" width="320" height="60" rx="10"/>
+        <text class="t-b" x="220" y="88" text-anchor="middle">Owners are requested</text>
+        <text class="t-s" x="220" y="106" text-anchor="middle">they see a pending review</text>
+        <rect class="box orange" x="60" y="150" width="320" height="60" rx="10"/>
+        <text class="t-b" x="220" y="176" text-anchor="middle">Any approval counts</text>
+        <text class="t-s" x="220" y="194" text-anchor="middle">an owner's approval is not required</text>
+        <rect class="box red" x="60" y="238" width="320" height="60" rx="10"/>
+        <text class="t-b" x="220" y="264" text-anchor="middle">Merge can proceed</text>
+        <text class="t-s" x="220" y="282" text-anchor="middle">without the owning team's review</text>
+        <path class="ln" d="M220 124V148" marker-end="url(#fig-fe-2-a)"/>
+        <path class="ln" d="M220 212V236" marker-end="url(#fig-fe-2-a)"/>
+        <rect class="zone green" x="460" y="16" width="400" height="300" rx="14"/>
+        <text class="t-h" x="478" y="42">Rule on: a requirement</text>
+        <rect class="box blue" x="500" y="62" width="320" height="60" rx="10"/>
+        <text class="t-b" x="660" y="88" text-anchor="middle">Owners are requested</text>
+        <text class="t-s" x="660" y="106" text-anchor="middle">they see a pending review</text>
+        <rect class="box green" x="500" y="150" width="320" height="60" rx="10"/>
+        <text class="t-b" x="660" y="176" text-anchor="middle">An owner must approve</text>
+        <text class="t-s" x="660" y="194" text-anchor="middle">any one owner of each matching line</text>
+        <rect class="box green" x="500" y="238" width="320" height="60" rx="10"/>
+        <text class="t-b" x="660" y="264" text-anchor="middle">Merge waits for it</text>
+        <text class="t-s" x="660" y="282" text-anchor="middle">the merge box shows review required</text>
+        <path class="ln" d="M660 124V148" marker-end="url(#fig-fe-2-a)"/>
+        <path class="ln" d="M660 212V236" marker-end="url(#fig-fe-2-a)"/>
+      </svg>
+      <figcaption><b>One checkbox separates a suggestion from a control.</b> Everything on the previous pages only routes the request; this setting is what stops a merge without it.</figcaption>
+    </figure>
+    <ol class="steps">
+      <li><strong>Merge the CODEOWNERS file first.</strong><p>The option enforces the file on the base branch. Enable it only after the file is in place and tested.</p></li>
+      <li><strong>Open the ruleset.</strong><p>In the repository choose <em>Settings</em>, then <em>Rules</em>, then <em>Rulesets</em>, and edit the ruleset that targets the default branch. If you have not created it yet, follow <a href="../05-github-integration/security-hardening.html#ruleset-setup">creating the ruleset for main</a>.</p></li>
+      <li><strong>Require a pull request before merging.</strong><p>Make sure this rule is enabled; the code owner option sits inside it.</p></li>
+      <li><strong>Select <em>Require review from Code Owners</em>.</strong><p>Any pull request that changes owned paths now needs approval from an owner of each.</p></li>
+      <li><strong>Tighten the neighbours.</strong><p>Also select <em>Dismiss stale pull request approvals when new commits are pushed</em> and <em>Require approval of the most recent reviewable push</em>, so an owner's approval applies to what was actually reviewed.</p></li>
+      <li><strong>Save, then test.</strong><p>Open a pull request that touches an owned path and confirm the merge box says a review is required.</p></li>
+    </ol>
+    <ul>
+      <li><strong>Any one owner is enough.</strong> If a line lists two teams, an approval from either satisfies it.</li>
+      <li><strong>Owners need Write.</strong> An approval from someone without Write access does not count toward the requirement.</li>
+      <li><strong>Bypass actors skip it.</strong> Anyone on the ruleset's bypass list can merge without owner approval. Keep that list short.</li>
+    </ul>
+
+    <h2 id="both-teams">When two teams must both approve</h2>
+    <p>CODEOWNERS answers "who is responsible for these files", and a single line cannot demand two independent approvals. If a path needs sign-off from two specific teams, for example gold changes that need both analytics engineering and platform, use the ruleset's own <em>required reviewers</em> rule, either instead of or alongside CODEOWNERS.</p>
+    <table>
+      <thead><tr><th></th><th>CODEOWNERS with the code-owner option</th><th>Ruleset required reviewers</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Defined in</strong></td><td>A file in the repository.</td><td>The ruleset settings.</td></tr>
+        <tr><td><strong>Several teams</strong></td><td>On one line, any one of them is enough.</td><td>Each listed team is a separate requirement, with its own approval count.</td></tr>
+        <tr><td><strong>Who can change it</strong></td><td>Anyone, through a pull request that its owners approve.</td><td>Repository admins, or a role that can edit repository rules.</td></tr>
+        <tr><td><strong>Patterns</strong></td><td>CODEOWNERS syntax, last match wins, no negation.</td><td>File patterns evaluated in order, where a leading <code>!</code> removes earlier matches.</td></tr>
+        <tr><td><strong>Reads best for</strong></td><td>Day-to-day ownership that changes with the team.</td><td>A short list of mandatory sign-offs for sensitive paths.</td></tr>
+      </tbody>
+    </table>
+    <div class="callout learn"><p class="callout-title">Verify against GitHub documentation</p><p>The required reviewers rule, including its limits on the number of teams and approvals and its availability by plan, is newer than CODEOWNERS and may change. Read <a href="https://docs.github.com/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/available-rules-for-rulesets">Available rules for rulesets</a> before you design around it.</p></div>
+
+    <h2 id="maintain">Keeping it true</h2>
+    <ul class="checklist">
+      <li>Add a line when you add a workspace and its folder, in the same pull request, with its owning team already granted Write access.</li>
+      <li>When a team is renamed, merged or retired, update the file before the old name stops resolving.</li>
+      <li>Review the file with the quarterly access review described in the <a href="../05-github-integration/operations-rollback.html#cadence">operations page</a>: every team still exists, still has Write access and still owns what it should.</li>
+      <li>Treat a pull request that changes <code>CODEOWNERS</code> like a change to a security setting, because it is one.</li>
+    </ul>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p><ul>
+      <li>One line per workspace folder, a catch-all first and exceptions last, gives a readable Fabric ownership map.</li>
+      <li>Sensitive files such as parameter files get their own line after the folder lines so the platform team keeps them.</li>
+      <li>With owner approval mandatory, every owned path in a pull request needs one approval from its owners.</li>
+      <li>The ruleset option <em>Require review from Code Owners</em> turns the request into a requirement; enable it after the file is merged and tested.</li>
+      <li>When two teams must both approve, add the ruleset's required reviewers rule.</li>
+      <li>Renaming a Fabric item renames its folder, so pattern on stable parent folders.</li>
+    </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://docs.github.com/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners">About code owners</a></li>
+        <li><a href="https://docs.github.com/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/available-rules-for-rulesets">Available rules for rulesets</a></li>
+        <li><a href="https://docs.github.com/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/creating-rulesets-for-a-repository">Creating rulesets for a repository</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/cicd/git-integration/source-code-format">Git integration source code format</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/cicd/git-integration/git-integration-process">Basic concepts in Git integration</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

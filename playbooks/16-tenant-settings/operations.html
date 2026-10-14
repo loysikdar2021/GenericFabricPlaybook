@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Change control and troubleshooting · Tenant Settings</title>
+<meta name="description" content="Change records, snapshot-and-diff automation, audit events and a troubleshooting guide from symptom to setting.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="16-tenant-settings" data-page="operations.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 16 · Tenant Settings</p>
+      <h1>Change control and troubleshooting</h1>
+      <p class="lede">How to change tenant settings safely, detect drift with a snapshot-and-diff job, find who changed what in the audit log, handle exceptions, and trace a "user cannot do X" report back to the setting that gates it.</p>
+      <ul class="chips"><li><b>Audience</b> Fabric administrators, service desk</li><li><b>Includes</b> Python snapshot script, audit event list, troubleshooting table</li></ul>
+    </header>
+<h2 id="change-control">Change control</h2>
+<p>A tenant setting change affects every user in scope within minutes, and several are hard to notice when they go wrong. A light process is enough: every change has a record, a snapshot and a check.</p>
+<ol class="steps">
+  <li><strong>Request</strong><p>The requester names the setting, the capability and the population affected, and the business reason.</p></li>
+  <li><strong>Assess</strong><p>The Fabric administrator classifies the setting (egress, identity, third-party processing, creation, guardrail, preview, network) and lists dependent content and groups.</p></li>
+  <li><strong>Approve</strong><p>The setting owner approves. High-risk classes also need security or governance review.</p></li>
+  <li><strong>Snapshot</strong><p>Capture the current state with the API, before and after the change.</p></li>
+  <li><strong>Change</strong><p>Apply the change in a window; for scope changes, update the allow group first, then the setting.</p></li>
+  <li><strong>Verify</strong><p>After propagation (up to about 15 minutes, longer for network changes), test with a member and a non-member of the scope.</p></li>
+  <li><strong>Record</strong><p>Store the decision record, snapshot diff and communication. Schedule the next review.</p></li>
+</ol>
+<dl class="kv">
+  <dt>Setting and portal group</dt><dd>Exact name as shown in the portal.</dd>
+  <dt>Before and after</dt><dd>Previous and new state, including allow and exception groups, and any delegation options.</dd>
+  <dt>Class and owner</dt><dd>Risk class and the accountable role.</dd>
+  <dt>Dependencies</dt><dd>Content, automation or integrations affected.</dd>
+  <dt>Verification</dt><dd>What was tested, with which accounts, and the result.</dd>
+  <dt>Rollback</dt><dd>Snapshot to restore and who runs it.</dd>
+  <dt>Review date and expiry</dt><dd>When the decision is next reviewed; expiry for temporary changes.</dd>
+</dl>
+<h3 id="raci">Roles</h3>
+<table class="tight">
+  <thead><tr><th>Activity</th><th>Fabric admin</th><th>Setting owner</th><th>Security or governance</th><th>Group owner</th><th>Capacity or domain admin</th></tr></thead>
+  <tbody>
+    <tr><td>Decide the posture</td><td>C</td><td>A, R</td><td>C</td><td>I</td><td>C</td></tr>
+    <tr><td>Apply the change</td><td>R</td><td>A</td><td>I</td><td>I</td><td>I</td></tr>
+    <tr><td>Manage group membership</td><td>I</td><td>C</td><td>I</td><td>A, R</td><td>-</td></tr>
+    <tr><td>Review overrides</td><td>R</td><td>A</td><td>C</td><td>-</td><td>R</td></tr>
+    <tr><td>Approve an exception</td><td>C</td><td>A</td><td>C</td><td>R</td><td>-</td></tr>
+  </tbody>
+</table>
+<p>R is responsible, A accountable, C consulted, I informed. A single person can hold several roles in a small team; the point is that each activity has exactly one accountable role.</p>
+<div class="callout caution"><p class="callout-title">Emergency changes</p>
+<p>Some changes, such as disabling publish to web after a leak, cannot wait for approval. Make the change, snapshot it, and complete the record afterwards. Keep a short list of settings you are willing to switch off immediately.</p></div>
+
+<h2 id="snapshot">Snapshot-and-diff</h2>
+<p>The administration API turns tenant settings into data. A scheduled job that stores each result and compares it with the last approved baseline gives you drift detection, an inventory and the evidence for reviews.</p>
+<figure class="diagram">
+<svg class="dg" viewBox="0 0 880 260" role="img" aria-label="A scheduled job running as a service principal calls the Get Tenant Settings admin API, stores a JSON snapshot in Git, diffs it against the last approved baseline and raises a ticket on drift; the audit log answers who changed it">
+<defs><marker id="fig-snap-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker><marker id="fig-snap-a-gray" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar gray" d="M0 0L10 5L0 10z"/></marker></defs>
+<rect class="box gray" x="20" y="50" width="150" height="84" rx="10"/>
+<text class="t-b" x="95" y="81.5" text-anchor="middle">Schedule</text>
+<text class="t-s" x="95" y="96.4" text-anchor="middle">service principal</text>
+<text class="t-s" x="95" y="110.9" text-anchor="middle">in a security group</text>
+<rect class="box blue" x="192" y="50" width="150" height="84" rx="10"/>
+<text class="t-b" x="267" y="81.5" text-anchor="middle">Get settings</text>
+<text class="t-s" x="267" y="96.4" text-anchor="middle">admin API, paged</text>
+<text class="t-s" x="267" y="110.9" text-anchor="middle">25 requests a minute</text>
+<rect class="box green" x="364" y="50" width="150" height="84" rx="10"/>
+<text class="t-b" x="439" y="81.5" text-anchor="middle">Snapshot</text>
+<text class="t-s" x="439" y="96.4" text-anchor="middle">JSON file in Git</text>
+<text class="t-s" x="439" y="110.9" text-anchor="middle">one commit per run</text>
+<rect class="box purple" x="536" y="50" width="150" height="84" rx="10"/>
+<text class="t-b" x="611" y="81.5" text-anchor="middle">Diff</text>
+<text class="t-s" x="611" y="96.4" text-anchor="middle">compare with the</text>
+<text class="t-s" x="611" y="110.9" text-anchor="middle">approved baseline</text>
+<rect class="box orange" x="708" y="50" width="150" height="84" rx="10"/>
+<text class="t-b" x="783" y="81.5" text-anchor="middle">Notify</text>
+<text class="t-s" x="783" y="96.4" text-anchor="middle">ticket to the</text>
+<text class="t-s" x="783" y="110.9" text-anchor="middle">setting owner</text>
+<path class="ln" d="M170 92L190 92" marker-end="url(#fig-snap-a)"/>
+<path class="ln" d="M342 92L362 92" marker-end="url(#fig-snap-a)"/>
+<path class="ln" d="M514 92L534 92" marker-end="url(#fig-snap-a)"/>
+<path class="ln" d="M686 92L706 92" marker-end="url(#fig-snap-a)"/>
+<rect class="box gray dashed" x="496" y="176" width="270" height="56" rx="10"/>
+<text class="t-b" x="631" y="200.8" text-anchor="middle">Audit log lookup</text>
+<text class="t-s" x="631" y="215.6" text-anchor="middle">who changed it, and when</text>
+<path class="ln dash gray" d="M611 134L611 174" marker-end="url(#fig-snap-a-gray)"/>
+<rect class="pill-bg" x="580" y="146" width="62" height="15"/>
+<text class="t-s" x="611" y="157.5" text-anchor="middle">on drift</text>
+</svg>
+<figcaption><b>Snapshot-and-diff pipeline.</b> The job turns tenant settings into reviewable configuration. The API shows the state; the audit log shows who and when for changes that the API exposes as events.</figcaption>
+</figure>
+<pre data-title="snapshot_tenant_settings.py (Python, runs anywhere with an approved identity)"><code class="language-python">import json
+import sys
+import time
+
+import requests
+from azure.identity import DefaultAzureCredential
+
+BASE = "https://api.fabric.microsoft.com/v1/admin/tenantsettings"
+KEYS = ["enabled", "enabledSecurityGroups", "excludedSecurityGroups",
+        "delegateToCapacity", "delegateToDomain", "delegateToWorkspace", "properties"]
+
+
+def get_settings():
+    token = DefaultAzureCredential().get_token("https://api.fabric.microsoft.com/.default").token
+    headers = {"Authorization": f"Bearer {token}"}
+    items, url = [], BASE
+    while url:
+        r = requests.get(url, headers=headers, timeout=60)
+        if r.status_code == 429:  # limit is 25 requests per minute
+            time.sleep(int(r.headers.get("Retry-After", "30")))
+            continue
+        r.raise_for_status()
+        page = r.json()
+        items += page.get("tenantSettings", [])
+        nxt = page.get("continuationToken")
+        url = f"{BASE}?continuationToken={nxt}" if nxt else None
+    return items
+
+
+def normalize(items):
+    out = {}
+    for s in items:
+        row = {k: s.get(k) for k in KEYS}
+        for g in ("enabledSecurityGroups", "excludedSecurityGroups"):
+            row[g] = sorted((x.get("name") or x.get("graphId") or "") for x in (row[g] or []))
+        out[s["settingName"]] = row
+    return out
+
+
+def diff(old, new):
+    for name in sorted(set(old) | set(new)):
+        if name not in old:
+            yield f"ADDED   {name}"
+        elif name not in new:
+            yield f"REMOVED {name}"
+        elif old[name] != new[name]:
+            changed = [k for k in KEYS if old[name].get(k) != new[name].get(k)]
+            yield f"CHANGED {name}: {', '.join(changed)}"
+
+
+if __name__ == "__main__":
+    baseline_path, snapshot_path = sys.argv[1], sys.argv[2]
+    current = normalize(get_settings())
+    with open(snapshot_path, "w", encoding="utf-8") as fh:
+        json.dump(current, fh, indent=2, sort_keys=True)
+    with open(baseline_path, encoding="utf-8") as fh:
+        baseline = json.load(fh)
+    lines = list(diff(baseline, current))
+    print("\n".join(lines) or "No drift")
+    sys.exit(1 if lines else 0)</code></pre>
+<div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p>
+<p>Check the response shape, scopes and throttling in <a href="https://learn.microsoft.com/rest/api/fabric/admin/tenants/list-tenant-settings">List Tenant Settings</a>. The identity must be a Fabric administrator or a service principal; the documentation does not state which admin-API switch must list the service principal, so test with a non-production principal. Handle the 25-requests-per-minute limit.</p></div>
+<h3 id="snapshot-ops">Running it</h3>
+<ul>
+  <li><strong>Store snapshots in Git.</strong> One commit per run gives you history, review and rollback evidence. Update the approved baseline through a pull request.</li>
+  <li><strong>Schedule it.</strong> Daily is usually enough; run it manually before and after every planned change.</li>
+  <li><strong>Include the overrides.</strong> Add calls to the list-overrides operations for capacities, domains and workspaces, and diff those too.</li>
+  <li><strong>Alert on drift.</strong> Send a ticket to the setting owner when a setting changes outside a change window.</li>
+</ul>
+
+<h2 id="audit">Audit events</h2>
+<p>Changes and data-movement events appear in the Microsoft Purview audit log and in the activity events API. The operation names below are the ones most useful for tenant-setting governance.</p>
+<table class="tight">
+  <thead><tr><th>Operation</th><th>What it tells you</th><th>Related setting</th></tr></thead>
+  <tbody>
+    <tr><td><code>GetTenantSettingsViaAdminApi</code></td><td>Someone or something read tenant settings through the admin API.</td><td>Admin API access</td></tr>
+    <tr><td><code>UpdateCapacityTenantSettingDelegation</code>, <code>UpdateDomainTenantSettingDelegation</code>, <code>UpdateWorkspaceTenantSettingDelegation</code></td><td>Delegation changes at each level.</td><td>Delegation</td></tr>
+    <tr><td><code>GetCapacityDelegatedTenantSettingOverridesViaAdminApi</code> and its domain and workspace counterparts</td><td>Someone listed overrides.</td><td>Delegation</td></tr>
+    <tr><td><code>ExportReport</code>, <code>ExportTile</code>, <code>ExportArtifact</code></td><td>Exports of reports, tiles and items.</td><td><a href="export-sharing.html#s-export-excel">Export to Excel</a>, <a href="export-sharing.html#s-export-csv">Export to .csv</a>, <a href="export-sharing.html#s-export-pptx-pdf">PowerPoint and PDF export</a></td></tr>
+    <tr><td><code>ExportArtifactDownload</code></td><td>A completed PowerPoint or PDF download.</td><td><a href="export-sharing.html#s-export-pptx-pdf">PowerPoint and PDF export</a></td></tr>
+    <tr><td><code>ShareReport</code>, <code>ShareDataset</code>, <code>ShareDashboard</code></td><td>Sharing actions.</td><td><a href="export-sharing.html#s-shareable-links">shareable links</a></td></tr>
+    <tr><td><code>PublishToWebReport</code>, <code>DeleteEmbedCode</code>, <code>GetPublishToWebArtifactsAsAdmin</code></td><td>Public embed creation, removal and admin listing.</td><td><a href="export-sharing.html#s-publish-to-web">Publish to web</a></td></tr>
+    <tr><td><code>GetArtifactLinkSharedToWholeOrgAsAdmin</code></td><td>An admin listing of organization-wide links.</td><td><a href="export-sharing.html#s-shareable-links">shareable links</a></td></tr>
+    <tr><td><code>CreateWorkspace</code>, <code>CreateWorkspaceIdentityViaApi</code></td><td>Workspace and workspace identity creation.</td><td><a href="workspace-git-onelake.html#s-create-workspaces">Create workspaces</a>, <a href="integration-api.html#s-sp-create-workspaces">service principal workspace creation</a></td></tr>
+    <tr><td><code>SensitivityLabelApplied</code>, <code>SensitivityLabelChanged</code>, <code>SensitivityLabelRemoved</code></td><td>Label lifecycle on items.</td><td><a href="content-models.html#s-label-apply">applying labels</a>, <a href="content-models.html#s-label-override">label override</a></td></tr>
+    <tr><td><code>ConnectFromExternalApplication</code>, <code>RefreshDatasetFromExternalApplication</code>, <code>CreateDatasetFromExternalApplication</code>, <code>EditDatasetFromExternalApplication</code>, <code>DeleteDatasetFromExternalApplication</code></td><td>XMLA client activity.</td><td><a href="integration-api.html#s-xmla">XMLA setting</a>, <a href="export-sharing.html#s-excel-live">Excel live connection</a></td></tr>
+  </tbody>
+</table>
+<div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p>
+<p>The delegation article lists <code>UpdatedAdminFeatureSwitch</code> for tenant-level changes, but that name is not in the operations list I checked. Confirm what your audit log records when a tenant setting is toggled, and use the snapshot-and-diff job as the source of truth for state. See the <a href="https://learn.microsoft.com/fabric/admin/operation-list">operations list</a> and <a href="https://learn.microsoft.com/fabric/admin/track-user-activities">Track user activities</a>.</p></div>
+
+<h2 id="exceptions">Handling exceptions</h2>
+<p>Exceptions are normal; untracked exceptions are the problem. Give them a short path and an end date.</p>
+<ol class="steps">
+  <li><strong>Request</strong><p>A form captures person or team, capability, justification and the date the need ends.</p></li>
+  <li><strong>Approve</strong><p>The setting owner approves; the group owner adds the person to the allow group or removes them from the exception group.</p></li>
+  <li><strong>Time-box</strong><p>Use an access package with expiry so the membership ends without a manual step.</p></li>
+  <li><strong>Review</strong><p>Include open exceptions in the quarterly review. Renew with a fresh justification or close.</p></li>
+</ol>
+
+<h2 id="troubleshooting">Troubleshooting: from symptom to setting</h2>
+<p>When someone says "I cannot do X", work down the flow first, then use the table to find the likely gate.</p>
+<figure class="diagram">
+<svg class="dg" viewBox="0 0 880 380" role="img" aria-label="Troubleshooting flow for a user who cannot do something: check the setting is enabled for the user, check group and exception membership, check capacity or domain overrides, allow for propagation, then check item-level permissions">
+<defs><marker id="fig-trbl-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker><marker id="fig-trbl-a-orange" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar orange" d="M0 0L10 5L0 10z"/></marker></defs>
+<rect class="box purple" x="20" y="20" width="340" height="52" rx="26"/>
+<text class="t-b" x="190" y="42.8" text-anchor="middle">Is the setting enabled for this user?</text>
+<text class="t-s" x="190" y="57.6" text-anchor="middle">find the setting in the matrix</text>
+<rect class="box orange" x="520" y="20" width="340" height="52" rx="10"/>
+<text class="t-b" x="690" y="42.8" text-anchor="middle">Enable it, or confirm the block</text>
+<text class="t-s" x="690" y="57.6" text-anchor="middle">record the decision</text>
+<path class="ln orange" d="M360 46L518 46" marker-end="url(#fig-trbl-a-orange)"/>
+<text class="t-s c-red" x="440" y="38" text-anchor="middle">no</text>
+<rect class="box purple" x="20" y="90" width="340" height="52" rx="26"/>
+<text class="t-b" x="190" y="112.8" text-anchor="middle">In an allowed group, no exception group?</text>
+<text class="t-s" x="190" y="127.6" text-anchor="middle">check effective membership</text>
+<rect class="box orange" x="520" y="90" width="340" height="52" rx="10"/>
+<text class="t-b" x="690" y="112.8" text-anchor="middle">Fix membership or exceptions</text>
+<text class="t-s" x="690" y="127.6" text-anchor="middle">Entra group owner</text>
+<path class="ln orange" d="M360 116L518 116" marker-end="url(#fig-trbl-a-orange)"/>
+<text class="t-s c-red" x="440" y="108" text-anchor="middle">no</text>
+<rect class="box purple" x="20" y="160" width="340" height="52" rx="26"/>
+<text class="t-b" x="190" y="182.8" text-anchor="middle">Overridden by capacity or domain?</text>
+<text class="t-s" x="190" y="197.6" text-anchor="middle">Delegated tenant settings tab</text>
+<rect class="box orange" x="520" y="160" width="340" height="52" rx="10"/>
+<text class="t-b" x="690" y="182.8" text-anchor="middle">Review the override</text>
+<text class="t-s" x="690" y="197.6" text-anchor="middle">capacity or domain admin</text>
+<path class="ln orange" d="M360 186L518 186" marker-end="url(#fig-trbl-a-orange)"/>
+<text class="t-s c-red" x="440" y="178" text-anchor="middle">yes</text>
+<rect class="box purple" x="20" y="230" width="340" height="52" rx="26"/>
+<text class="t-b" x="190" y="252.8" text-anchor="middle">More than 15 minutes since the change?</text>
+<text class="t-s" x="190" y="267.6" text-anchor="middle">then sign out and back in</text>
+<rect class="box orange" x="520" y="230" width="340" height="52" rx="10"/>
+<text class="t-b" x="690" y="252.8" text-anchor="middle">Wait, then retest</text>
+<text class="t-s" x="690" y="267.6" text-anchor="middle">public-access block: 10 to 20 min</text>
+<path class="ln orange" d="M360 256L518 256" marker-end="url(#fig-trbl-a-orange)"/>
+<text class="t-s c-red" x="440" y="248" text-anchor="middle">no</text>
+<path class="ln" d="M190 72L190 88" marker-end="url(#fig-trbl-a)"/>
+<text class="t-s c-green" x="202" y="84">yes</text>
+<path class="ln" d="M190 142L190 158" marker-end="url(#fig-trbl-a)"/>
+<text class="t-s c-green" x="202" y="154">yes</text>
+<path class="ln" d="M190 212L190 228" marker-end="url(#fig-trbl-a)"/>
+<text class="t-s c-green" x="202" y="224">no</text>
+<path class="ln" d="M190 282L190 298" marker-end="url(#fig-trbl-a)"/>
+<text class="t-s c-green" x="202" y="294">yes</text>
+<rect class="box green" x="20" y="300" width="340" height="52" rx="10"/>
+<text class="t-b" x="190" y="322.8" text-anchor="middle">Check item-level permissions</text>
+<text class="t-s" x="190" y="337.6" text-anchor="middle">workspace role, Build, RLS, sharing</text>
+</svg>
+<figcaption><b>Troubleshooting flow.</b> Work top to bottom. Most cases end at group membership or an override; the last step hands over to item-level checks that tenant settings cannot explain.</figcaption>
+</figure>
+<table>
+  <thead><tr><th>Symptom</th><th>Settings to check</th><th>Also check</th></tr></thead>
+  <tbody>
+    <tr><td>Export to Excel or .csv is missing or fails</td><td><a href="export-sharing.html#s-export-excel">Export to Excel</a>, <a href="export-sharing.html#s-export-csv">Export to .csv</a></td><td>Allow and exception group membership; label policy; paginated versus standard report.</td></tr>
+    <tr><td>Cannot download a .pbix</td><td><a href="export-sharing.html#s-download-reports">Download reports</a></td><td>Workspace role; item sensitivity label.</td></tr>
+    <tr><td>Analyze in Excel is missing or fails</td><td><a href="export-sharing.html#s-excel-live">Excel live connection</a>, <a href="integration-api.html#s-xmla">XMLA setting</a></td><td>Build permission; capacity XMLA mode.</td></tr>
+    <tr><td>An XMLA tool connects but cannot write</td><td><a href="integration-api.html#s-xmla">XMLA setting</a></td><td>Capacity XMLA endpoint set to read-write; workspace role.</td></tr>
+    <tr><td>No organization-wide link option in Share</td><td><a href="export-sharing.html#s-shareable-links">shareable links</a>, <a href="content-models.html#s-label-link-restrict">protected-label link guard</a></td><td>The item's label may block organization links.</td></tr>
+    <tr><td>Cannot invite a guest</td><td><a href="export-sharing.html#s-guest-invite">guest invitations</a>, <a href="export-sharing.html#s-guest-access">guest access</a></td><td>Microsoft Entra Guest Inviter role; Entra external collaboration settings.</td></tr>
+    <tr><td>A guest cannot browse or see content</td><td><a href="export-sharing.html#s-guest-access">guest access</a>, <a href="export-sharing.html#s-guest-browse">guest browsing</a></td><td>Explicit workspace or item permission for the guest.</td></tr>
+    <tr><td>Cannot create a lakehouse, warehouse or notebook</td><td><a href="workspace-git-onelake.html#s-fabric-items">Fabric items</a></td><td>Capacity-level override; capacity supports Fabric; workspace role.</td></tr>
+    <tr><td>Cannot create a workspace</td><td><a href="workspace-git-onelake.html#s-create-workspaces">Create workspaces</a></td><td>Group membership.</td></tr>
+    <tr><td>Cannot connect a workspace to GitHub</td><td><a href="workspace-git-onelake.html#s-git-ado">Git switch</a>, <a href="workspace-git-onelake.html#s-git-github">GitHub switch</a>, <a href="workspace-git-onelake.html#s-fabric-items">Fabric items</a></td><td>Capacity or workspace override; Create workspaces for branching out.</td></tr>
+    <tr><td>Copilot is not available</td><td><a href="ai-preview-other.html#s-copilot-main">Copilot setting</a>, <a href="ai-preview-other.html#s-copilot-cross-geo">cross-geography setting</a></td><td>Capacity-level setting; region; standalone and approved-items settings.</td></tr>
+    <tr><td>A service principal gets an authorization error from an API</td><td><a href="integration-api.html#s-sp-public-apis">Fabric public APIs for service principals</a>, <a href="integration-api.html#s-sp-create-workspaces">service principal workspace creation</a>, <a href="integration-api.html#s-sp-readonly-admin">read-only admin APIs</a>, <a href="integration-api.html#s-sp-admin-updates">admin APIs used for updates</a></td><td>Group membership; workspace role; app permissions needing admin consent.</td></tr>
+    <tr><td>A custom visual does not render</td><td><a href="content-models.html#s-certified-visuals-only">certified visuals only</a>, <a href="content-models.html#s-sdk-visuals">SDK visuals</a></td><td>Is it in the Organizational visuals store? Desktop group policy.</td></tr>
+    <tr><td>Users cannot reach the tenant after a network change</td><td><a href="workspace-git-onelake.html#s-private-link">Private Link</a>, <a href="workspace-git-onelake.html#s-block-public">Block Public Internet Access</a></td><td>Name resolution; allow 10 to 20 minutes; emergency path.</td></tr>
+    <tr><td>OneLake data is unreachable from an external tool</td><td><a href="workspace-git-onelake.html#s-onelake-external">external apps setting</a>, <a href="workspace-git-onelake.html#s-onelake-file-explorer">OneLake File Explorer</a>, <a href="workspace-git-onelake.html#s-onelake-sas-auth">SAS authentication</a></td><td>Workspace role; OneLake security roles.</td></tr>
+    <tr><td>Cannot publish or push an app</td><td><a href="content-models.html#s-publish-apps-org">Publish apps to the organization</a>, <a href="content-models.html#s-push-apps">Push apps</a></td><td>Workspace role; certification expectations.</td></tr>
+    <tr><td>Publish to web is missing</td><td><a href="export-sharing.html#s-publish-to-web">Publish to web</a></td><td>Scoped to specific groups; embed code option.</td></tr>
+    <tr><td>Usage reports show unnamed users</td><td><a href="ai-preview-other.html#s-usage-per-user">per-user usage data</a></td><td>Exclusion list for that setting.</td></tr>
+    <tr><td>Cannot apply a sensitivity label</td><td><a href="content-models.html#s-label-apply">applying labels</a></td><td>Purview label policy publishes to the user.</td></tr>
+    <tr><td>A setting changed and nobody knows why</td><td>All</td><td>Compare snapshots; search the audit log for delegation and admin API events.</td></tr>
+  </tbody>
+</table>
+
+<h2 id="checklist">Operational checklist</h2>
+<ul class="checklist">
+  <li>A snapshot exists for every planned change, before and after.</li>
+  <li>Every setting in the standard has an owner and a decision record.</li>
+  <li>Allow and exception groups have owners, and membership is reviewed on schedule.</li>
+  <li>Capacity, domain and workspace overrides are listed and reviewed.</li>
+  <li>Service principals for admin APIs are in dedicated groups with rotating credentials.</li>
+  <li>The audit log is searched for export, sharing, publish-to-web and delegation events on a schedule.</li>
+  <li>Preview settings are re-checked for status before each review.</li>
+  <li>There is a documented emergency path for network settings and a short list of break-glass switches.</li>
+</ul>
+
+<div class="takeaways"><p class="tk-title">Key takeaways</p>
+<ul>
+  <li>Every change has a request, a snapshot before and after, a verification step and a rollback.</li>
+  <li>Automate snapshot-and-diff with the administration API and store the results in Git.</li>
+  <li>Use the audit operation names for sharing, export, publish-to-web and delegation, and confirm what your log records for tenant toggles.</li>
+  <li>Give exceptions an owner and an end date.</li>
+  <li>Troubleshoot top-down: setting, scope, override, propagation, then item permissions.</li>
+</ul></div>
+
+<section class="refs">
+  <h2 id="refs">References</h2>
+  <ul>
+    <li><a href="https://learn.microsoft.com/rest/api/fabric/admin/tenants/list-tenant-settings">Tenants: List Tenant Settings (Fabric REST API)</a></li>
+    <li><a href="https://learn.microsoft.com/fabric/admin/delegate-settings">Delegate tenant settings</a></li>
+    <li><a href="https://learn.microsoft.com/fabric/admin/operation-list">Operation list</a></li>
+    <li><a href="https://learn.microsoft.com/fabric/admin/track-user-activities">Track user activities in Microsoft Fabric</a></li>
+    <li><a href="https://learn.microsoft.com/fabric/admin/enable-service-principal-admin-apis">Enable service principal authentication for admin APIs</a></li>
+    <li><a href="https://learn.microsoft.com/entra/id-governance/entitlement-management-access-package-create">Create an access package in entitlement management</a></li>
+  </ul>
+</section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Overview · Report Dev Standards</title>
+<meta name="description" content="Standards for building Power BI semantic models and thin reports on a Fabric data platform: model settings, naming, DAX, performance, rebinding, endorsement and a pre-publish checklist.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="12-power-bi-report-development" data-page="index.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+
+    <header class="page-header">
+      <p class="eyebrow">Playbook 12 · Analytics</p>
+      <h1>Power BI Report Development Standards</h1>
+      <p class="lede">A working standard for building semantic models and reports that stay fast, readable and safe to change. It assumes a Fabric data platform underneath: a curated Gold layer feeds a small number of shared semantic models, and many thin reports sit on top of them.</p>
+      <ul class="chips"><li><b>Level</b> Intermediate</li><li><b>Audience</b> Power BI developers, BI leads, reviewers</li><li><b>Reading time</b> 75 min</li></ul>
+    </header>
+
+    <h2 id="purpose">What this playbook is for</h2>
+    <p>Power BI makes it easy to produce a working report in an afternoon. The cost shows up later: every analyst ships their own copy of the model, measures are redefined in each report, a column rename breaks forty visuals, and nobody can tell which "Sales" number is the right one. Most of that is avoidable with a handful of agreed settings and conventions applied before the first visual is drawn.</p>
+    <p>This playbook sets those conventions. It keeps the concrete rules the team already uses (disable auto date/time, define relationships by hand, prefix report measures, keep measures in one table) and adds the reasoning, the current setting names, the failure modes, and the Fabric-specific choices such as Direct Lake. It is deliberately opinionated: where Microsoft documentation gives a hard rule it is cited, and where a rule is a house convention it is labelled as one.</p>
+
+    <h2 id="when-to-use">When to use it</h2>
+    <div class="pros-cons">
+      <div class="pros"><h4>Apply it when</h4><ul>
+        <li>You build or review semantic models and reports that other people will maintain.</li>
+        <li>Several reports should share one governed model instead of each owning a copy.</li>
+        <li>You are moving reports onto Fabric and want the model design to be right the second time.</li>
+        <li>Report performance or "which number is correct" disputes are already costing time.</li>
+      </ul></div>
+      <div class="cons"><h4>Look elsewhere when</h4><ul>
+        <li>You need operational, print-ready output. That is a paginated report; see the <a href="../13-paginated-report-migration/index.html">paginated report migration playbook</a>.</li>
+        <li>You are deciding how to move an existing estate onto Fabric. Start with the <a href="../01-powerbi-to-fabric-migration/index.html">Power BI to Fabric migration playbook</a>.</li>
+        <li>The question is how data lands and is shaped upstream. See <a href="../03-medallion-architecture/index.html">Medallion Architecture</a>.</li>
+      </ul></div>
+    </div>
+
+    <h2 id="prerequisites">Prerequisites</h2>
+    <ul>
+      <li>An up-to-date Power BI Desktop build and access to a Fabric workspace on a capacity. Direct Lake models require a Fabric capacity.</li>
+      <li>Gold-layer tables that already look like facts and dimensions. The standards below cannot repair a flat, denormalized source; they only avoid making it worse.</li>
+      <li>A workspace layout that separates models from reports. The house naming convention (<code>&lt;ENV&gt;_&lt;DOMAIN&gt;_CNSM</code> for models, <code>&lt;ENV&gt;_&lt;DOMAIN&gt;_DLV</code> for delivered reports) is used in the examples.</li>
+      <li>Agreement on who owns each shared semantic model. A model without an owner cannot be certified or changed safely.</li>
+    </ul>
+
+    <h2 id="layers">How the layers fit together</h2>
+    <p>Three layers carry the standards, and each has a single accountable owner. The data team owns the Gold tables, a model owner owns the shared semantic model, and report authors own thin reports that connect to it. A report author who needs a new column does not patch it into the report; the request goes to the model owner, who adds it once for everyone.</p>
+
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 336" role="img" aria-label="Gold tables feed one shared semantic model, which several thin reports connect to; the reports are served to consumers through apps and workspaces">
+        <defs>
+          <marker id="fig-idx-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-idx-1-ab" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar blue" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box gold" x="20" y="105" width="150" height="120" rx="10"/>
+        <text class="t-h" x="95" y="140" text-anchor="middle">Gold layer</text>
+        <text class="t-s" x="95" y="162" text-anchor="middle">Delta tables</text>
+        <text class="t-s" x="95" y="178" text-anchor="middle">star-shaped</text>
+        <text class="t-s" x="95" y="194" text-anchor="middle">Lakehouse or Warehouse</text>
+        <rect class="zone blue" x="230" y="40" width="310" height="262" rx="12"/>
+        <text class="t-h" x="246" y="64">Shared semantic model</text>
+        <rect class="box blue" x="250" y="80" width="270" height="60" rx="8"/>
+        <text class="t-b" x="385" y="106" text-anchor="middle">Tables and storage mode</text>
+        <text class="t-s" x="385" y="124" text-anchor="middle">Direct Lake, Import or composite</text>
+        <rect class="box blue" x="250" y="152" width="270" height="60" rx="8"/>
+        <text class="t-b" x="385" y="178" text-anchor="middle">Date table and relationships</text>
+        <text class="t-s" x="385" y="196" text-anchor="middle">defined by hand, single direction</text>
+        <rect class="box accent" x="250" y="224" width="270" height="60" rx="8"/>
+        <text class="t-b t-w" x="385" y="250" text-anchor="middle">Measures table</text>
+        <text class="t-s t-w" x="385" y="268" text-anchor="middle">DAX, formats, descriptions</text>
+        <rect class="box green" x="620" y="58" width="140" height="62" rx="8"/>
+        <text class="t-b" x="690" y="84" text-anchor="middle">Thin report A</text>
+        <text class="t-s" x="690" y="102" text-anchor="middle">Rpt measures only</text>
+        <rect class="box green" x="620" y="140" width="140" height="62" rx="8"/>
+        <text class="t-b" x="690" y="166" text-anchor="middle">Thin report B</text>
+        <text class="t-s" x="690" y="184" text-anchor="middle">Rpt measures only</text>
+        <rect class="box green" x="620" y="222" width="140" height="62" rx="8"/>
+        <text class="t-b" x="690" y="248" text-anchor="middle">Thin report C</text>
+        <text class="t-s" x="690" y="266" text-anchor="middle">Rpt measures only</text>
+        <rect class="box gray" x="790" y="120" width="100" height="102" rx="8"/>
+        <text class="t-h" x="840" y="156" text-anchor="middle">Consumers</text>
+        <text class="t-s" x="840" y="178" text-anchor="middle">Org apps and</text>
+        <text class="t-s" x="840" y="193" text-anchor="middle">workspaces</text>
+        <path class="ln" d="M170 165H228" marker-end="url(#fig-idx-1-a)"/>
+        <text class="t-s" x="199" y="156" text-anchor="middle">reads</text>
+        <path class="ln blue" d="M540 171H618" marker-end="url(#fig-idx-1-ab)"/>
+        <path class="ln blue" d="M579 171V89H618" marker-end="url(#fig-idx-1-ab)"/>
+        <path class="ln blue" d="M579 171V253H618" marker-end="url(#fig-idx-1-ab)"/>
+        <rect class="pill-bg" x="541" y="150" width="76" height="16"/>
+        <text class="t-s" x="579" y="162" text-anchor="middle">connects to</text>
+        <path class="ln" d="M760 89H775V150H788" marker-end="url(#fig-idx-1-a)"/>
+        <path class="ln" d="M760 171H788" marker-end="url(#fig-idx-1-a)"/>
+        <path class="ln" d="M760 253H775V192H788" marker-end="url(#fig-idx-1-a)"/>
+        <text class="t-s" x="95" y="324" text-anchor="middle">Upstream: playbook 03</text>
+        <text class="t-s" x="385" y="324" text-anchor="middle">Standards: pages 2 and 4</text>
+        <text class="t-s" x="690" y="324" text-anchor="middle">Standards: pages 3, 5 and 6</text>
+      </svg>
+      <figcaption><b>One model, many thin reports.</b> The model owner holds the tables, relationships and shared measures; each report only adds layout and a small set of report-level measures. The accent box is where most of the leverage sits.</figcaption>
+    </figure>
+
+    <table>
+      <thead><tr><th>Layer</th><th>Accountable owner</th><th>What the standards control</th><th>Page</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Gold tables</strong></td><td>Data engineering</td><td>Star shape, stable keys, one grain per fact, no helper columns the model must hide</td><td><a href="../03-medallion-architecture/index.html">Playbook 03</a></td></tr>
+        <tr><td><strong>Semantic model</strong></td><td>Model owner</td><td>Storage mode, date table, relationships, hiding, descriptions, measures, certification</td><td><a href="semantic-model.html">Semantic model standards</a></td></tr>
+        <tr><td><strong>Measures and names</strong></td><td>Model owner and report authors</td><td>Naming, DAX patterns, the measures table, where a measure is allowed to live</td><td><a href="naming-dax.html">Naming, DAX and measures tables</a></td></tr>
+        <tr><td><strong>Report</strong></td><td>Report author</td><td>Layout, theme, accessibility, visual count, query reduction, performance checks</td><td><a href="report-design.html">Report design and performance</a></td></tr>
+        <tr><td><strong>Change and release</strong></td><td>Both</td><td>Rebinding, Git and pipeline flow, endorsement, the pre-publish checklist</td><td><a href="rebinding.html">Rebinding</a>, <a href="collaboration-qa.html">Collaboration and QA</a></td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="at-a-glance">The standards at a glance</h2>
+    <p>If you read nothing else, these are the rules that prevent the most rework. Each is explained, with its trade-offs, on the page named in the last column.</p>
+    <table>
+      <thead><tr><th>#</th><th>Rule</th><th>What goes wrong without it</th><th>Where</th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td>Turn off auto date/time and use one marked date table</td><td>Hidden date tables per date column inflate the model and cannot be reused or reached from other tools</td><td><a href="semantic-model.html#auto-date-time">Model</a></td></tr>
+        <tr><td>2</td><td>Turn off relationship autodetection; define every relationship</td><td>Accidental joins on similarly named columns produce plausible but wrong numbers</td><td><a href="semantic-model.html#auto-relationships">Model</a></td></tr>
+        <tr><td>3</td><td>Model as a star: facts in the middle, dimensions around them</td><td>Slow queries, ambiguous filter paths, DAX that fights the schema</td><td><a href="semantic-model.html#star-schema">Model</a></td></tr>
+        <tr><td>4</td><td>Hide keys and helper columns; describe what remains</td><td>Authors drag foreign keys into visuals and sum columns that should be measures</td><td><a href="semantic-model.html#expose">Model</a></td></tr>
+        <tr><td>5</td><td>Keep every measure in a measures table; prefix report-level measures with <code>Rpt</code></td><td>Nobody can tell shared logic from one-off logic; the same ratio is defined four ways</td><td><a href="naming-dax.html">DAX</a></td></tr>
+        <tr><td>6</td><td>Few purposeful visuals per page; detail through drillthrough and tooltips</td><td>Dozens of queries fire on every click and the page feels broken</td><td><a href="report-design.html#visual-budget">Design</a></td></tr>
+        <tr><td>7</td><td>Measure with Performance Analyzer before tuning anything</td><td>Time goes into DAX that was never the bottleneck</td><td><a href="report-design.html#performance-analyzer">Design</a></td></tr>
+        <tr><td>8</td><td>Share one model; build thin reports; certify the model</td><td>Report sprawl and conflicting definitions</td><td><a href="collaboration-qa.html">QA</a></td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="how-to-read">How to read this playbook</h2>
+    <div class="cards">
+      <a class="card blue" href="semantic-model.html"><span class="card-num">02</span><h3>Semantic model standards</h3><p>Storage mode decision, the two Desktop settings to change on day one, star schema, hiding and documenting fields, PBIP and TMDL.</p><div class="card-meta"><span>Model owners</span><span>20 min</span></div></a>
+      <a class="card teal" href="report-design.html"><span class="card-num">03</span><h3>Report design and performance</h3><p>Layout, accessibility, query reduction and a repeatable Performance Analyzer workflow with a triage path.</p><div class="card-meta"><span>Report authors</span><span>15 min</span></div></a>
+      <a class="card purple" href="naming-dax.html"><span class="card-num">04</span><h3>Naming, DAX and measures tables</h3><p>The naming rules with a worked example, DAX patterns, calculation groups and a measures table built in the UI and in TMDL.</p><div class="card-meta"><span>Everyone</span><span>15 min</span></div></a>
+      <a class="card orange" href="rebinding.html"><span class="card-num">05</span><h3>Rebinding reports to a new model</h3><p>Four ways to point a report at a different model, a schema diff gate and a verification matrix.</p><div class="card-meta"><span>Migration teams</span><span>12 min</span></div></a>
+      <a class="card green" href="collaboration-qa.html"><span class="card-num">06</span><h3>Collaboration, endorsement and QA</h3><p>Shared models and thin reports, certification, Git and pipelines, change management and the checklist.</p><div class="card-meta"><span>Leads and reviewers</span><span>13 min</span></div></a>
+    </div>
+
+    <div class="callout tip"><p class="callout-title">Related playbooks</p>
+      <p>Release mechanics live elsewhere: <a href="../05-github-integration/index.html">GitHub integration and branching</a> for the Git workflow, <a href="../07-deployment/index.html">Deployment pipelines</a> for promotion, <a href="../11-org-apps/index.html">Organizational apps</a> for distribution, and <a href="../16-tenant-settings/index.html">Tenant settings</a> for the admin switches that certification and sharing depend on.</p></div>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p>
+      <ul>
+        <li>Settle model design before report design: two Desktop options and a star schema remove most downstream problems.</li>
+        <li>One accountable owner per layer; a thin report never patches the model.</li>
+        <li>Measure first, tune second. Performance Analyzer tells you which of four time buckets is the problem.</li>
+        <li>Treat naming and measure placement as an interface that other people depend on, because they do.</li>
+      </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/power-bi/guidance/power-bi-optimization">Optimization guide for Power BI</a></li>
+        <li><a href="https://learn.microsoft.com/power-bi/guidance/star-schema">Understand star schema and the importance for Power BI</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/fundamentals/direct-lake-overview">Direct Lake overview</a></li>
+        <li><a href="https://learn.microsoft.com/power-bi/connect-data/desktop-report-lifecycle-datasets">Connect to semantic models in Power BI</a></li>
+        <li><a href="https://learn.microsoft.com/power-bi/developer/projects/projects-overview">Power BI Desktop projects (PBIP)</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

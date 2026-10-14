@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pre-flight and verification · Deployment Checklist</title>
+<meta name="description" content="What to check before a deployment window, while a layer deploys and after it finishes, with the three gates between layers, a check per item type and the evidence to keep.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="14-deployment-checklist" data-page="preflight-verify.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 14 · Deployment Checklist</p>
+      <h1>Pre-flight and verification</h1>
+      <p class="lede">The layer checklists say what to do for each layer. This page wraps them: the pre-flight that makes a failed deployment unlikely, the discipline during the window, and the verification that turns "deployed" into "working", plus the record you leave behind.</p>
+    </header>
+<h2 id="phases">Three phases around every release</h2>
+<ol class="phases">
+<li><strong>Pre-flight</strong>Once per release, before the window opens.</li>
+<li><strong>During</strong>For every layer and every stage hop.</li>
+<li><strong>After</strong>Gates before the next layer, then sign-off.</li>
+</ol>
+<figure class="diagram">
+<svg class="dg" viewBox="0 0 900 292" role="img" aria-label="Swim-lane view of one layer's deployment: the release manager runs pre-flight checks, the pipeline deploys the lakehouse and environment and then notebooks and pipelines, the release manager activates the value set, loads populate the target workspace, and the release manager verifies and signs off">
+<defs>
+<marker id="fig-ck-7-a-teal" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar teal" d="M0 0L10 5L0 10z"/></marker>
+<marker id="fig-ck-7-a-blue" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar blue" d="M0 0L10 5L0 10z"/></marker>
+<marker id="fig-ck-7-a-orange" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar orange" d="M0 0L10 5L0 10z"/></marker>
+<marker id="fig-ck-7-a-green" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+</defs>
+<rect class="lane" x="10" y="14" width="880" height="74" rx="8"/>
+<text class="t-b" x="22" y="55">Release manager</text>
+<rect class="lane" x="10" y="98" width="880" height="74" rx="8"/>
+<text class="t-b" x="22" y="139">Deployment pipeline</text>
+<rect class="lane" x="10" y="182" width="880" height="74" rx="8"/>
+<text class="t-b" x="22" y="223">Target workspace</text>
+<rect class="box orange" x="140" y="28" width="104" height="46" rx="10"/>
+<text class="t-s" x="192" y="47.5" text-anchor="middle">Pre-flight</text>
+<text class="t-s" x="192" y="62.5" text-anchor="middle">checks, note</text>
+<rect class="box teal" x="264" y="112" width="104" height="46" rx="10"/>
+<text class="t-s" x="316" y="131.5" text-anchor="middle">Lakehouse + env</text>
+<text class="t-s" x="316" y="146.5" text-anchor="middle">deployed</text>
+<rect class="box teal" x="388" y="112" width="104" height="46" rx="10"/>
+<text class="t-s" x="440" y="131.5" text-anchor="middle">Notebooks and</text>
+<text class="t-s" x="440" y="146.5" text-anchor="middle">pipelines</text>
+<rect class="box blue" x="388" y="196" width="104" height="46" rx="10"/>
+<text class="t-s" x="440" y="215.5" text-anchor="middle">Items paired</text>
+<text class="t-s" x="440" y="230.5" text-anchor="middle">and bound</text>
+<rect class="box orange" x="512" y="28" width="104" height="46" rx="10"/>
+<text class="t-s" x="564" y="47.5" text-anchor="middle">Activate stage</text>
+<text class="t-s" x="564" y="62.5" text-anchor="middle">value set</text>
+<rect class="box" x="636" y="196" width="104" height="46" rx="10"/>
+<text class="t-s" x="688" y="215.5" text-anchor="middle">Loads run;</text>
+<text class="t-s" x="688" y="230.5" text-anchor="middle">tables populate</text>
+<rect class="box green" x="760" y="28" width="104" height="46" rx="10"/>
+<text class="t-s" x="812" y="47.5" text-anchor="middle">Verify and</text>
+<text class="t-s" x="812" y="62.5" text-anchor="middle">sign off</text>
+<path class="ln teal" d="M192 74V135H264" marker-end="url(#fig-ck-7-a-teal)"/>
+<path class="ln teal" d="M368 135H388" marker-end="url(#fig-ck-7-a-teal)"/>
+<path class="ln blue" d="M440 158V196" marker-end="url(#fig-ck-7-a-blue)"/>
+<path class="ln orange" d="M492 219H564V74" marker-end="url(#fig-ck-7-a-orange)"/>
+<path class="ln orange" d="M616 51H688V196" marker-end="url(#fig-ck-7-a-orange)"/>
+<path class="ln green" d="M740 219H812V74" marker-end="url(#fig-ck-7-a-green)"/>
+<circle class="dot" cx="144" cy="24" r="10"/>
+<text class="t-b t-w" x="144" y="28" text-anchor="middle">1</text>
+<circle class="dot" cx="268" cy="108" r="10"/>
+<text class="t-b t-w" x="268" y="112" text-anchor="middle">2</text>
+<circle class="dot" cx="392" cy="108" r="10"/>
+<text class="t-b t-w" x="392" y="112" text-anchor="middle">3</text>
+<circle class="dot" cx="392" cy="192" r="10"/>
+<text class="t-b t-w" x="392" y="196" text-anchor="middle">4</text>
+<circle class="dot" cx="516" cy="24" r="10"/>
+<text class="t-b t-w" x="516" y="28" text-anchor="middle">5</text>
+<circle class="dot" cx="640" cy="192" r="10"/>
+<text class="t-b t-w" x="640" y="196" text-anchor="middle">6</text>
+<circle class="dot" cx="764" cy="24" r="10"/>
+<text class="t-b t-w" x="764" y="28" text-anchor="middle">7</text>
+<text class="t-s" x="140" y="280">Steps 6 and 7 are the slow part: plan the window around the longest load.</text>
+</svg>
+<figcaption><b>Who does what, in order.</b> The release manager gates each hand-off; the pipeline and the target workspace do the rest. The same lanes apply to every layer and every stage hop.</figcaption>
+</figure>
+<p>The release manager owns the hand-offs. The pipeline and the target workspace do the mechanical work; nothing moves on until the release manager has seen the evidence that the previous step worked.</p>
+
+<h2 id="preflight">Pre-flight checklist</h2>
+<p>Complete this list before the first deployment of the release. If an item cannot be ticked, fix it or postpone the window.</p>
+<h3 id="pf-scope">Scope and approvals</h3>
+<ul class="checklist">
+<li>The release content is merged to the branch DEV is connected to, and DEV has been synced. Nothing is deployed from an unmerged change.</li>
+<li>The release is the same content that passed testing: promote through the pipeline, and never edit TST or PRD by hand.</li>
+<li>A release reference exists, and every person involved knows the layer order and who signs off each layer.</li>
+<li>Deleted objects are listed, in layer order, so the downstream clean-up is planned (Tip 3).</li>
+<li>A rollback approach is agreed (see the section on restoring a previous version below).</li>
+</ul>
+<h3 id="pf-access">Access and identities</h3>
+<ul class="checklist">
+<li>The deployer is a pipeline admin and has at least Contributor on both the source and target workspaces of every pipeline in scope. Replacing an existing semantic model also needs the Member role, and a dataflow can be replaced only by its owner.</li>
+<li>Connections used by pipelines, notebooks and models exist in the target stage, are shared with the deployment group, and have a named second owner (Tip 1).</li>
+<li>The semantic model owner is available to set rules and credentials on the target copy.</li>
+</ul>
+<h3 id="pf-state">Platform state</h3>
+<ul class="checklist">
+<li>Compare each pipeline's stages first. Every item you expect to overwrite sits on the same row as its source; anything labelled <em>Not in source</em> or <em>Only in source</em> is expected.</li>
+<li>No dataflow is refreshing in the stages you will compare or deploy: a deployment fails while a dataflow in scope refreshes, and a comparison made during a refresh is unpredictable.</li>
+<li>Variable libraries have a value set for the target stage, and you know which to activate.</li>
+<li>Rule values for the target stage are recorded (data source, parameter, default lakehouse) so nobody looks them up during the window.</li>
+<li>Capacity has headroom for the deployment and for the hydration runs that follow. For load testing in TST, use a capacity separate from production.</li>
+<li>Scheduled loads and refreshes that would run during the window are paused or rescheduled.</li>
+<li>The browser session is fresh, and nobody will click in the pipeline page while it is comparing (Tip 4).</li>
+</ul>
+<h3 id="pf-plan">Test plan</h3>
+<ul class="checklist">
+<li>For each layer: the tables and expected row-count ranges, the shortcuts, the reports to open and the measure to reconcile.</li>
+<li>A named person for each sign-off.</li>
+</ul>
+
+<h2 id="during">During the deployment window</h2>
+<p>Repeat for each layer, in order. The details of each layer are in the <a href="layer-checklists.html">layer checklists</a>.</p>
+<ol class="steps">
+<li><strong>Open the layer's pipeline and wait for the comparison</strong><p>Confirm every item has a status label before you select anything.</p></li>
+<li><strong>Select the items for the first deployment</strong><p>Foundations first: lakehouse, environment and variable library. For a selective deployment, use <strong>Select related</strong> so dependencies are included.</p></li>
+<li><strong>Write the deployment note</strong><p>Use the format in the evidence section below. The note is the first thing you will read in the history when something looks wrong.</p></li>
+<li><strong>Deploy, then read the result</strong><p>Check the deployment status and the history entry. A deployment can complete with items that failed; read the item list, not just the status icon. Decide in advance whether you allow a deployment to continue when items fail. For a layer with dependencies, stopping on the first failure is usually safer.</p></li>
+<li><strong>Deploy the dependent items</strong><p>Notebooks, data pipelines, shortcuts and so on, as a second deployment once the first has succeeded.</p></li>
+<li><strong>Configure the stage</strong><p>Activate the variable library value set, apply rules (and redeploy for them to apply), set connections, schedules and permissions.</p></li>
+<li><strong>Run the loads</strong><p>Run the layer's pipelines and notebooks, one layer at a time, and wait for them to finish.</p></li>
+<li><strong>Run the gates</strong><p>Section below. Do not open the next layer until all three pass.</p></li>
+</ol>
+<div class="callout warning"><p class="callout-title">Do not fix forward by editing the target</p><p>A change made directly in TST or PRD is overwritten by the next deployment and hides the defect that caused it. Fix the cause in DEV, promote it, and let the pipeline carry it. This is also Microsoft's guidance for urgent fixes: implement the fix in development and push it through the stages, rather than deploying an untested change to production.</p></div>
+
+<h2 id="gates">After: three gates between layers</h2>
+<figure class="diagram">
+<svg class="dg" viewBox="0 0 900 300" role="img" aria-label="Three gates must pass before the next layer starts: the deployment succeeded, hydration completed, and the checks passed; any no sends you to a fix and back to the same gate">
+<defs>
+<marker id="fig-ck-8-a-orange" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar orange" d="M0 0L10 5L0 10z"/></marker>
+<marker id="fig-ck-8-a-green" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+</defs>
+<rect class="box purple" x="14" y="40" width="180" height="64" rx="32"/>
+<text class="t-b" x="104" y="68" text-anchor="middle">Deployment</text>
+<text class="t-s" x="104" y="84" text-anchor="middle">succeeded?</text>
+<rect class="box orange" x="14" y="180" width="180" height="56" rx="10"/>
+<text class="t-s" x="104" y="204" text-anchor="middle">Read the failed item,</text>
+<text class="t-s" x="104" y="220" text-anchor="middle">fix, redeploy it</text>
+<path class="ln orange" d="M104 104V180" marker-end="url(#fig-ck-8-a-orange)"/>
+<rect class="pill-bg" x="106.1" y="137.5" width="23.9" height="16"/>
+<text class="t-s" x="118" y="150" text-anchor="middle">no</text>
+<path class="ln orange dash" d="M14 208H6V72H14" marker-end="url(#fig-ck-8-a-orange)"/>
+<rect class="box purple" x="250" y="40" width="180" height="64" rx="32"/>
+<text class="t-b" x="340" y="68" text-anchor="middle">Hydration</text>
+<text class="t-s" x="340" y="84" text-anchor="middle">complete?</text>
+<rect class="box orange" x="250" y="180" width="180" height="56" rx="10"/>
+<text class="t-s" x="340" y="204" text-anchor="middle">Check the run history,</text>
+<text class="t-s" x="340" y="220" text-anchor="middle">fix, rerun the load</text>
+<path class="ln orange" d="M340 104V180" marker-end="url(#fig-ck-8-a-orange)"/>
+<rect class="pill-bg" x="342.1" y="137.5" width="23.9" height="16"/>
+<text class="t-s" x="354" y="150" text-anchor="middle">no</text>
+<path class="ln orange dash" d="M250 208H242V72H250" marker-end="url(#fig-ck-8-a-orange)"/>
+<rect class="box purple" x="486" y="40" width="180" height="64" rx="32"/>
+<text class="t-b" x="576" y="68" text-anchor="middle">Checks</text>
+<text class="t-s" x="576" y="84" text-anchor="middle">pass?</text>
+<rect class="box orange" x="486" y="180" width="180" height="56" rx="10"/>
+<text class="t-s" x="576" y="204" text-anchor="middle">Compare counts and</text>
+<text class="t-s" x="576" y="220" text-anchor="middle">bindings, fix the cause</text>
+<path class="ln orange" d="M576 104V180" marker-end="url(#fig-ck-8-a-orange)"/>
+<rect class="pill-bg" x="578.1" y="137.5" width="23.9" height="16"/>
+<text class="t-s" x="590" y="150" text-anchor="middle">no</text>
+<path class="ln orange dash" d="M486 208H478V72H486" marker-end="url(#fig-ck-8-a-orange)"/>
+<rect class="box green" x="722" y="40" width="164" height="64" rx="10"/>
+<text class="t-b" x="804" y="68" text-anchor="middle">Next layer</text>
+<text class="t-s" x="804" y="84" text-anchor="middle">start its deploy</text>
+<path class="ln green" d="M194 72H250" marker-end="url(#fig-ck-8-a-green)"/>
+<rect class="pill-bg" x="207.1" y="53.5" width="29.8" height="16"/>
+<text class="t-s" x="222" y="66" text-anchor="middle">yes</text>
+<path class="ln green" d="M430 72H486" marker-end="url(#fig-ck-8-a-green)"/>
+<rect class="pill-bg" x="443.1" y="53.5" width="29.8" height="16"/>
+<text class="t-s" x="458" y="66" text-anchor="middle">yes</text>
+<path class="ln green" d="M666 72H722" marker-end="url(#fig-ck-8-a-green)"/>
+<rect class="pill-bg" x="679.1" y="53.5" width="29.8" height="16"/>
+<text class="t-s" x="694" y="66" text-anchor="middle">yes</text>
+<text class="t-s" x="14" y="272">Dashed arrows: after the fix, repeat the same gate.</text>
+</svg>
+<figcaption><b>Three gates between layers.</b> Do not carry a failed gate into the next layer. Fix, repeat the failed step, and re-run the gate from the start.</figcaption>
+</figure>
+<ol class="steps">
+<li><strong>Deployment succeeded</strong><p>The history entry for this deployment shows success, no item failed, and the stage compare shows the deployed items as the same as the source (except items you know cannot match, such as an environment with a custom pool).</p></li>
+<li><strong>Hydration completed</strong><p>Every load for the layer has finished successfully in the target workspace. Check the run history, not the pipeline's schedule.</p></li>
+<li><strong>Checks passed</strong><p>The checks for each item type in the next table. A failed check sends you back to the cause, and you re-run from the failed gate.</p></li>
+</ol>
+
+<h2 id="verify-by-type">What to verify for each item type</h2>
+<table>
+<thead><tr><th>Item type</th><th>Verify in the target workspace</th><th>Evidence to keep</th></tr></thead>
+<tbody>
+<tr><td><strong>Lakehouse</strong></td><td>Expected tables exist, counts are in range, shortcuts resolve, nothing under <em>Unidentified</em>, the SQL analytics endpoint answers a query</td><td>Count output; the shortcut list</td></tr>
+<tr><td><strong>Environment</strong></td><td>Published state; libraries and Spark runtime as in DEV. A custom pool is not carried over, so a difference there is expected</td><td>Environment details</td></tr>
+<tr><td><strong>Variable library</strong></td><td>The active value set is the target stage's, not <em>Default</em></td><td>Value set name</td></tr>
+<tr><td><strong>Notebook</strong></td><td>Default lakehouse and environment are the target workspace's; one run reads from the target lakehouse</td><td>Run ID</td></tr>
+<tr><td><strong>Data pipeline</strong></td><td>Last run succeeded; connections and workspace references are the target stage's</td><td>Run ID</td></tr>
+<tr><td><strong>Warehouse</strong></td><td>Tables, views and procedures exist; counts match the Gold tables they load from; a sample query returns target data</td><td>Count output</td></tr>
+<tr><td><strong>Semantic model</strong></td><td>Settings show the target data source; a refresh succeeds; a measure matches the same figure in the warehouse; the deployment rules pane shows the values you recorded</td><td>Refresh status; compared figures</td></tr>
+<tr><td><strong>Paginated report</strong></td><td>The data source rule applied, and the report runs with parameters</td><td>Rendered output</td></tr>
+<tr><td><strong>Report</strong></td><td><strong>View lineage</strong> shows the target stage's model; visuals load with target data</td><td>Lineage view</td></tr>
+<tr><td><strong>Power BI app</strong></td><td>Updated separately; deployment does not update app content or settings</td><td>App version or note</td></tr>
+</tbody>
+</table>
+<p>The row-count checks are the easiest to automate. This cell runs in a notebook whose default lakehouse is the <em>target</em> stage's lakehouse, compares each count with the range you recorded in the test plan, and stops the run if any table is missing or out of range. A T-SQL count query for warehouses is in <a href="tips.html#hydration">Tip 5</a>; a missing table makes it fail, which is itself the signal.</p>
+<pre data-title="Notebook cell: gate check with expected row-count ranges"><code class="language-python"># Replace the names and ranges with the ones from this layer's test plan.
+# A high of None means "no upper bound". Use "schema.table" in a schema-enabled lakehouse.
+expected = {
+    "customers": (1, None),
+    "orders": (1, None),
+    "order_lines": (1, None),
+}
+
+results = []
+for name, (low, high) in expected.items():
+    try:
+        rows = spark.table(name).count()
+        ok = rows &gt;= low and (high is None or rows &lt;= high)
+    except Exception:
+        # Table missing, or not readable from this lakehouse.
+        rows, ok = -1, False
+    results.append((name, rows, ok))
+
+df = spark.createDataFrame(results, ["table_name", "row_count", "in_range"])
+display(df)
+
+failed = [name for name, _, ok in results if not ok]
+assert not failed, f"Gate failed for: {failed}"</code></pre>
+
+<h2 id="evidence">Evidence and the deployment note</h2>
+<p>The deployment history is a log of past deployments in a pipeline. Each row records the target stage, the end time, who deployed (a person or a service principal), the item counts by category, any failed items, the note, a deployment ID to quote when you ask for help, and the status. It lists up to 1000 recent deployments, and a renamed item is treated as a new item in the log. Use the note field to tie each row to the release.</p>
+<pre data-title="Deployment note format"><code class="language-text">REL-&lt;release-id&gt; | &lt;layer&gt; | &lt;FROM&gt; -&gt; &lt;TO&gt; | &lt;pipeline name&gt;
+Scope: &lt;items or "full"&gt;
+Deleted downstream: &lt;objects removed in this stage, or "none"&gt;
+Config after deploy: value set &lt;name&gt;; rules applied &lt;yes/no&gt;
+Operator: &lt;initials&gt;</code></pre>
+<p>Keep a one-page record per layer and hop, outside the platform if your audit rules require it:</p>
+<table>
+<thead><tr><th>Record</th><th>Source</th></tr></thead>
+<tbody>
+<tr><td>Release reference, layer, stage hop, time window</td><td>Your release plan</td></tr>
+<tr><td>Deployment ID and result</td><td>Deployment history</td></tr>
+<tr><td>Items deployed, and items that failed or were skipped</td><td>Deployment history</td></tr>
+<tr><td>Rule values and value set used</td><td>Your recorded values (see the appendix of the deployment playbook)</td></tr>
+<tr><td>Gate results: counts, refresh status, lineage view</td><td>The verification outputs above</td></tr>
+<tr><td>Sign-off name and time</td><td>The release manager</td></tr>
+</tbody>
+</table>
+
+<h2 id="rollback">Restoring a previous version</h2>
+<p>A deployment overwrites the paired items in the target stage with the source stage's versions. Microsoft's guidance for going back is Git-based: there is no direct way to return to a previous commit in the interface, so promote the older commit to be the head with <code>git revert</code> or <code>git reset</code>, update the DEV workspace from it, and promote it through the pipeline again. Because data is not stored in Git, reverting a data item such as a lakehouse or a warehouse to an older definition can break the existing data and can require dropping data, or the operation can fail. Check that before you need it.</p>
+<ul class="checklist">
+<li>Record the last known-good commit for each layer before the window opens.</li>
+<li>Decide which layers can be reverted by redeploying (notebooks, pipelines, reports) and which need a data plan (lakehouses, warehouses, models).</li>
+<li>Rehearse the revert in TST before you need it; a rollback you have not run is a hope.</li>
+</ul>
+<div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>A backward deployment in a pipeline (from a later stage to an earlier one) is possible only into an empty stage, so it does not replace a previous version. Check <a href="https://learn.microsoft.com/fabric/cicd/best-practices-cicd">Best practices for lifecycle management in Fabric</a> and <a href="../07-deployment/manual-deploy.html">The manual deployment</a> before you rely on any rollback method.</p></div>
+
+<div class="takeaways"><p class="tk-title">Key takeaways</p>
+<ul>
+<li>Pre-flight removes the avoidable failures: access, connections, value sets, rule values, capacity and paused refreshes.</li>
+<li>During the window: wait for the comparison, deploy foundations first, write a note, read the result item by item.</li>
+<li>Three gates (deployed, hydrated, checked) separate layers. A failed gate is fixed and re-run, not carried forward.</li>
+<li>Verification is per item type and leaves evidence: counts, run IDs, lineage and the history entry.</li>
+<li>Rollback is Git-based and data-sensitive; decide how you would do it before the window, not during an incident.</li>
+</ul></div>
+
+<section class="refs">
+<h2 id="refs">References</h2>
+<ul>
+<li><a href="https://learn.microsoft.com/fabric/cicd/best-practices-cicd">Best practices for lifecycle management in Fabric</a></li>
+<li><a href="https://learn.microsoft.com/fabric/cicd/deployment-pipelines/deployment-history">Deployment history</a></li>
+<li><a href="https://learn.microsoft.com/fabric/cicd/deployment-pipelines/compare-pipeline-content">Compare content in different stages</a></li>
+<li><a href="https://learn.microsoft.com/fabric/cicd/deployment-pipelines/understand-the-deployment-process">The deployment pipelines process</a></li>
+<li><a href="https://learn.microsoft.com/fabric/cicd/troubleshoot-cicd">Troubleshoot the Fabric lifecycle management tools</a></li>
+</ul>
+</section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

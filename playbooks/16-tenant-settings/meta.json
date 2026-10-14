@@ -1,0 +1,58 @@
+{
+  "id": "16-tenant-settings",
+  "number": "16",
+  "title": "Tenant Settings Reference and Decision Guide",
+  "short": "Tenant Settings",
+  "summary": "A vendor-neutral reference for Microsoft Fabric tenant settings: what each controls, defaults, a recommended enterprise posture, safe enablement through security groups, and change control.",
+  "category": "governance",
+  "level": "Intermediate",
+  "audience": "Fabric administrators, security and governance leads, platform owners",
+  "readingTime": "90 min",
+  "pages": [
+    {
+      "file": "index.html",
+      "title": "Overview and how settings work",
+      "description": "What tenant settings are, where to find them, how scoping, delegation and propagation work, and where each group of settings is covered."
+    },
+    {
+      "file": "framework.html",
+      "title": "Decision framework and rollout",
+      "description": "A repeatable way to decide each setting, enable it through security groups, pilot it and keep it reviewed."
+    },
+    {
+      "file": "export-sharing.html",
+      "title": "Export and sharing settings",
+      "description": "Reference and recommended posture for export, sharing, guest and external collaboration settings."
+    },
+    {
+      "file": "content-models.html",
+      "title": "Content, models and discovery",
+      "description": "Reference for cross-workspace models, information protection, discovery, apps, visuals, legacy dataflows and semantic model settings."
+    },
+    {
+      "file": "integration-api.html",
+      "title": "Integration, developer and APIs",
+      "description": "Reference for XMLA, Execute Queries, service principal and admin API settings, maps, single sign-on and streaming authentication."
+    },
+    {
+      "file": "workspace-git-onelake.html",
+      "title": "Workspaces, Git, OneLake and items",
+      "description": "Reference for Fabric item creation, workspace and recovery settings, Git integration, OneLake access, networking and encryption."
+    },
+    {
+      "file": "ai-preview-other.html",
+      "title": "AI, preview and experimental",
+      "description": "Reference for Copilot and Azure OpenAI, agents, preview item types, experiments, audit and usage settings."
+    },
+    {
+      "file": "matrix.html",
+      "title": "Quick reference matrix",
+      "description": "Every setting in one table with default, recommended posture, scoping and a link to its detail."
+    },
+    {
+      "file": "operations.html",
+      "title": "Change control and troubleshooting",
+      "description": "Change records, snapshot-and-diff automation, audit events and a troubleshooting guide from symptom to setting."
+    }
+  ]
+}

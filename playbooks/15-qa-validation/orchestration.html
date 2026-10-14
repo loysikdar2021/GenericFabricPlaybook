@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Orchestration, gating and reporting · QA Validation</title>
+<meta name="description" content="Run validation notebooks from Fabric pipelines, gate promotion on the exit value, alert on failure, report results through a Direct Lake semantic model and schedule suites sensibly.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="15-qa-validation" data-page="orchestration.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 15 · QA Validation</p>
+      <h1>Orchestration, gating and reporting</h1>
+      <p class="lede">A validation suite that nobody runs, or whose failure nobody acts on, is documentation. This page connects the notebooks to the rest of the platform: how a pipeline runs them and reads the verdict, how a failed gate stops promotion, how the right people hear about it, and how results are reported over time.</p>
+    </header>
+
+    <h2 id="patterns">Ways to run a suite</h2>
+    <table>
+      <thead><tr><th>Pattern</th><th>How</th><th>Use it when</th><th>Watch out for</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Pipeline Notebook activity</strong></td><td>One activity per suite, parameters in, exit value out</td><td>Default for scheduled and post-load validation, and for gating</td><td>Each activity starts a Spark session unless sessions are shared (see <a href="#scheduling">scheduling</a>)</td></tr>
+        <tr><td><strong>Parent notebook with <code>runMultiple</code></strong></td><td><code>notebookutils.notebook.runMultiple</code> runs several QA notebooks as a DAG in one Spark session</td><td>Several suites for the same release; you want one session and a simple dependency order</td><td>Child notebooks share the session and its compute; lower the DAG's concurrency</td></tr>
+        <tr><td><strong>Reference run</strong></td><td><code>notebookutils.notebook.run</code> or <code>%run</code> from a load notebook</td><td>A short smoke suite directly after a load in the same notebook</td><td>Couples validation to the load notebook's session and failure handling</td></tr>
+        <tr><td><strong>Interactive</strong></td><td>Open the notebook and run it</td><td>Developing and debugging a check</td><td>Never a gate: nothing records that it happened except the results table</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="pipeline">The validation pipeline</h2>
+    <p>The standard shape is a short pipeline named per the house convention (for example <code>PL_SALES_GLD_RunQa</code>) with a Notebook activity, an If Condition on its exit value, and notification and failure activities. It can run on its own schedule, be invoked by the data pipeline that loaded the data, or be invoked as a spoke by an orchestration hub (see <a href="../04-cross-workspace-orchestration/index.html">Cross-Workspace Pipeline Orchestration</a>).</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 310" role="img" aria-label="Write, audit, publish: a load writes to a staging table, the QA notebook audits it and appends results, a gate decides: if open the data is published to Gold and the semantic model refreshes; if blocked a Fail activity runs, the team is notified and the previous Gold stays live">
+        <defs>
+          <marker id="fig-orch-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-orch-1-ag" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-orch-1-ar" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar red" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-orch-1-ab" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar blue" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box teal" x="20" y="105" width="150" height="70" rx="10"/>
+        <text class="t-h" x="95" y="135" text-anchor="middle">Load</text>
+        <text class="t-s" x="95" y="155" text-anchor="middle">writes staging table</text>
+        <rect class="box accent" x="225" y="105" width="150" height="70" rx="10"/>
+        <text class="t-h t-w" x="300" y="135" text-anchor="middle">Run QA notebook</text>
+        <text class="t-s t-w" x="300" y="155" text-anchor="middle">audits the staging data</text>
+        <rect class="box purple" x="430" y="108" width="140" height="64" rx="32"/>
+        <text class="t-b" x="500" y="145" text-anchor="middle">Gate OPEN?</text>
+        <rect class="box green" x="640" y="30" width="240" height="84" rx="10"/>
+        <text class="t-h" x="760" y="58" text-anchor="middle">Publish</text>
+        <text class="t-s" x="760" y="78" text-anchor="middle">swap or merge into Gold</text>
+        <text class="t-s" x="760" y="94" text-anchor="middle">refresh the semantic model</text>
+        <rect class="box red" x="640" y="196" width="240" height="84" rx="10"/>
+        <text class="t-h" x="760" y="224" text-anchor="middle">Block</text>
+        <text class="t-s" x="760" y="244" text-anchor="middle">Fail activity and notification</text>
+        <text class="t-s" x="760" y="260" text-anchor="middle">previous Gold stays live</text>
+        <rect class="box blue" x="225" y="225" width="150" height="55" rx="10"/>
+        <text class="t-h" x="300" y="250" text-anchor="middle">Results tables</text>
+        <text class="t-s" x="300" y="268" text-anchor="middle">append, run row</text>
+        <path class="ln" d="M170 140H223" marker-end="url(#fig-orch-1-a)"/>
+        <path class="ln" d="M375 140H428" marker-end="url(#fig-orch-1-a)"/>
+        <path class="ln green" d="M570 128H600V72H638" marker-end="url(#fig-orch-1-ag)"/>
+        <path class="ln red" d="M570 152H600V238H638" marker-end="url(#fig-orch-1-ar)"/>
+        <path class="ln blue" d="M300 175V223" marker-end="url(#fig-orch-1-ab)"/>
+        <rect class="pill-bg" x="381" y="122" width="40" height="14"/>
+        <text class="t-s" x="401" y="133" text-anchor="middle">exit</text>
+        <text class="t-s c-green" x="612" y="96">yes</text>
+        <text class="t-s c-red" x="612" y="200">no</text>
+        <text class="t-s" x="312" y="203">appends</text>
+      </svg>
+      <figcaption><b>Write, audit, publish.</b> The load lands data where consumers cannot see it yet; validation audits it; only an open gate publishes. A blocked gate leaves the previous, validated Gold in place. Validating data that is already live only tells you after the damage is done.</figcaption>
+    </figure>
+    <ol class="steps">
+      <li><strong>Create the pipeline and its parameters</strong><p>Add pipeline parameters <code>env</code> and <code>suite</code>. Add a Notebook activity named <code>Run QA suite</code> and select the QA notebook (it can be in another workspace; the activity's connection identity must be able to run it).</p></li>
+      <li><strong>Pass base parameters to the notebook</strong><p>Map the notebook's parameter-cell variables to pipeline expressions. Parameters must be strings, numbers or booleans; the table below lists a working set.</p></li>
+      <li><strong>Add the gate</strong><p>Connect the activity's <em>On success</em> output to an If Condition that parses the exit value. Connect <em>On fail</em> to the notification and Fail path, because a notebook that crashed before returning a summary is also a failed gate.</p></li>
+      <li><strong>Publish on the true branch, block on the false branch</strong><p>True: publish and refresh. False: notify, then a Fail activity with a message that names the run, so the pipeline itself ends red and downstream triggers do not fire.</p></li>
+      <li><strong>Test the false branch on purpose</strong><p>Seed a defect in a copy of the data (or temporarily set a blocker's tolerance to an impossible value) and confirm the pipeline fails, the notification arrives and nothing was published.</p></li>
+    </ol>
+    <table>
+      <thead><tr><th>Notebook parameter</th><th>Pipeline value (expression)</th><th>Why</th></tr></thead>
+      <tbody>
+        <tr><td><code>env</code></td><td><code>@pipeline().parameters.env</code></td><td>Builds workspace names in the notebook.</td></tr>
+        <tr><td><code>suite</code></td><td><code>@pipeline().parameters.suite</code></td><td>Selects the configuration rows.</td></tr>
+        <tr><td><code>run_id</code></td><td><code>@concat(pipeline().RunId, '-', pipeline().parameters.suite)</code></td><td>Unique per suite execution, and traceable to the pipeline run.</td></tr>
+        <tr><td><code>as_of_date</code></td><td><code>@formatDateTime(utcnow(), 'yyyy-MM-dd')</code></td><td>One explicit &quot;today&quot; for every time-dependent check.</td></tr>
+        <tr><td><code>max_workers</code></td><td><code>4</code></td><td>Caps concurrent Spark queries.</td></tr>
+        <tr><td><code>fail_on_blocker</code></td><td><code>false</code></td><td>The gate reads the exit value, so the activity should succeed even when the data is bad.</td></tr>
+      </tbody>
+    </table>
+<pre data-title="pipeline expression: If Condition (gate open)"><code class="language-text">@equals(int(json(activity('Run QA suite').output.result.exitValue).blocking_failures), 0)</code></pre>
+<pre data-title="pipeline expression: Fail activity message"><code class="language-text">@concat('QA gate blocked in ', pipeline().parameters.env, ': ',
+        string(json(activity('Run QA suite').output.result.exitValue).blocking_failures),
+        ' blocking failure(s), run ', pipeline().RunId)</code></pre>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>The exit value is read from <code>activity('&lt;name&gt;').output.result.exitValue</code>. Confirm that it is populated for the notebook type you use: community reports describe plain Python notebooks returning an empty exit value, while Spark notebooks return it. Test your first pipeline end to end. The activity is documented on <a href="https://learn.microsoft.com/fabric/data-factory/notebook-activity">Transform data by running a notebook</a>, and parameter handling on <a href="https://learn.microsoft.com/fabric/data-engineering/author-execute-notebook">Develop, execute, and manage notebooks</a>.</p></div>
+    <div class="callout warning"><p class="callout-title">Do not use retries to make a suite pass</p><p>Retrying a notebook activity runs the whole notebook again. With the same <code>run_id</code> the results are appended twice. Set retries to zero on the QA activity, or make the writer idempotent by deleting the run's rows before appending:</p>
+<pre data-title="Cell 5 addition (PySpark): idempotent writer"><code class="language-python">if not re.fullmatch(r"[A-Za-z0-9_:\-]+", run_id):
+    raise ValueError(f"Unexpected characters in run_id: {run_id!r}")
+for table in ("validation_results", "validation_runs"):
+    spark.sql(f"DELETE FROM {results_schema}.{table} WHERE run_id = '{run_id}'")</code></pre></div>
+
+    <h2 id="gate">Gating promotion on results</h2>
+    <p>A gate is a decision with a cost: a false block delays a release, a false pass ships bad data. Three ways to implement it:</p>
+    <table>
+      <thead><tr><th>Approach</th><th>Mechanism</th><th>Strengths</th><th>Weaknesses</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Exit value and If Condition</strong></td><td>The notebook exits with a JSON summary; the pipeline parses <code>blocking_failures</code></td><td>Explicit, richer than pass or fail, no dependency on any table being readable</td><td>Keep the payload small; confirm exit values propagate for your notebook type</td></tr>
+        <tr><td><strong>Raise on blocker</strong></td><td><code>fail_on_blocker = True</code> makes the notebook throw, so the activity fails</td><td>Simplest; the failure path and alerts of the pipeline apply automatically</td><td>No structured summary; <code>FAIL</code> and <code>ERROR</code> look the same to the pipeline</td></tr>
+        <tr><td><strong>Query the results table</strong></td><td>A Lookup or Script activity reads <code>validation_runs</code> through the SQL analytics endpoint</td><td>Decoupled; any tool can gate on the same table</td><td>The endpoint syncs metadata after the write, so a just-written run can be invisible; add a refresh step or poll</td></tr>
+      </tbody>
+    </table>
+    <p>Use the first in pipelines, the second in tools that only understand &quot;job succeeded or failed&quot;, and the third for gates that live outside Fabric. If you query through the SQL analytics endpoint, run the <em>Refresh SQL analytics endpoint</em> activity first; see <a href="https://learn.microsoft.com/fabric/data-engineering/sql-analytics-endpoint-metadata-sync">SQL analytics endpoint metadata sync</a>.</p>
+
+    <h3 id="release-gate">Release gates across environments</h3>
+    <p>The same suite can gate a promotion from TST to PRD. Deploy to TST, run the QA pipeline there, and let the release continue only if the run completed. Deployment pipelines deploy items, not data, so each environment keeps its own results tables, and a QA notebook promoted with the release finds its own environment's tables through the <code>env</code> parameter (see <a href="../07-deployment/index.html">Deployment Pipelines and Promotion</a> and the <a href="../14-deployment-checklist/index.html">Deployment Checklist</a>).</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 260" role="img" aria-label="Release flow: deploy from DEV to TST, trigger the QA pipeline in TST, a gate checks that the run completed; if yes deploy to PRD and run a smoke suite there; if no stop the release">
+        <defs>
+          <marker id="fig-orch-2-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-orch-2-ag" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-orch-2-ar" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar red" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-orch-2-at" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar teal" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box blue" x="10" y="55" width="120" height="64" rx="10"/>
+        <text class="t-h" x="70" y="82" text-anchor="middle">DEV</text><text class="t-s" x="70" y="100" text-anchor="middle">build, tune</text>
+        <rect class="box blue" x="200" y="55" width="120" height="64" rx="10"/>
+        <text class="t-h" x="260" y="82" text-anchor="middle">TST</text><text class="t-s" x="260" y="100" text-anchor="middle">release candidate</text>
+        <rect class="box teal" x="390" y="55" width="120" height="64" rx="10"/>
+        <text class="t-h" x="450" y="82" text-anchor="middle">QA pipeline</text><text class="t-s" x="450" y="100" text-anchor="middle">full suite in TST</text>
+        <rect class="box purple" x="580" y="55" width="120" height="64" rx="32"/>
+        <text class="t-b" x="640" y="92" text-anchor="middle">Completed?</text>
+        <rect class="box green" x="770" y="55" width="120" height="64" rx="10"/>
+        <text class="t-h" x="830" y="82" text-anchor="middle">PRD</text><text class="t-s" x="830" y="100" text-anchor="middle">deploy</text>
+        <rect class="box red" x="580" y="175" width="120" height="56" rx="10"/>
+        <text class="t-h" x="640" y="199" text-anchor="middle">Stop release</text><text class="t-s" x="640" y="217" text-anchor="middle">fix, re-run</text>
+        <rect class="box teal" x="770" y="175" width="120" height="56" rx="10"/>
+        <text class="t-h" x="830" y="199" text-anchor="middle">Smoke suite</text><text class="t-s" x="830" y="217" text-anchor="middle">small, in PRD</text>
+        <path class="ln" d="M130 87H198" marker-end="url(#fig-orch-2-a)"/>
+        <path class="ln" d="M320 87H388" marker-end="url(#fig-orch-2-a)"/>
+        <path class="ln teal" d="M510 87H578" marker-end="url(#fig-orch-2-at)"/>
+        <path class="ln green" d="M700 87H768" marker-end="url(#fig-orch-2-ag)"/>
+        <path class="ln red" d="M640 119V173" marker-end="url(#fig-orch-2-ar)"/>
+        <path class="ln teal" d="M830 119V173" marker-end="url(#fig-orch-2-at)"/>
+        <rect class="pill-bg" x="136" y="62" width="56" height="14"/><text class="t-s" x="164" y="73" text-anchor="middle">deploy</text>
+        <rect class="pill-bg" x="324" y="62" width="60" height="14"/><text class="t-s" x="354" y="73" text-anchor="middle">trigger</text>
+        <rect class="pill-bg" x="515" y="62" width="58" height="14"/><text class="t-s" x="544" y="73" text-anchor="middle">status</text>
+        <text class="t-s c-green" x="734" y="79" text-anchor="middle">yes</text>
+        <text class="t-s c-red" x="652" y="150">no</text>
+        <text class="t-s" x="822" y="150" text-anchor="end">post-deploy</text>
+      </svg>
+      <figcaption><b>The release is only as strong as the gate.</b> The full suite runs against TST data before promotion; a small smoke suite (counts, schema, freshness) runs in PRD after it, because PRD data differs from TST data.</figcaption>
+    </figure>
+    <p>Orchestrating this from a CI system means starting the QA pipeline through the Fabric job scheduler API, polling the job instance until it is no longer in progress, and treating anything other than <code>Completed</code> as a failed stage. Because the pipeline ends in a Fail activity when the gate is blocked, the job instance status is itself the gate.</p>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>Check the current URL form, the request body for passing pipeline parameters, and the job status values on <a href="https://learn.microsoft.com/rest/api/fabric/core/job-scheduler/run-on-demand-item-job">Job Scheduler: Run On Demand Item Job</a> and <a href="https://learn.microsoft.com/fabric/data-factory/pipeline-rest-api-capabilities">REST API capabilities for Fabric Data Factory</a>. The job type moved from a query parameter into the URL path in newer API versions.</p></div>
+
+    <h2 id="alerts">Alerting on failure</h2>
+    <p>Alert on <em>state changes that need a human</em>: the gate going from open to blocked, an ERROR in a blocker, or a freshness failure. Send a digest for WARN results rather than a message per check, or the channel becomes noise and gets muted, which is worse than no alert.</p>
+    <table>
+      <thead><tr><th>Channel</th><th>How</th><th>Good for</th><th>Limits to know</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Teams activity</strong></td><td>Pipeline activity posts to a channel or group chat, message built with expressions</td><td>Team-visible blocked-gate alerts</td><td>Uses a user connection; documented as inactive when the pipeline is deployed through CI/CD, so plan for it in release flows</td></tr>
+        <tr><td><strong>Office 365 Outlook activity</strong></td><td>Pipeline activity sends mail</td><td>Owners and stakeholders who are not in Teams</td><td>Supports user, workspace identity and service principal authentication; the sender is the connection's identity; sensitivity labels are not supported</td></tr>
+        <tr><td><strong>Fabric Activator</strong></td><td>Alert on a report visual (for example blocking failures greater than zero) and send Teams or e-mail</td><td>Alerts that live with the reporting layer and need no pipeline change</td><td>Evaluates the visual's data on its own cadence; created in report edit mode</td></tr>
+      </tbody>
+    </table>
+    <p>Do not copy notification activities into every pipeline. Create one shared notification pipeline that owns the connection and takes the channel, subject and body as parameters, and invoke it with the Invoke pipeline activity. Connections for these activities are scoped to the user who created them, so one shared pipeline with one shared connection is also easier to hand over and to redeploy.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 270" role="img" aria-label="Three QA pipelines invoke one shared notification pipeline, which owns the Teams and Outlook activities and their connections">
+        <defs>
+          <marker id="fig-orch-3-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar teal" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-orch-3-ag" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box teal" x="20" y="30" width="210" height="48" rx="8"/><text class="t-b" x="125" y="59" text-anchor="middle">PL_SALES_GLD_RunQa</text>
+        <rect class="box teal" x="20" y="110" width="210" height="48" rx="8"/><text class="t-b" x="125" y="139" text-anchor="middle">PL_HR_GLD_RunQa</text>
+        <rect class="box teal" x="20" y="190" width="210" height="48" rx="8"/><text class="t-b" x="125" y="219" text-anchor="middle">PL_FINANCE_GLD_RunQa</text>
+        <rect class="box accent" x="330" y="75" width="240" height="120" rx="12"/>
+        <text class="t-h t-w" x="450" y="108" text-anchor="middle">Shared notify pipeline</text>
+        <text class="t-s t-w" x="450" y="130" text-anchor="middle">parameters: channel,</text>
+        <text class="t-s t-w" x="450" y="146" text-anchor="middle">subject, body</text>
+        <text class="t-s t-w" x="450" y="170" text-anchor="middle">owns the connections</text>
+        <rect class="box gray" x="670" y="50" width="210" height="52" rx="8"/><text class="t-b" x="775" y="80" text-anchor="middle">Teams activity</text>
+        <rect class="box gray" x="670" y="168" width="210" height="52" rx="8"/><text class="t-b" x="775" y="198" text-anchor="middle">Outlook activity</text>
+        <path class="ln teal" d="M230 54H280V120H328" marker-end="url(#fig-orch-3-a)"/>
+        <path class="ln teal" d="M230 134H328" marker-end="url(#fig-orch-3-a)"/>
+        <path class="ln teal" d="M230 214H280V150H328" marker-end="url(#fig-orch-3-a)"/>
+        <path class="ln" d="M570 120H620V76H668" marker-end="url(#fig-orch-3-ag)"/>
+        <path class="ln" d="M570 150H620V194H668" marker-end="url(#fig-orch-3-ag)"/>
+        <rect class="pill-bg" x="238" y="112" width="86" height="14"/>
+        <text class="t-s" x="281" y="123" text-anchor="middle">invokes</text>
+        <rect class="pill-bg" x="580" y="108" width="40" height="14"/>
+        <text class="t-s" x="600" y="119" text-anchor="middle">posts</text>
+      </svg>
+      <figcaption><b>One notifier, many callers.</b> The connection, the message format and the recipients live in one place. QA pipelines pass facts (environment, suite, run, counts) and a severity.</figcaption>
+    </figure>
+    <p>A useful message answers the first three questions the reader will ask: what is blocked, how bad is it, and where to look.</p>
+<pre data-title="pipeline expression: notification body"><code class="language-text">@concat('QA gate ', json(activity('Run QA suite').output.result.exitValue).gate,
+        ' | env ', pipeline().parameters.env,
+        ' | suite ', pipeline().parameters.suite,
+        ' | blockers ', string(json(activity('Run QA suite').output.result.exitValue).blocking_failures),
+        ' | warnings ', string(json(activity('Run QA suite').output.result.exitValue).warned),
+        ' | run ', pipeline().RunId)</code></pre>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>Notification activities have connection, deployment and authentication limits that change. Review <a href="https://learn.microsoft.com/fabric/data-factory/teams-activity">Teams activity</a>, <a href="https://learn.microsoft.com/fabric/data-factory/outlook-activity">Office 365 Outlook activity</a> and <a href="https://learn.microsoft.com/fabric/real-time-intelligence/data-activator/activator-get-data-power-bi">Create Power BI alerts and refine them in Fabric Activator</a> before choosing, especially if you deploy pipelines through CI/CD. Report alerts also have prerequisites: edit access to the report, a workspace on a qualifying capacity and a tenant setting; check the capacity requirement for your SKU.</p></div>
+
+    <h2 id="reporting">Reporting results in a semantic model</h2>
+    <p>Notifications tell you something is wrong now. A report tells you whether the suite is healthy over time, which checks are flaky, which tables drift, and what evidence exists for an audit. Build it on the results tables, not on notebook output.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 270" role="img" aria-label="Results tables feed a Direct Lake semantic model, which feeds a report; a pipeline refresh activity reframes the model after each run, and an Activator alert watches a report visual">
+        <defs>
+          <marker id="fig-orch-4-ab" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar blue" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-orch-4-at" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar teal" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-orch-4-ao" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar teal" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box blue" x="20" y="50" width="180" height="76" rx="10"/>
+        <text class="t-h" x="110" y="80" text-anchor="middle">Results tables</text>
+        <text class="t-s" x="110" y="100" text-anchor="middle">Delta, append-only</text>
+        <rect class="box blue" x="280" y="50" width="220" height="76" rx="10"/>
+        <text class="t-h" x="390" y="80" text-anchor="middle">Semantic model</text>
+        <text class="t-s" x="390" y="100" text-anchor="middle">Direct Lake · measures</text>
+        <rect class="box blue" x="580" y="50" width="300" height="76" rx="10"/>
+        <text class="t-h" x="730" y="80" text-anchor="middle">Report</text>
+        <text class="t-s" x="730" y="100" text-anchor="middle">latest gate · failures · trend · drift</text>
+        <rect class="box teal" x="280" y="180" width="220" height="64" rx="10"/>
+        <text class="t-h" x="390" y="208" text-anchor="middle">Pipeline</text>
+        <text class="t-s" x="390" y="226" text-anchor="middle">semantic model refresh</text>
+        <rect class="box teal" x="580" y="180" width="300" height="64" rx="10"/>
+        <text class="t-h" x="730" y="208" text-anchor="middle">Activator alert</text>
+        <text class="t-s" x="730" y="226" text-anchor="middle">blocking failures greater than zero</text>
+        <path class="ln blue" d="M200 88H278" marker-end="url(#fig-orch-4-ab)"/>
+        <path class="ln blue" d="M500 88H578" marker-end="url(#fig-orch-4-ab)"/>
+        <path class="ln teal" d="M390 180V128" marker-end="url(#fig-orch-4-at)"/>
+        <path class="ln teal" d="M730 126V178" marker-end="url(#fig-orch-4-ao)"/>
+        <rect class="pill-bg" x="214" y="70" width="52" height="14"/><text class="t-s" x="240" y="81" text-anchor="middle">reads</text>
+        <rect class="pill-bg" x="514" y="70" width="52" height="14"/><text class="t-s" x="540" y="81" text-anchor="middle">feeds</text>
+        <text class="t-s" x="402" y="160">reframes</text>
+        <text class="t-s" x="742" y="160">watches a card</text>
+      </svg>
+      <figcaption><b>Reporting path.</b> The notebook only writes Delta tables. A semantic model reads them, a refresh at the end of the pipeline keeps it current, and an alert can watch a card on the report.</figcaption>
+    </figure>
+    <h3 id="model">Model design</h3>
+    <ul>
+      <li><strong>Tables.</strong> Import <code>validation_runs</code> and <code>validation_results</code>, plus a date table. Relate <code>validation_results[run_id]</code> to <code>validation_runs[run_id]</code> (one to many). That only works if <code>run_id</code> is unique per suite execution, which is why the pipeline appends the suite name to it.</li>
+      <li><strong>Storage mode.</strong> Use Direct Lake: the results are Delta tables in a lakehouse, and Microsoft's guidance favors Direct Lake on OneLake for new models. Direct Lake reads Delta tables, not SQL views, so shape the data in the tables rather than in views.</li>
+      <li><strong>Freshness.</strong> Run the Semantic model refresh activity as the last step of the QA pipeline so the model reflects the run that just finished. Enable the activity's option to wait for completion if a later step, such as the <a href="advanced-checks.html#bi-parity">semantic model parity check</a>, depends on the refreshed model; otherwise the pipeline moves on while the refresh is still running.</li>
+      <li><strong>Security.</strong> Results name tables, columns and sometimes sample values. Give the report the same audience restrictions as the data it describes.</li>
+    </ul>
+<pre data-title="DAX: core measures"><code class="language-dax">Checks = COUNTROWS ( validation_results )
+
+Passed = CALCULATE ( [Checks], validation_results[status] = "PASS" )
+
+Pass Rate = DIVIDE ( [Passed], [Checks] )
+
+Warnings = CALCULATE ( [Checks], validation_results[status] = "WARN" )
+
+Blocking Failures =
+CALCULATE (
+    [Checks],
+    validation_results[severity] = "blocker",
+    validation_results[status] IN { "FAIL", "ERROR" }
+)
+
+Avg Check Seconds = AVERAGE ( validation_results[duration_s] )</code></pre>
+<pre data-title="DAX: the latest run per suite and environment"><code class="language-dax">Latest Run Id =
+VAR LastStart =
+    CALCULATE (
+        MAX ( validation_runs[started_at] ),
+        ALLEXCEPT ( validation_runs, validation_runs[suite], validation_runs[environment] )
+    )
+RETURN
+    CALCULATE (
+        SELECTEDVALUE ( validation_runs[run_id] ),
+        ALLEXCEPT ( validation_runs, validation_runs[suite], validation_runs[environment] ),
+        validation_runs[started_at] = LastStart
+    )
+
+Is In Latest Run =
+IF ( SELECTEDVALUE ( validation_results[run_id] ) = [Latest Run Id], 1, 0 )
+
+Latest Gate =
+CALCULATE (
+    SELECTEDVALUE ( validation_runs[gate] ),
+    validation_runs[run_id] = [Latest Run Id]
+)</code></pre>
+    <h3 id="report">Report pages worth building</h3>
+    <ul class="checklist">
+      <li><strong>Status.</strong> Cards for the latest gate and blocking failures per suite and environment; a table of failing checks in the latest run (filter <code>Is In Latest Run</code> equal to 1) with message and variance.</li>
+      <li><strong>Trend.</strong> Pass rate and blocking failures by day, split by suite; average check duration to spot cost creep.</li>
+      <li><strong>Check health.</strong> Checks that flip between PASS and FAIL (the flaky-check query from the results page), checks that have never failed, checks that always warn. Each is a candidate for tightening, removal or an owner conversation.</li>
+      <li><strong>Drift.</strong> Actual against expected and tolerance for the drift checks, as a line with a band.</li>
+      <li><strong>Evidence.</strong> A run-level page that can be exported for sign-off: run, environment, framework version, counts, all results.</li>
+    </ul>
+
+    <h2 id="scheduling">Scheduling and capacity</h2>
+    <p>Run the cheap suite often and the expensive suite when it matters. Validation is Spark work and consumes the same capacity as the pipelines it protects, so place it deliberately.</p>
+    <table>
+      <thead><tr><th>Suite</th><th>Trigger</th><th>Why</th></tr></thead>
+      <tbody>
+        <tr><td>Smoke (counts, schema, freshness)</td><td>After every load, in the loading pipeline</td><td>Cheap, and it is the gate for publishing the new data</td></tr>
+        <tr><td>Full (metrics, reconciliation, referential, rules)</td><td>Nightly, or after the day's last load</td><td>Heavy scans over large facts; no need to run per micro-batch</td></tr>
+        <tr><td>Drift and late-arrival</td><td>Daily</td><td>They need history, and a daily cadence builds a usable baseline</td></tr>
+        <tr><td>Release suite</td><td>On deployment to TST</td><td>The release gate described above</td></tr>
+      </tbody>
+    </table>
+    <ul>
+      <li><strong>Run after the load, not during it.</strong> Make the QA pipeline a dependent step of the load, or schedule it after the load's expected end. A check that reads a table mid-write compares two moments.</li>
+      <li><strong>Reuse sessions.</strong> With high concurrency mode enabled for pipelines, a session tag lets notebook activities share a Spark session, which removes most of the start-up time for a short suite. Notebooks share a session only when they run as the same user, use the same default lakehouse and the same Spark configuration and libraries, and the number of notebooks per session is capped (five by default). Inline <code>%pip</code> installs are not supported in this mode, so put libraries in the environment. The unique temp view names make sharing safe.</li>
+      <li><strong>Bound concurrency twice.</strong> <code>max_workers</code> limits queries inside one notebook; the DAG's <code>concurrency</code> limits notebooks inside <code>runMultiple</code>. They multiply.</li>
+      <li><strong>Watch duration.</strong> <code>duration_s</code> in the results is your baseline. A check whose duration doubled is telling you the table grew or the plan changed.</li>
+    </ul>
+<pre data-title="PySpark: several suites in one session with runMultiple"><code class="language-python">run_tag = "run-001"   # replace with a pipeline-supplied value in real use
+
+dag = {
+    "activities": [
+        {"name": "standard", "path": "NB_SALES_GLD_QaStandardSuite",
+         "args": {"env": "TST", "suite": "standard", "run_id": f"{run_tag}-standard"}},
+        {"name": "workforce", "path": "NB_HR_GLD_QaComplexMetrics",
+         "args": {"env": "TST", "suite": "workforce", "run_id": f"{run_tag}-workforce"},
+         "dependencies": ["standard"]},
+        {"name": "finance", "path": "NB_FINANCE_GLD_QaStatementRecon",
+         "args": {"env": "TST", "suite": "statements", "run_id": f"{run_tag}-statements"}},
+    ],
+    "timeoutInSeconds": 7200,
+    "concurrency": 2,
+}
+notebookutils.notebook.validateDAG(dag)
+outcome = notebookutils.notebook.runMultiple(dag)</code></pre>
+    <div class="callout note"><p class="callout-title">Child notebooks and lakehouses</p><p>A reference run is blocked when the child notebook's default lakehouse differs from the parent's. Give all QA notebooks the same default (results) lakehouse, or set <code>useRootDefaultLakehouse</code> as described in the NotebookUtils documentation.</p></div>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p><ul>
+      <li>Validate before you publish: land data in staging, audit it, and publish only through an open gate.</li>
+      <li>Gate on the exit value, keep retries at zero (or make the writer idempotent), and test the blocked path on purpose.</li>
+      <li>Alert on state changes and send digests for warnings; centralize notification activities in one shared pipeline.</li>
+      <li>Report from the results tables through a Direct Lake semantic model, refreshed at the end of the QA pipeline.</li>
+      <li>Run cheap suites after every load and heavy suites on a schedule; cap concurrency at both levels.</li>
+    </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/notebook-activity">Transform data by running a notebook</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/if-condition-activity">If Condition activity</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/fail-activity">Fail activity</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/teams-activity">Teams activity</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/outlook-activity">Office 365 Outlook activity</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/semantic-model-refresh-activity">Semantic model refresh activity</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/refresh-sql-endpoint-activity">Refresh SQL analytics endpoint activity</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/expression-language">Expressions and functions in pipelines</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/notebook-utilities">NotebookUtils for Fabric</a> (<code>runMultiple</code>, <code>exit</code>)</li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/configure-high-concurrency-session-notebooks-in-pipelines">Configure high concurrency mode for notebooks in pipelines</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/fundamentals/direct-lake-overview">Direct Lake overview</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/real-time-intelligence/data-activator/activator-introduction">What is Fabric Activator?</a></li>
+        <li><a href="https://learn.microsoft.com/rest/api/fabric/core/job-scheduler/run-on-demand-item-job">Job Scheduler: Run On Demand Item Job</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

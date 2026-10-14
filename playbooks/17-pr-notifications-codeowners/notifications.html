@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Notifications and troubleshooting · PR Notifications</title>
+<meta name="description" content="How a review request becomes a notification, what team code review settings and personal notification settings change, what the pull request page shows, and a guide to the cases where nobody is notified.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="17-pr-notifications-codeowners" data-page="notifications.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+
+    <header class="page-header">
+      <p class="eyebrow">Playbook 17 · PR Notifications</p>
+      <h1>Notifications and troubleshooting</h1>
+      <p class="lede">Once GitHub has asked an owner to review, the message is no longer yours to shape. It passes through the team's code review settings and then through the person's own notification settings. Knowing both layers is the difference between "it should have worked" and a fix.</p>
+      <ul class="chips"><li><b>Audience</b> repository admins, team maintainers, reviewers</li><li><b>Use it for</b> routing, personal setup, diagnosing silence</li></ul>
+    </header>
+
+    <h2 id="request-vs-email">A review request is not an email</h2>
+    <p>When a pull request is opened, or moved out of draft, GitHub adds each matching owner to the pull request's <em>Reviewers</em> list. That is the review request. GitHub's notification system then takes the request and delivers it to the people concerned, on the channels they have enabled. An email is one possible result, not a guaranteed one.</p>
+    <table>
+      <thead><tr><th>You, as repository admin</th><th>You cannot</th></tr></thead>
+      <tbody>
+        <tr><td>Decide who is requested, with the CODEOWNERS file.</td><td>Force an email to be sent.</td></tr>
+        <tr><td>Make the owner's approval mandatory, with the ruleset.</td><td>Change what an owner has turned off in their own notification settings.</td></tr>
+        <tr><td>Ask team maintainers to narrow or spread the notification, with team code review settings.</td><td>See whether a given owner received the email.</td></tr>
+      </tbody>
+    </table>
+    <p>Owners are not requested on draft pull requests. When the author marks the pull request ready for review, the owners are requested and notified at that point.</p>
+
+    <h2 id="team-routing">Team settings: who in the team is told</h2>
+    <p>When the owner on a CODEOWNERS line is a <strong>team</strong>, the request goes to the team, and the team's own <em>Code review</em> settings decide how many of its members are told. There are three behaviours:</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 880 330" role="img" aria-label="A team is requested by a CODEOWNERS line. Under the default setting every member is notified. With Only notify requested members, only a person who is also named on the pull request is notified. With auto assignment, the team is replaced by chosen members, by round robin or load balance, who are notified">
+        <defs>
+          <marker id="fig-nt-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box purple" x="20" y="125" width="190" height="70" rx="10"/>
+        <text class="t-b" x="115" y="152" text-anchor="middle">Team requested</text>
+        <text class="t-s" x="115" y="172" text-anchor="middle">by a CODEOWNERS line</text>
+        <rect class="box teal" x="290" y="30" width="290" height="70" rx="10"/>
+        <text class="t-b" x="435" y="58" text-anchor="middle">Default</text>
+        <text class="t-s" x="435" y="78" text-anchor="middle">no special setting</text>
+        <rect class="box teal" x="290" y="125" width="290" height="70" rx="10"/>
+        <text class="t-b" x="435" y="153" text-anchor="middle">Only notify requested members</text>
+        <text class="t-s" x="435" y="173" text-anchor="middle">when a person is also named</text>
+        <rect class="box teal" x="290" y="220" width="290" height="70" rx="10"/>
+        <text class="t-b" x="435" y="248" text-anchor="middle">Auto assignment</text>
+        <text class="t-s" x="435" y="268" text-anchor="middle">the team is replaced by chosen members</text>
+        <rect class="box orange" x="650" y="30" width="210" height="70" rx="10"/>
+        <text class="t-b" x="755" y="58" text-anchor="middle">Every member</text>
+        <text class="t-s" x="755" y="78" text-anchor="middle">subject to their settings</text>
+        <rect class="box orange" x="650" y="125" width="210" height="70" rx="10"/>
+        <text class="t-b" x="755" y="153" text-anchor="middle">Only the named person</text>
+        <text class="t-s" x="755" y="173" text-anchor="middle">the rest are not pinged</text>
+        <rect class="box orange" x="650" y="220" width="210" height="70" rx="10"/>
+        <text class="t-b" x="755" y="248" text-anchor="middle">The chosen members</text>
+        <text class="t-s" x="755" y="268" text-anchor="middle">round robin or load balance</text>
+        <path class="ln" d="M212 150H250V65H288" marker-end="url(#fig-nt-1-a)"/>
+        <path class="ln" d="M212 160H288" marker-end="url(#fig-nt-1-a)"/>
+        <path class="ln" d="M212 170H250V255H288" marker-end="url(#fig-nt-1-a)"/>
+        <path class="ln" d="M582 65H648" marker-end="url(#fig-nt-1-a)"/>
+        <path class="ln" d="M582 160H648" marker-end="url(#fig-nt-1-a)"/>
+        <path class="ln" d="M582 255H648" marker-end="url(#fig-nt-1-a)"/>
+        <text class="t-s" x="440" y="316" text-anchor="middle">Team settings sit between the request and the person. Personal settings still apply to whoever is left.</text>
+      </svg>
+      <figcaption><b>Team settings narrow the audience.</b> They cannot widen it past what each person has switched on for themselves.</figcaption>
+    </figure>
+    <table>
+      <thead><tr><th>Setting</th><th>Effect</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Only notify requested team members</strong></td><td>If someone from the team is also requested by name on the pull request, only that person is notified, not the whole team. Useful when authors often know the right individual.</td></tr>
+        <tr><td><strong>Enable auto assignment</strong></td><td>When the team is requested, a chosen subset of members is assigned in its place. You set how many members are assigned.</td></tr>
+        <tr><td>&nbsp;&nbsp;Routing algorithm</td><td><em>Round robin</em> alternates between members, choosing whoever was asked longest ago. <em>Load balance</em> considers each member's recent and outstanding requests and aims for an even share.</td></tr>
+        <tr><td>&nbsp;&nbsp;Never assign certain team members</td><td>Always skips the named members, for example a lead who should only be a backstop.</td></tr>
+        <tr><td>&nbsp;&nbsp;Child team members</td><td>Includes members of child teams as candidates.</td></tr>
+        <tr><td>&nbsp;&nbsp;Count existing requests</td><td>Counts members already requested against the number to assign.</td></tr>
+        <tr><td>&nbsp;&nbsp;Team review request</td><td>Removes the team's own request from the pull request when individuals are assigned.</td></tr>
+      </tbody>
+    </table>
+    <ul>
+      <li><strong>Busy members are skipped.</strong> Members whose GitHub status is set to <em>Busy</em> are not chosen. If everyone is busy, the pull request stays assigned to the team itself.</li>
+      <li><strong>Required code owner review keeps the team on the request.</strong> When the ruleset requires code owner review, the team's request cannot be removed. The assigned individual appears in addition, and the team is removed once that person completes their review.</li>
+      <li><strong>Who can change it.</strong> Team maintainers and organization owners, under the team's <em>Settings</em>, then <em>Code review</em>. Availability depends on the plan and on the repository being owned by an organization.</li>
+    </ul>
+    <p>For Fabric repositories a practical rule is: leave small teams on the default, so everyone sees every request; give large teams auto assignment of one or two reviewers with load balancing, so someone is clearly responsible and nobody is pinged for every change.</p>
+
+    <h2 id="personal">Personal settings: how each owner is reached</h2>
+    <p>The last layer belongs to each person, and no administrator can change it for them. Every code owner should check the following once.</p>
+    <ol class="steps">
+      <li><strong>Open the settings.</strong><p>Select the notifications inbox icon, then <em>Manage notifications</em>, then <em>Notification settings</em>.</p></li>
+      <li><strong>Enable both channels.</strong><p>For <em>Participating</em> and for <em>Watching</em>, select both <em>Email</em> and <em>On GitHub</em>. The notifications inbox only works when both are enabled.</p></li>
+      <li><strong>Choose a verified address.</strong><p>Set the default email address that receives notifications, and confirm it is verified. If the organization restricts notifications to an approved domain, verify an address in that domain.</p></li>
+      <li><strong>Check repository watch settings.</strong><p>On the repository page, <em>Watch</em> must not be set to <em>Ignore</em>. <em>Custom</em> with pull requests selected is a good choice for a reviewer.</p></li>
+      <li><strong>Consider mobile.</strong><p>GitHub Mobile can push alerts for requests to review a pull request and for requests to approve a deployment.</p></li>
+      <li><strong>Test it.</strong><p>Ask a colleague to request your review on a throwaway pull request. Confirm it appears in the inbox, filter by <code>reason:review-requested</code>, and that the email arrives.</p></li>
+    </ol>
+    <table>
+      <thead><tr><th>Channel</th><th>What must be true</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td>Notifications inbox</td><td><em>On GitHub</em> is enabled, and <em>Email</em> too, for the relevant category.</td><td>Inbox items are kept for a limited time unless saved. Mark review requests as saved if you need to act later.</td></tr>
+        <tr><td>Email</td><td><em>Email</em> is enabled and the address is verified and not blocked by an organization domain restriction.</td><td>The subject typically carries the repository name and pull request title, and the body links to the pull request. Each message includes a header that states the reason (a review request), which is useful for mail rules.</td></tr>
+        <tr><td>GitHub Mobile</td><td>The app is installed and the push types are enabled.</td><td>Working hours can be scheduled in the app.</td></tr>
+      </tbody>
+    </table>
+    <div class="callout learn"><p class="callout-title">Verify against GitHub documentation</p><p>Menu labels, default values and the way review requests are classified under <em>Participating</em> and <em>Watching</em> change between releases of GitHub's interface. Treat the steps above as the shape of the setup and check them against <a href="https://docs.github.com/subscriptions-and-notifications/get-started/configuring-notifications">Configuring notifications</a>.</p></div>
+
+    <h2 id="pr-ui">What the pull request page shows</h2>
+    <table>
+      <thead><tr><th>Where</th><th>What you see</th></tr></thead>
+      <tbody>
+        <tr><td>Reviewers list, right sidebar</td><td>The requested owners and teams, each with a status icon. A pending review shows a yellow indicator; an approval or requested changes replaces it once the person responds.</td></tr>
+        <tr><td>Merge box</td><td>The ruleset's verdict. With the code-owner option on, it reports that a review is required until an owner approves.</td></tr>
+        <tr><td>A file's header</td><td>Hover over the shield icon to see who owns the file and which line of CODEOWNERS says so.</td></tr>
+        <tr><td>Notifications inbox</td><td>The request itself, labelled with the reason it was sent.</td></tr>
+      </tbody>
+    </table>
+    <p>For the owner, the review is: open the notification, go to <em>Files changed</em>, read the diff (see what reviewers look for in <a href="../05-github-integration/branching-workflow.html#review-focus">a Fabric diff</a>), choose <em>Review changes</em>, select <em>Approve</em> or <em>Request changes</em>, and submit.</p>
+
+    <h2 id="environments">Deployment approvals are a different notification</h2>
+    <p>Environment required reviewers receive a request when a deployment job is waiting for approval, not when code is merged. They can be notified by email, in the inbox, or on GitHub Mobile, which supports alerts for deployment approval requests. If you want people to hear about every merge to <code>main</code>, use a repository watch setting with pull requests selected, or a workflow step that posts to a chat channel. See <a href="../05-github-integration/service-principals-automation.html#environments">environments with required reviewers</a>.</p>
+
+    <h2 id="troubleshooting">Troubleshooting: nobody was notified</h2>
+    <p>Work through the layers in order. Each question rules out one layer.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 880 280" role="img" aria-label="Four questions in order: is the owner in the Reviewers list, do team settings include the person, do the person's settings allow it, and is the email deliverable; a no answer leads to a box listing what to fix, and four yes answers end in delivered">
+        <defs>
+          <marker id="fig-nt-2-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-nt-2-g" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-nt-2-r" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar red" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box purple" x="20" y="30" width="150" height="60" rx="10"/>
+        <text class="t-b" x="95" y="56" text-anchor="middle">Owner listed as a</text>
+        <text class="t-b" x="95" y="74" text-anchor="middle">reviewer on the PR?</text>
+        <rect class="box teal" x="192" y="30" width="150" height="60" rx="10"/>
+        <text class="t-b" x="267" y="56" text-anchor="middle">Do team settings</text>
+        <text class="t-b" x="267" y="74" text-anchor="middle">include the person?</text>
+        <rect class="box orange" x="364" y="30" width="150" height="60" rx="10"/>
+        <text class="t-b" x="439" y="56" text-anchor="middle">Do the person's</text>
+        <text class="t-b" x="439" y="74" text-anchor="middle">settings allow it?</text>
+        <rect class="box blue" x="536" y="30" width="150" height="60" rx="10"/>
+        <text class="t-b" x="611" y="56" text-anchor="middle">Is the email</text>
+        <text class="t-b" x="611" y="74" text-anchor="middle">deliverable?</text>
+        <rect class="box green" x="708" y="30" width="150" height="60" rx="10"/>
+        <text class="t-b" x="783" y="56" text-anchor="middle">Delivered</text>
+        <text class="t-s" x="783" y="74" text-anchor="middle">owner sees the request</text>
+        <path class="ln green" d="M172 60H190" marker-end="url(#fig-nt-2-g)"/>
+        <path class="ln green" d="M344 60H362" marker-end="url(#fig-nt-2-g)"/>
+        <path class="ln green" d="M516 60H534" marker-end="url(#fig-nt-2-g)"/>
+        <path class="ln green" d="M688 60H706" marker-end="url(#fig-nt-2-g)"/>
+        <text class="t-s c-green" x="181" y="52" text-anchor="middle">yes</text>
+        <text class="t-s c-green" x="353" y="52" text-anchor="middle">yes</text>
+        <text class="t-s c-green" x="525" y="52" text-anchor="middle">yes</text>
+        <text class="t-s c-green" x="697" y="52" text-anchor="middle">yes</text>
+        <path class="ln red" d="M95 92V138" marker-end="url(#fig-nt-2-r)"/>
+        <path class="ln red" d="M267 92V138" marker-end="url(#fig-nt-2-r)"/>
+        <path class="ln red" d="M439 92V138" marker-end="url(#fig-nt-2-r)"/>
+        <path class="ln red" d="M611 92V138" marker-end="url(#fig-nt-2-r)"/>
+        <text class="t-s c-red" x="105" y="122">no</text>
+        <text class="t-s c-red" x="277" y="122">no</text>
+        <text class="t-s c-red" x="449" y="122">no</text>
+        <text class="t-s c-red" x="621" y="122">no</text>
+        <rect class="box red" x="20" y="140" width="150" height="110" rx="10"/>
+        <text class="t-s" x="95" y="166" text-anchor="middle">Fix CODEOWNERS:</text>
+        <text class="t-s" x="95" y="186" text-anchor="middle">file on base branch,</text>
+        <text class="t-s" x="95" y="206" text-anchor="middle">path matches, Write</text>
+        <text class="t-s" x="95" y="226" text-anchor="middle">access, visible team</text>
+        <rect class="box red" x="192" y="140" width="150" height="110" rx="10"/>
+        <text class="t-s" x="267" y="166" text-anchor="middle">Check the team's</text>
+        <text class="t-s" x="267" y="186" text-anchor="middle">Code review settings:</text>
+        <text class="t-s" x="267" y="206" text-anchor="middle">only-notify or</text>
+        <text class="t-s" x="267" y="226" text-anchor="middle">auto assignment</text>
+        <rect class="box red" x="364" y="140" width="150" height="110" rx="10"/>
+        <text class="t-s" x="439" y="166" text-anchor="middle">Check Notification</text>
+        <text class="t-s" x="439" y="186" text-anchor="middle">settings: Email and</text>
+        <text class="t-s" x="439" y="206" text-anchor="middle">On GitHub, watching,</text>
+        <text class="t-s" x="439" y="226" text-anchor="middle">and Busy status</text>
+        <rect class="box red" x="536" y="140" width="150" height="110" rx="10"/>
+        <text class="t-s" x="611" y="166" text-anchor="middle">Verified address,</text>
+        <text class="t-s" x="611" y="186" text-anchor="middle">approved-domain rule,</text>
+        <text class="t-s" x="611" y="206" text-anchor="middle">mail filters, and</text>
+        <text class="t-s" x="611" y="226" text-anchor="middle">the review header</text>
+      </svg>
+      <figcaption><b>The first "no" is the layer to fix.</b> Check the pull request's Reviewers list before anything else: if the owner is not on it, no notification setting can help.</figcaption>
+    </figure>
+    <table>
+      <thead><tr><th>Symptom</th><th>Likely cause</th><th>What to do</th></tr></thead>
+      <tbody>
+        <tr><td>Owner is not on the Reviewers list</td><td>The file is not on the base branch; the path pattern does not match (case, renamed folder); the team or user lacks Write access or is not visible; the pull request is a draft; a later line overrides this one.</td><td>Check each, using the validation steps on the <a href="codeowners-file.html#validate">file page</a>. Hover the file's shield icon to see the line that applies.</td></tr>
+        <tr><td>Only one person of several owners is requested</td><td>The owners are on separate lines, so only the last line applies.</td><td>Put the owners on one line, or use a team.</td></tr>
+        <tr><td>The author is the only owner</td><td>The author cannot approve their own pull request, so no valid owner approval exists.</td><td>Add a second owner or a team. Do not solve it by adding the author to the bypass list.</td></tr>
+        <tr><td>The pull request cannot merge and no owner is available</td><td>All owners are away, left the company, or busy, and the ruleset requires owner approval.</td><td>Have an organization owner add a member to the team. Keep teams at three or more people, with a deputy.</td></tr>
+        <tr><td>The whole team is notified for every change</td><td>The team is on default settings and a broad pattern, such as the catch-all, names a large team.</td><td>Enable auto assignment, or narrow the patterns.</td></tr>
+        <tr><td>The owner is requested but gets nothing</td><td>Email and On GitHub are off, the repository is ignored, the address is unverified or outside an approved domain, or a mail rule files it away.</td><td>Walk through the personal setup above, then filter the inbox by review requests.</td></tr>
+        <tr><td>Requests stopped after a Fabric item was renamed</td><td>The item's folder was renamed, so the pattern no longer matches and the catch-all applies.</td><td>Update the pattern, and prefer stable parent folders.</td></tr>
+        <tr><td>No request when a team of owners is requested</td><td>The team does not exist, is secret, or has no Write access.</td><td>Make the team visible and grant it Write access to the repository.</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="checklist">Go-live checklist</h2>
+    <ul class="checklist">
+      <li>The CODEOWNERS file is in <code>.github/</code> on <code>main</code>, with the catch-all first and specific lines last.</li>
+      <li>Every owner is a team, every team has Write access, and every team is visible to contributors.</li>
+      <li>A test pull request touching one path per rule produced exactly the expected Reviewers list.</li>
+      <li><em>Require review from Code Owners</em> is enabled in the ruleset for <code>main</code>, together with stale-approval dismissal.</li>
+      <li><code>/.github/</code> is owned by the platform team.</li>
+      <li>Large teams have auto assignment configured; small teams are on the default.</li>
+      <li>Each owner has confirmed their notification settings and received a test request.</li>
+      <li>The ownership file is part of the quarterly access review.</li>
+    </ul>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p><ul>
+      <li>A review request is not an email. Team settings decide who in a team is told; personal settings decide how.</li>
+      <li>Use auto assignment for large teams and the default for small ones.</li>
+      <li>Each owner must enable Email and On GitHub, use a verified address and check that the repository is not ignored.</li>
+      <li>When nobody is notified, check the Reviewers list first, then team settings, then personal settings, then email delivery.</li>
+      <li>Environment reviewers approve deployments, not pull requests.</li>
+    </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://docs.github.com/organizations/organizing-members-into-teams/managing-code-review-settings-for-your-team">Managing code review settings for your team</a></li>
+        <li><a href="https://docs.github.com/subscriptions-and-notifications/get-started/configuring-notifications">Configuring notifications</a></li>
+        <li><a href="https://docs.github.com/subscriptions-and-notifications/concepts/about-notifications">About notifications</a></li>
+        <li><a href="https://docs.github.com/subscriptions-and-notifications/reference/email-notification-headers">Email notification headers</a></li>
+        <li><a href="https://docs.github.com/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners">About code owners</a></li>
+        <li><a href="https://docs.github.com/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments">Managing environments for deployment</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

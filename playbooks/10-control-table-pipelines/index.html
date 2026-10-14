@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Overview · Control tables</title>
+<meta name="description" content="Drive Fabric pipelines from a Warehouse control table and keep the item IDs it needs fresh with an automated API-based inventory: purpose, scope, deliverables and a map of the playbook.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="10-control-table-pipelines" data-page="index.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+
+    <header class="page-header">
+      <p class="eyebrow">Playbook 10 · Data engineering</p>
+      <h1>Control-Table-Driven Pipelines and Asset Discovery</h1>
+      <p class="lede">Replace pipelines full of hard-coded notebook names and stored-procedure calls with a small set of generic pipelines that read their work from a Warehouse table, and keep the item IDs that table needs fresh with an automated inventory of everything in your tenant.</p>
+      <ul class="chips"><li><b>Audience</b> platform engineers, Fabric admins</li><li><b>Level</b> Advanced</li><li><b>Runs on</b> Data Factory pipelines, Warehouse, notebooks</li><li><b>Reading time</b> about 100 min</li></ul>
+    </header>
+
+    <h2 id="problem">The problem this playbook solves</h2>
+    <p>Once a platform grows past a few dozen notebooks and SQL scripts, orchestration becomes the bottleneck. Every new load or transformation means opening a pipeline, dragging another activity onto the canvas, wiring dependencies by hand, and promoting the change through every environment. The same eight-activity pattern (log start, run, log end, notify) is copied dozens of times, and no two copies drift in the same way.</p>
+    <p>Three things go wrong at scale:</p>
+    <ul>
+      <li><strong>Brittle references.</strong> A notebook is selected by display name or pinned by a value copied into an activity. Rename it, or recreate it in another workspace, and the pipeline fails on a Monday morning.</li>
+      <li><strong>No single picture of the flow.</strong> The order of execution lives in canvas wiring spread over many pipelines. Nobody can query "what runs after this task?" or "which tasks failed last night?".</li>
+      <li><strong>Change cost.</strong> Adding a task is a development exercise rather than a data-entry task, so platform teams become a queue.</li>
+    </ul>
+    <p>This playbook has two halves that reinforce each other.</p>
+    <div class="cards">
+      <a class="card blue" href="asset-inventory.html"><span class="card-num">HALF A</span><h3>Automated asset discovery</h3><p>A scheduled notebook enumerates workspaces and items through the Fabric and Power BI REST APIs and lands them in queryable Delta tables: what exists, where it lives, and how to connect to it.</p><div class="card-meta"><span>Page 2</span></div></a>
+      <a class="card teal" href="framework-design.html"><span class="card-num">HALF B</span><h3>Control-table orchestration</h3><p>A Warehouse table describes every task. Generic pipelines look rows up, iterate them, run the right kind of activity, write an append-only run log and notify owners on failure.</p><div class="card-meta"><span>Pages 3 to 8</span></div></a>
+    </div>
+
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 880 320" role="img" aria-label="An inventory notebook fills inventory tables from the Fabric APIs; those tables supply item IDs to a control table; a master pipeline reads the control table, runs notebooks, procedures and child pipelines by ID, and appends events to a run log">
+        <defs>
+          <marker id="ix1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="ix1-ag" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="zone" x="16" y="40" width="220" height="262" rx="12"/>
+        <text class="t-s" x="30" y="58">A · Asset discovery</text>
+        <rect class="box gray" x="32" y="72" width="188" height="50" rx="10"/>
+        <text class="t-b" x="126" y="94" text-anchor="middle">Fabric REST APIs</text>
+        <text class="t-s" x="126" y="110" text-anchor="middle">core · admin · scanner</text>
+        <rect class="box blue" x="32" y="152" width="188" height="50" rx="10"/>
+        <text class="t-b" x="126" y="174" text-anchor="middle">Inventory notebook</text>
+        <text class="t-s" x="126" y="190" text-anchor="middle">scheduled, service principal</text>
+        <rect class="box blue" x="32" y="232" width="188" height="50" rx="10"/>
+        <text class="t-b" x="126" y="254" text-anchor="middle">Inventory tables</text>
+        <text class="t-s" x="126" y="270" text-anchor="middle">Lakehouse, Delta</text>
+        <path class="ln" d="M126 122V150" marker-end="url(#ix1-a)"/>
+        <path class="ln" d="M126 202V230" marker-end="url(#ix1-a)"/>
+        <text class="t-s" x="134" y="141">returns items</text>
+        <text class="t-s" x="134" y="221">writes</text>
+
+        <rect class="zone" x="330" y="40" width="290" height="262" rx="12"/>
+        <text class="t-s" x="344" y="58">B · Orchestration hub workspace</text>
+        <rect class="box accent" x="350" y="72" width="250" height="56" rx="10"/>
+        <text class="t-h t-w" x="475" y="96" text-anchor="middle">Control table</text>
+        <text class="t-s t-w" x="475" y="114" text-anchor="middle">ctl.control_table · one row per task</text>
+        <rect class="box teal" x="350" y="152" width="250" height="56" rx="10"/>
+        <text class="t-b" x="475" y="176" text-anchor="middle">Master pipeline</text>
+        <text class="t-s" x="475" y="194" text-anchor="middle">Lookup → ForEach → Switch</text>
+        <rect class="box blue" x="350" y="232" width="250" height="56" rx="10"/>
+        <text class="t-b" x="475" y="256" text-anchor="middle">Run log and views</text>
+        <text class="t-s" x="475" y="274" text-anchor="middle">ctl.run_log · append-only</text>
+        <path class="ln" d="M475 128V150" marker-end="url(#ix1-a)"/>
+        <path class="ln" d="M475 208V230" marker-end="url(#ix1-a)"/>
+        <text class="t-s" x="483" y="144">reads rows</text>
+        <text class="t-s" x="483" y="224">appends events</text>
+
+        <path class="ln green thick" d="M220 257H283V100H348" marker-end="url(#ix1-ag)"/>
+        <rect class="pill-bg" x="244" y="176" width="78" height="16"/>
+        <text class="t-s c-green" x="283" y="188" text-anchor="middle">resolve IDs</text>
+
+        <text class="t-s" x="795" y="58" text-anchor="middle">Targets in any workspace</text>
+        <rect class="box blue" x="720" y="72" width="150" height="50" rx="10"/>
+        <text class="t-b" x="795" y="94" text-anchor="middle">Notebooks</text>
+        <text class="t-s" x="795" y="110" text-anchor="middle">by item ID</text>
+        <rect class="box blue" x="720" y="152" width="150" height="50" rx="10"/>
+        <text class="t-b" x="795" y="174" text-anchor="middle">Stored procedures</text>
+        <text class="t-s" x="795" y="190" text-anchor="middle">Warehouse</text>
+        <rect class="box teal" x="720" y="232" width="150" height="50" rx="10"/>
+        <text class="t-b" x="795" y="254" text-anchor="middle">Child pipelines</text>
+        <text class="t-s" x="795" y="270" text-anchor="middle">Invoke pipeline</text>
+        <path class="ln" d="M600 180H650V97H718" marker-end="url(#ix1-a)"/>
+        <path class="ln" d="M600 180H718" marker-end="url(#ix1-a)"/>
+        <path class="ln" d="M600 180H650V257H718" marker-end="url(#ix1-a)"/>
+        <text class="t-s" x="656" y="174">runs by ID</text>
+      </svg>
+      <figcaption><b>The two halves in one picture.</b> Discovery keeps item IDs current; the control table stores them next to the order, type and owner of each task; one generic pipeline executes whatever the table says and records every attempt.</figcaption>
+    </figure>
+
+    <h2 id="what-changes">What changes when work moves into a table</h2>
+    <p>The control-table pattern separates the <em>what</em> (a row that names a task, its type, its stage and its owner) from the <em>how</em> (a generic engine that knows how to run any task type, log it, and raise an alarm). Adding the twentieth notebook to the nightly run becomes an <code>INSERT</code>, not a pipeline change.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 880 270" role="img" aria-label="Before: three pipelines each hard-code their notebooks. After: one generic pipeline reads rows from a control table and runs any task">
+        <defs>
+          <marker id="ix2-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="ix2-ag" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <text class="t-h" x="16" y="22">Before: one pipeline per flow</text>
+        <rect class="zone red" x="16" y="34" width="400" height="224" rx="12"/>
+        <rect class="box" x="36" y="56" width="170" height="44" rx="8"/>
+        <text class="t-b" x="121" y="75" text-anchor="middle">Flow A pipeline</text>
+        <text class="t-s" x="121" y="91" text-anchor="middle">IDs and order hard-coded</text>
+        <rect class="box" x="36" y="112" width="170" height="44" rx="8"/>
+        <text class="t-b" x="121" y="131" text-anchor="middle">Flow B pipeline</text>
+        <text class="t-s" x="121" y="147" text-anchor="middle">IDs and order hard-coded</text>
+        <rect class="box" x="36" y="168" width="170" height="44" rx="8"/>
+        <text class="t-b" x="121" y="187" text-anchor="middle">Flow C pipeline</text>
+        <text class="t-s" x="121" y="203" text-anchor="middle">IDs and order hard-coded</text>
+        <rect class="box gray" x="256" y="56" width="140" height="44" rx="8"/>
+        <text class="t-b" x="326" y="83" text-anchor="middle">Notebook A</text>
+        <rect class="box gray" x="256" y="112" width="140" height="44" rx="8"/>
+        <text class="t-b" x="326" y="139" text-anchor="middle">Notebook B</text>
+        <rect class="box gray" x="256" y="168" width="140" height="44" rx="8"/>
+        <text class="t-b" x="326" y="195" text-anchor="middle">Notebook C</text>
+        <path class="ln red" d="M206 78H254" marker-end="url(#ix2-a)"/>
+        <path class="ln red" d="M206 134H254" marker-end="url(#ix2-a)"/>
+        <path class="ln red" d="M206 190H254" marker-end="url(#ix2-a)"/>
+        <text class="t-s c-red" x="36" y="240">New task = edit, test and deploy a pipeline</text>
+
+        <text class="t-h" x="464" y="22">After: one generic pipeline, many rows</text>
+        <rect class="zone green" x="464" y="34" width="400" height="224" rx="12"/>
+        <rect class="box purple" x="484" y="56" width="150" height="156" rx="10"/>
+        <text class="t-h" x="559" y="82" text-anchor="middle">Control table</text>
+        <text class="t-s" x="559" y="108" text-anchor="middle">task · type · stage</text>
+        <text class="t-s" x="559" y="126" text-anchor="middle">object ID · workspace</text>
+        <text class="t-s" x="559" y="144" text-anchor="middle">enabled · owner</text>
+        <text class="t-s" x="559" y="162" text-anchor="middle">parameters (JSON)</text>
+        <text class="t-s" x="559" y="190" text-anchor="middle">one row per task</text>
+        <rect class="box teal" x="684" y="56" width="160" height="56" rx="10"/>
+        <text class="t-b" x="764" y="80" text-anchor="middle">Generic pipeline</text>
+        <text class="t-s" x="764" y="98" text-anchor="middle">Lookup → ForEach</text>
+        <rect class="box blue" x="684" y="150" width="160" height="62" rx="10"/>
+        <text class="t-b" x="764" y="174" text-anchor="middle">Any task</text>
+        <text class="t-s" x="764" y="192" text-anchor="middle">notebook, procedure</text>
+        <path class="ln green" d="M634 84H682" marker-end="url(#ix2-ag)"/>
+        <text class="t-s" x="640" y="78">rows</text>
+        <path class="ln green" d="M764 112V148" marker-end="url(#ix2-ag)"/>
+        <text class="t-s" x="772" y="134">runs</text>
+        <text class="t-s c-green" x="484" y="240">New task = INSERT one row</text>
+      </svg>
+      <figcaption><b>Before and after.</b> The red column repeats wiring and breaks when a notebook is renamed or recreated; the green column keeps one tested engine and moves every task-specific fact into data.</figcaption>
+    </figure>
+
+    <h2 id="when-to-use">When to use it, and when not to</h2>
+    <div class="pros-cons">
+      <div class="pros"><h4>A good fit when</h4><ul>
+        <li>You orchestrate dozens or hundreds of notebooks, procedures or child pipelines with the same run, log and notify pattern.</li>
+        <li>People other than pipeline authors need to add or disable tasks under change control.</li>
+        <li>You need an audit trail of every attempt that you can query with SQL.</li>
+        <li>Tasks live in several workspaces and you want one place that knows their IDs.</li>
+      </ul></div>
+      <div class="cons"><h4>A poor fit when</h4><ul>
+        <li>You have fewer than a handful of stable tasks. A plain pipeline is simpler to read.</li>
+        <li>Branching depends on data values produced mid-run. Use a notebook DAG or pipeline logic.</li>
+        <li>The job is bulk table copy. A Copy job already covers it.</li>
+        <li>Nobody on the team can maintain T-SQL and pipeline expressions.</li>
+      </ul></div>
+    </div>
+    <p>The <a href="framework-design.html#decision-table">decision table</a> compares the pattern with hard-coded pipelines, Copy jobs, notebook DAGs and code-first orchestrators in more detail.</p>
+
+    <h2 id="what-you-build">What you build</h2>
+    <table>
+      <thead><tr><th>Asset</th><th>Where it lives</th><th>Role</th><th>Page</th></tr></thead>
+      <tbody>
+        <tr><td><code>NB_ORCH_HUB_Inventory</code> notebook</td><td><code>DEV_ORCH_HUB</code> workspace</td><td>Calls the REST APIs, builds the inventory DataFrames and writes Delta tables</td><td><a href="asset-inventory.html">2</a></td></tr>
+        <tr><td><code>fabric_inventory</code> and related tables</td><td><code>LH_ORCH_HUB_Inventory</code> lakehouse</td><td>Queryable catalog of workspaces, items and connection strings</td><td><a href="asset-inventory.html#inventory-tables">2</a></td></tr>
+        <tr><td><code>ctl.control_table</code>, <code>ctl.task_dependency</code></td><td><code>WH_ORCH_HUB_Control</code> warehouse</td><td>The DAG as data: one row per task and its prerequisites</td><td><a href="warehouse-objects.html">4</a></td></tr>
+        <tr><td><code>ctl.run_log</code> and status views</td><td><code>WH_ORCH_HUB_Control</code> warehouse</td><td>Append-only execution history and last-known status</td><td><a href="warehouse-objects.html#run-log">4</a></td></tr>
+        <tr><td><code>dbo.usp_*</code> procedures</td><td><code>WH_ORCH_HUB_Control</code> warehouse</td><td>Guard, logging and business procedures invoked by the pipeline</td><td><a href="warehouse-objects.html#procedures">4</a></td></tr>
+        <tr><td><code>NB_ORCH_HUB_RunNotebookById</code></td><td><code>DEV_ORCH_HUB</code> workspace</td><td>Rename-proof launcher that runs a notebook by item ID</td><td><a href="dispatcher.html">5</a></td></tr>
+        <tr><td><code>PL_ORCH_HUB_Master</code> and <code>PL_ORCH_HUB_Notify</code></td><td><code>DEV_ORCH_HUB</code> workspace</td><td>Stage loops, per-task body, failure paths and a reusable notification pipeline</td><td><a href="master-pipeline.html">6</a></td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="prerequisites">Prerequisites in brief</h2>
+    <ul class="checklist">
+      <li>A Fabric workspace on a capacity that hosts the Warehouse, the inventory lakehouse, the notebooks and the pipelines (the hub workspace).</li>
+      <li>Permission to create and run pipelines and to execute procedures in the Warehouse.</li>
+      <li>A service principal (or, for activities that support it, a workspace identity) with access to every workspace you orchestrate, plus the tenant settings that let it call Fabric APIs. The details are on the <a href="framework-design.html#prerequisites">design page</a>.</li>
+      <li>A shared mailbox or Teams channel for failure notifications, owned by the team rather than a person.</li>
+      <li>An Azure Key Vault if you authenticate the notebooks with a service principal secret.</li>
+    </ul>
+
+    <h2 id="map">Map of the playbook</h2>
+    <div class="cards">
+      <a class="card blue" href="asset-inventory.html"><span class="card-num">02</span><h3>Asset discovery and inventory</h3><p>API options, permissions, the inventory notebook, table schemas and how the catalog is used.</p></a>
+      <a class="card purple" href="framework-design.html"><span class="card-num">03</span><h3>Framework design and decisions</h3><p>Principles, topology, decision table, ordering, retries, concurrency and restart design.</p></a>
+      <a class="card orange" href="warehouse-objects.html"><span class="card-num">04</span><h3>Warehouse objects and seed data</h3><p>Stored procedures, control table, run log, views and the first rows.</p></a>
+      <a class="card teal" href="dispatcher.html"><span class="card-num">05</span><h3>Notebook dispatcher</h3><p>Four ways to run a notebook by ID, and the launcher notebook.</p></a>
+      <a class="card teal" href="master-pipeline.html"><span class="card-num">06</span><h3>Build the master pipeline</h3><p>Stage loops, the per-task body, Switch on task type, failure paths and notifications.</p></a>
+      <a class="card green" href="extended-scenario.html"><span class="card-num">07</span><h3>Extended scenario and workshop</h3><p>Grow to twenty tasks, inspect lookups and timelines, run the workshop.</p></a>
+      <a class="card gray" href="operations.html"><span class="card-num">08</span><h3>Operations, security and checklist</h3><p>Health checks, troubleshooting, CI/CD, observability and go-live checklist.</p></a>
+    </div>
+
+    <h2 id="related">How this fits with the other playbooks</h2>
+    <ul>
+      <li><a href="../03-medallion-architecture/index.html">Playbook 03, Medallion Architecture</a>: the ingest and transform notebooks that the control table orchestrates live in the layer workspaces defined there. The control table supplies the stage ordering across those layers.</li>
+      <li><a href="../04-cross-workspace-orchestration/index.html">Playbook 04, Cross-Workspace Pipeline Orchestration</a>: the hub-and-spoke pattern decides <em>where</em> pipelines live. This playbook makes the hub data-driven, so spokes are invoked from rows instead of from canvas wiring.</li>
+      <li><a href="../09-variable-libraries/index.html">Playbook 09, Variable Libraries</a>: use a variable library for the environment-specific values (hub workspace ID, warehouse connection, default recipients) that the framework itself needs when you promote it.</li>
+      <li><a href="../07-deployment/index.html">Playbook 07, Deployment Pipelines and Promotion</a>: how the pipelines and notebooks of the framework move from development to production.</li>
+    </ul>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p><ul>
+      <li>Move the facts about each task (type, order, target ID, owner) into a Warehouse table and keep the pipeline generic.</li>
+      <li>Reference items by ID, not by name, and refresh those IDs from an automated inventory.</li>
+      <li>Log every attempt with append-only inserts. Derive "current status" with views instead of updating rows in place.</li>
+      <li>Treat the framework as a product: guard step, tests, versioned seed scripts and an owner.</li>
+    </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/lookup-activity">Lookup activity</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/foreach-activity">ForEach activity</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-warehouse/tsql-surface-area">T-SQL surface area in Fabric Data Warehouse</a></li>
+        <li><a href="https://learn.microsoft.com/rest/api/fabric/core/items/list-items">Items - List Items (Fabric REST API)</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/decision-guide-data-movement">Data movement decision guide</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

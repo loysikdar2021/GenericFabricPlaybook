@@ -1,0 +1,18 @@
+{
+  "id": "14-deployment-checklist",
+  "number": "14",
+  "title": "Deployment Checklist",
+  "short": "Deployment Checklist",
+  "summary": "A release-day runbook for promoting a layered Fabric platform from DEV to TST to PRD: order of operations, per-layer checklists, verified tips, gates and a troubleshooting table.",
+  "category": "alm",
+  "level": "Intermediate",
+  "audience": "Release managers, data engineers",
+  "readingTime": "45 min",
+  "pages": [
+    { "file": "index.html", "title": "Overview", "description": "What the runbook covers, the order of operations for all seven layers, ground rules and prerequisites." },
+    { "file": "layer-checklists.html", "title": "Layer checklists", "description": "Deploy, configure, hydrate and verify checklists for Bronze, Silver, Gold, warehouse, semantic model, consumption lakehouse and delivery." },
+    { "file": "tips.html", "title": "Tips and watch-outs", "description": "Five practices that prevent most deployment failures, each with the mechanism behind it, plus further watch-outs." },
+    { "file": "preflight-verify.html", "title": "Pre-flight and verification", "description": "Checks before, during and after a deployment, the three gates between layers, per-item verification and the evidence to keep." },
+    { "file": "troubleshooting.html", "title": "Troubleshooting", "description": "Symptom, likely cause and fix tables for blocked, duplicated, wrong-source and empty-data problems, with a triage path." }
+  ]
+}

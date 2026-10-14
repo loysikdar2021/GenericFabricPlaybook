@@ -1,0 +1,17 @@
+{
+  "id": "17-pr-notifications-codeowners",
+  "number": "17",
+  "title": "Pull-Request Notifications with CODEOWNERS",
+  "short": "PR Notifications",
+  "summary": "Route pull requests to the right reviewers with a CODEOWNERS file, require their approval through a ruleset, and understand which notifications GitHub really sends, and to whom.",
+  "category": "alm",
+  "level": "Intermediate",
+  "audience": "Repository admins, platform and workspace leads, Fabric developers and reviewers",
+  "readingTime": "35 min",
+  "pages": [
+    { "file": "index.html", "title": "Overview and how it works", "description": "What CODEOWNERS does and does not do, the path from an opened pull request to a notification, and who controls each step." },
+    { "file": "codeowners-file.html", "title": "Creating the CODEOWNERS file", "description": "File locations and precedence, syntax and patterns, why order matters, owners and teams, protecting the file and validating it." },
+    { "file": "fabric-example.html", "title": "Fabric folders and enforcement", "description": "A worked CODEOWNERS file for a Fabric repository, owners per item folder, and enforcing code owner approval with a ruleset." },
+    { "file": "notifications.html", "title": "Notifications and troubleshooting", "description": "How review requests become notifications, team and personal settings, the pull request UI, and a troubleshooting guide with a go-live checklist." }
+  ]
+}

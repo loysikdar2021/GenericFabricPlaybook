@@ -1,0 +1,19 @@
+{
+  "id": "13-paginated-report-migration",
+  "number": "13",
+  "title": "Paginated Report Migration",
+  "short": "Paginated Migration",
+  "summary": "Move paginated (RDL) reports from Power BI Premium capacity workspaces to Fabric workspaces: inventory, workspace reassignment or RDL republishing, deployment pipeline rules, gateways, validation and cutover.",
+  "category": "analytics",
+  "level": "Intermediate",
+  "audience": "BI developers, Power BI and Fabric administrators, migration leads",
+  "readingTime": "70 min",
+  "pages": [
+    { "file": "index.html", "title": "Overview", "description": "What moves, the two migration methods, who can view paginated reports after the move, and a map of the playbook." },
+    { "file": "assessment.html", "title": "Phase 1: Inventory and assessment", "description": "Catalog every report with REST calls and an RDL parser, classify what needs rework, and decide migrate, modify, redesign or retire." },
+    { "file": "migration-methods.html", "title": "Phase 2: Migration methods", "description": "Reassign a workspace to Fabric capacity, republish RDL files by Report Builder or REST, handle SSRS and Report Server sources, and choose between them." },
+    { "file": "pipelines-gateways.html", "title": "Pipelines, gateways and sources", "description": "Data source rules in deployment pipelines, gateway and cloud connection mapping, Fabric Warehouse and Lakehouse SQL endpoint sources, and the REST calls that script them." },
+    { "file": "validation-cutover.html", "title": "Phase 3: Validation and cutover", "description": "Parity tests for layout, data and exports, performance and capacity checks, subscriptions and permissions, cutover sequence, rollback and decommissioning." },
+    { "file": "troubleshooting.html", "title": "Risks, troubleshooting, checklist", "description": "Risk register, symptom-to-fix table, a migration readiness checklist and references." }
+  ]
+}

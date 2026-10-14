@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Governance and troubleshooting · QA Validation</title>
+<meta name="description" content="Roles, change control, adding and retiring validations, versioning, performance guidance, symptom-to-fix troubleshooting tables and the pitfalls that make validation frameworks untrustworthy.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="15-qa-validation" data-page="operations.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 15 · QA Validation</p>
+      <h1>Governance and troubleshooting</h1>
+      <p class="lede">A validation framework earns trust slowly and loses it quickly. This page covers what keeps it trustworthy: who owns what, how checks change, how the framework itself is tested and versioned, what it costs to run, and how to diagnose it when a verdict is missing, wrong or slow.</p>
+    </header>
+
+    <h2 id="governance">Ownership and roles</h2>
+    <p>The roles below are generic. One person can hold several, and in a small team all of them. What matters is that each decision has exactly one accountable role, written down, so that a tolerance is never relaxed by whoever happens to be annoyed by a red run.</p>
+    <table>
+      <thead><tr><th>Role</th><th>Responsible for</th><th>Typically held by</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Framework owner</strong></td><td>The harness, the results schema, the framework version, the self-test suite and the reporting model</td><td>Platform or data engineering lead</td></tr>
+        <tr><td><strong>Check author</strong></td><td>Writing and maintaining checks: the claim, the SQL, the tolerance proposal and the example output</td><td>Data engineer or QA analyst</td></tr>
+        <tr><td><strong>Data owner</strong></td><td>Deciding what &quot;correct&quot; means for a domain (SALES, FINANCE, HR): rules, tolerances, severity, waivers</td><td>Business or domain data steward</td></tr>
+        <tr><td><strong>Reviewer</strong></td><td>Independent review of changes to checks and configuration</td><td>A second engineer who did not write the change</td></tr>
+        <tr><td><strong>Operator</strong></td><td>Running schedules, watching alerts, triaging blocked gates, escalating</td><td>On-call data engineer or support rota</td></tr>
+      </tbody>
+    </table>
+    <table>
+      <thead><tr><th>Decision or activity</th><th>Framework owner</th><th>Check author</th><th>Data owner</th><th>Reviewer</th><th>Operator</th></tr></thead>
+      <tbody>
+        <tr><td>Maintain harness and results schema</td><td>A/R</td><td>C</td><td>I</td><td>C</td><td>I</td></tr>
+        <tr><td>Add or change a check</td><td>C</td><td>R</td><td>C</td><td>A</td><td>I</td></tr>
+        <tr><td>Set or loosen a tolerance or severity</td><td>C</td><td>R</td><td>A</td><td>C</td><td>I</td></tr>
+        <tr><td>Promote a check to blocker</td><td>R</td><td>C</td><td>A</td><td>C</td><td>I</td></tr>
+        <tr><td>Run schedules and watch alerts</td><td>C</td><td>I</td><td>I</td><td>&ndash;</td><td>A/R</td></tr>
+        <tr><td>Triage a blocked gate</td><td>C</td><td>C</td><td>A</td><td>&ndash;</td><td>R</td></tr>
+        <tr><td>Waive a blocker for a limited time</td><td>C</td><td>R</td><td>A</td><td>C</td><td>I</td></tr>
+        <tr><td>Retire a check</td><td>A</td><td>R</td><td>C</td><td>C</td><td>I</td></tr>
+      </tbody>
+    </table>
+    <p>R = does the work, A = accountable (one per row), C = consulted, I = informed.</p>
+
+    <h2 id="change-control">Change control</h2>
+    <p>Treat checks and configuration as production code, because a changed check changes what the platform is allowed to publish. They live in source control, change through pull requests (see <a href="../05-github-integration/index.html">GitHub Integration and Branching</a>) and reach TST and PRD through the same promotion path as everything else (see <a href="../07-deployment/index.html">Deployment Pipelines and Promotion</a>). Where the harness is shared across workspaces, package it as a library rather than copying cells (see <a href="../06-shared-libraries/index.html">Shared Python Libraries</a>).</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 235" role="img" aria-label="Change flow: propose, self-test with seeded defects in DEV, review, deploy through TST to PRD, monitor; a feedback line returns from monitor to propose">
+        <defs>
+          <marker id="fig-ops-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box blue" x="10" y="30" width="140" height="80" rx="10"/>
+        <text class="t-h" x="80" y="58" text-anchor="middle">Propose</text>
+        <text class="t-s" x="80" y="78" text-anchor="middle">rule and tolerance</text>
+        <text class="t-s" x="80" y="94" text-anchor="middle">check author</text>
+        <rect class="box teal" x="195" y="30" width="140" height="80" rx="10"/>
+        <text class="t-h" x="265" y="58" text-anchor="middle">Self-test</text>
+        <text class="t-s" x="265" y="78" text-anchor="middle">seeded defects, DEV</text>
+        <text class="t-s" x="265" y="94" text-anchor="middle">check author</text>
+        <rect class="box purple" x="380" y="30" width="140" height="80" rx="10"/>
+        <text class="t-h" x="450" y="58" text-anchor="middle">Review</text>
+        <text class="t-s" x="450" y="78" text-anchor="middle">reviewer approves</text>
+        <text class="t-s" x="450" y="94" text-anchor="middle">data owner decides</text>
+        <rect class="box green" x="565" y="30" width="140" height="80" rx="10"/>
+        <text class="t-h" x="635" y="58" text-anchor="middle">Deploy</text>
+        <text class="t-s" x="635" y="78" text-anchor="middle">TST, then PRD</text>
+        <text class="t-s" x="635" y="94" text-anchor="middle">release manager</text>
+        <rect class="box gray" x="750" y="30" width="140" height="80" rx="10"/>
+        <text class="t-h" x="820" y="58" text-anchor="middle">Monitor</text>
+        <text class="t-s" x="820" y="78" text-anchor="middle">operator, owners</text>
+        <text class="t-s" x="820" y="94" text-anchor="middle">triage and tune</text>
+        <path class="ln" d="M150 70H193" marker-end="url(#fig-ops-1-a)"/>
+        <path class="ln" d="M335 70H378" marker-end="url(#fig-ops-1-a)"/>
+        <path class="ln" d="M520 70H563" marker-end="url(#fig-ops-1-a)"/>
+        <path class="ln" d="M705 70H748" marker-end="url(#fig-ops-1-a)"/>
+        <path class="ln" d="M820 110V190H80V112" marker-end="url(#fig-ops-1-a)"/>
+        <rect class="pill-bg" x="300" y="182" width="300" height="16"/>
+        <text class="t-s" x="450" y="194" text-anchor="middle">false positives and missed defects become new work</text>
+      </svg>
+      <figcaption><b>Change flow.</b> The self-test proves that a changed check still catches the defect it exists for; the data owner, not the author, decides what is acceptable; monitoring feeds the next change.</figcaption>
+    </figure>
+    <table>
+      <thead><tr><th>Change</th><th>Minimum review</th><th>Evidence to attach</th></tr></thead>
+      <tbody>
+        <tr><td>New informational or warning check</td><td>Reviewer</td><td>Claim in one sentence, example output from DEV, self-test result</td></tr>
+        <tr><td>New blocker, or promoting a check to blocker</td><td>Reviewer and data owner</td><td>Shadow-run history showing it is stable (see <a href="#lifecycle">lifecycle</a>)</td></tr>
+        <tr><td>Loosening a tolerance, lowering a severity, waiving a check</td><td>Data owner, recorded in the pull request</td><td>The reason, the affected runs and when it will be revisited</td></tr>
+        <tr><td>Tightening a tolerance</td><td>Reviewer</td><td>Recent actuals showing the new limit would have passed</td></tr>
+        <tr><td>Change to the harness or to a check type</td><td>Framework owner and reviewer</td><td>Passing self-test, version bump, release note</td></tr>
+        <tr><td>Change to the results schema</td><td>Framework owner, plus the owners of the semantic model and any consumers</td><td>Migration script, major version bump</td></tr>
+        <tr><td>Edit to the control table</td><td>Same as the equivalent code change</td><td>Delta history entry (see below) and a ticket or pull request link</td></tr>
+      </tbody>
+    </table>
+<pre data-title="Spark SQL: who changed the control table, and when"><code class="language-sql">DESCRIBE HISTORY qa.validation_config;</code></pre>
+    <p>If the control table is writable by many people, that history is the audit trail; restrict write access to the framework owners and let everyone else propose changes through source control.</p>
+
+    <h3 id="lifecycle">Check lifecycle</h3>
+    <p>New checks rarely belong in front of a release on day one. A check that blocks releases and turns out to be wrong damages trust in all checks. Introduce it quietly, watch it, and promote it when the evidence supports it.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 200" role="img" aria-label="Check lifecycle: proposed, shadow with info severity, warning, blocker, retired; a demotion arrow returns a flaky or wrong blocker to shadow">
+        <defs>
+          <marker id="fig-ops-2-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-ops-2-ar" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar red" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box gray" x="10" y="55" width="140" height="64" rx="10"/>
+        <text class="t-h" x="80" y="83" text-anchor="middle">Proposed</text><text class="t-s" x="80" y="101" text-anchor="middle">enabled = false</text>
+        <rect class="box blue" x="195" y="55" width="140" height="64" rx="10"/>
+        <text class="t-h" x="265" y="83" text-anchor="middle">Shadow</text><text class="t-s" x="265" y="101" text-anchor="middle">severity info</text>
+        <rect class="box orange" x="380" y="55" width="140" height="64" rx="10"/>
+        <text class="t-h" x="450" y="83" text-anchor="middle">Warning</text><text class="t-s" x="450" y="101" text-anchor="middle">visible, no gate</text>
+        <rect class="box red" x="565" y="55" width="140" height="64" rx="10"/>
+        <text class="t-h" x="635" y="83" text-anchor="middle">Blocker</text><text class="t-s" x="635" y="101" text-anchor="middle">gates promotion</text>
+        <rect class="box gray" x="750" y="55" width="140" height="64" rx="10"/>
+        <text class="t-h" x="820" y="83" text-anchor="middle">Retired</text><text class="t-s" x="820" y="101" text-anchor="middle">disabled, kept</text>
+        <path class="ln" d="M150 87H193" marker-end="url(#fig-ops-2-a)"/>
+        <path class="ln" d="M335 87H378" marker-end="url(#fig-ops-2-a)"/>
+        <path class="ln" d="M520 87H563" marker-end="url(#fig-ops-2-a)"/>
+        <path class="ln" d="M705 87H748" marker-end="url(#fig-ops-2-a)"/>
+        <path class="ln red" d="M635 55V26H265V53" marker-end="url(#fig-ops-2-ar)"/>
+        <rect class="pill-bg" x="375" y="18" width="150" height="16"/>
+        <text class="t-s" x="450" y="30" text-anchor="middle">flaky or wrong: demote</text>
+        <text class="t-s" x="80" y="142" text-anchor="middle">claim and SQL</text><text class="t-s" x="80" y="158" text-anchor="middle">reviewed</text>
+        <text class="t-s" x="265" y="142" text-anchor="middle">results recorded</text><text class="t-s" x="265" y="158" text-anchor="middle">for several runs</text>
+        <text class="t-s" x="450" y="142" text-anchor="middle">owner agrees the</text><text class="t-s" x="450" y="158" text-anchor="middle">signal is real</text>
+        <text class="t-s" x="635" y="142" text-anchor="middle">data owner</text><text class="t-s" x="635" y="158" text-anchor="middle">approves</text>
+        <text class="t-s" x="820" y="142" text-anchor="middle">history stays in</text><text class="t-s" x="820" y="158" text-anchor="middle">the results table</text>
+      </svg>
+      <figcaption><b>Promotion by evidence.</b> The text under each stage is the exit criterion. The demotion path matters as much as the promotion path: a flaky blocker must go back to shadow while it is fixed, not be muted.</figcaption>
+    </figure>
+
+    <h3 id="adding">Adding a validation</h3>
+    <ol class="steps">
+      <li><strong>State the claim in one sentence</strong><p>For example, &quot;every order that is not void in Silver exists once in Gold&quot;. If you cannot, the check has no defined expected value yet.</p></li>
+      <li><strong>Pick the check type and the severity</strong><p>Use the <a href="architecture.html#type-matrix">type matrix</a> to choose. Start as <code>info</code> unless the data owner already knows the check is stable.</p></li>
+      <li><strong>Write the expected and actual queries</strong><p>Both must reduce to one number each, built from source-side facts, not from the target being tested.</p></li>
+      <li><strong>Choose the tolerance with the data owner</strong><p>Use the guidance in <a href="results-model.html#tolerance">tolerance design</a>, and count expected rejects explicitly rather than widening the tolerance.</p></li>
+      <li><strong>Seed a defect and prove the check fails on it</strong><p>Use the <a href="#selftest">self-test</a> cell: a check that passes on both clean and damaged data proves nothing.</p></li>
+      <li><strong>Add it to the configuration, with an owner role and a note</strong><p>Fill <code>owner_role</code> and <code>notes</code> so that whoever sees the failure at night knows who decides and what the check protects.</p></li>
+      <li><strong>Review, deploy and shadow-run</strong><p>Promote through the lifecycle once it has run cleanly for long enough that a failure would be news.</p></li>
+    </ol>
+
+    <h3 id="selftest">Testing the framework itself</h3>
+    <p>The quality of the verdicts is the quality of the framework. After every harness change, and when a check is added, run each check type against a copy of a clean table and against copies with a known defect injected. Each must return <code>PASS</code> on the clean copy and the expected status on the damaged copy. Run this only in DEV and write only to a scratch schema.</p>
+    <table>
+      <thead><tr><th>Injected defect</th><th>Check that must catch it</th></tr></thead>
+      <tbody>
+        <tr><td>About 1 % of rows removed</td><td>Row count</td></tr>
+        <tr><td>A derived value altered for some rows</td><td>Transformation</td></tr>
+        <tr><td>A column dropped or its type changed</td><td>Schema</td></tr>
+        <tr><td>Load timestamps moved back several days</td><td>Freshness</td></tr>
+        <tr><td>A few rows duplicated</td><td>Key uniqueness</td></tr>
+        <tr><td>A share of a required column set to NULL</td><td>Completeness</td></tr>
+        <tr><td>Keys pointing at dimension members that do not exist</td><td>Referential integrity</td></tr>
+        <tr><td>A measure scaled by a few percent</td><td>Metric reconciliation or drift</td></tr>
+      </tbody>
+    </table>
+<pre data-title="Cell T (PySpark): defect injection self-test, DEV only"><code class="language-python">assert env == "DEV", "Defect injection runs only in DEV"
+SCRATCH = "qa_selftest"                               # scratch schema in the default (schema-enabled) lakehouse
+spark.sql(f"CREATE SCHEMA IF NOT EXISTS {SCRATCH}")
+
+# Assumed columns of the clean table: customer_id, customer_code, customer_label, loaded_at
+clean = spark.table(quote_name(f"{GLD}.dim_customer"))
+
+DEFECTS = [   # (case, damaged copy, check configuration, status the check must return)
+    ("rows_missing", clean.where(F.rand(7) &gt; 0.01),
+     {"check_type": "rowcount", "source": f"{SLV}.customers", "min_rows": 1}, "FAIL"),
+    ("label_changed",
+     clean.withColumn("customer_label", F.when(F.col("customer_id") % 50 == 0,
+                                               F.concat("customer_label", F.lit(" x")))
+                                         .otherwise(F.col("customer_label"))),
+     {"check_type": "transformation", "source": f"{SLV}.customers", "key": ["customer_id"],
+      "expected_expr": "concat(customer_code, ' - ', customer_name)", "target_column": "customer_label"}, "FAIL"),
+    ("column_dropped", clean.drop("customer_label"),
+     {"check_type": "schema", "columns": [{"name": "customer_label", "type": "string"}]}, "FAIL"),
+    ("stale_load", clean.withColumn("loaded_at", F.col("loaded_at") - F.expr("INTERVAL 3 DAYS")),
+     {"check_type": "freshness", "timestamp_column": "loaded_at", "max_age_hours": 6, "fail_threshold": 6}, "FAIL"),
+    ("duplicate_keys", clean.unionByName(clean.limit(5)),
+     {"check_type": "unique", "key": ["customer_id"]}, "FAIL"),
+    ("null_codes",
+     clean.withColumn("customer_code", F.when(F.rand(11) &lt; 0.02, F.lit(None).cast("string"))
+                                         .otherwise(F.col("customer_code"))),
+     {"check_type": "completeness", "columns": ["customer_code"]}, "FAIL"),
+]
+
+clean.write.format("delta").mode("overwrite").saveAsTable(f"{SCRATCH}.t_clean")
+outcome = []
+for case, damaged, cfg, must_return in DEFECTS:
+    damaged.write.format("delta").mode("overwrite").saveAsTable(f"{SCRATCH}.t_{case}")
+    for variant, table, wanted in (("clean", f"{SCRATCH}.t_clean", "PASS"),
+                                   (case, f"{SCRATCH}.t_{case}", must_return)):
+        got = run_check({**cfg, "test_name": f"selftest.{case}.{variant}", "target": table})[0].status
+        outcome.append((case, variant, wanted, got, "ok" if got == wanted else "WRONG"))
+
+display(spark.createDataFrame(outcome, "test_case string, variant string, wanted string, got string, verdict string"))
+wrong = [o for o in outcome if o[4] != "ok"]
+assert not wrong, f"Checks that did not behave as intended: {wrong}"</code></pre>
+    <div class="callout note"><p class="callout-title">When the clean copy fails</p><p>If a clean control does not return <code>PASS</code> (for example because the DEV data is genuinely stale), the self-test stops, and that is correct. Fix the data or the check before trusting either side of the comparison.</p></div>
+
+    <h3 id="versioning">Versioning</h3>
+    <table>
+      <thead><tr><th>Artifact</th><th>How it is versioned</th><th>Rule</th></tr></thead>
+      <tbody>
+        <tr><td>Harness (cells 1-3, runner, writer)</td><td><code>FRAMEWORK_VERSION</code> in semantic versioning, written to every row of <code>validation_runs</code></td><td>Patch: bug fix with no change in verdicts. Minor: new check type or optional field. Major: changed meaning of a status, rule or tolerance, or a changed results schema.</td></tr>
+        <tr><td>Check configuration</td><td>Source control history, or Delta history for a control table</td><td>Every change traceable to a pull request or ticket.</td></tr>
+        <tr><td>Results schema</td><td>Additive changes only (<code>ALTER TABLE ... ADD COLUMNS</code>) within a major version</td><td>Renaming or removing a column is a major change that includes the semantic model and reports.</td></tr>
+        <tr><td>Semantic model and report</td><td>Normal deployment process</td><td>Updated in the same release as any schema change.</td></tr>
+      </tbody>
+    </table>
+    <p>Because the framework version is stored with every run, a change in verdicts can be tied to a framework change rather than to the data. When you must compare runs across a major version, filter on <code>framework_version</code>.</p>
+
+    <h3 id="blocked">When the gate blocks</h3>
+    <ol class="steps">
+      <li><strong>Read the alert and open the run</strong><p>The alert carries environment, suite, run id and counts. Query the failing rows for that run.</p>
+<pre data-title="Spark SQL: failing and erroring checks of one run"><code class="language-sql">SELECT test_name, status, severity, expected, actual, variance, message
+FROM qa.validation_results
+WHERE run_id = '&lt;run id from the alert&gt;'
+  AND status IN ('FAIL', 'ERROR')
+ORDER BY (severity = 'blocker') DESC, test_name;</code></pre></li>
+      <li><strong>Classify the failure</strong><p>A data defect, an environment problem (<code>ERROR</code>, <code>SKIPPED</code>), a defective check (false positive), or an accepted deviation. Each has a different owner and a different fix.</p></li>
+      <li><strong>Act on the class</strong><p>Data defect: fix upstream, reload, rerun the suite. Environment: fix and rerun the suite only. Defective check: demote it through change control while it is repaired. Accepted deviation: the data owner approves a time-boxed severity change in source control, with the reason and a review point.</p></li>
+      <li><strong>Rerun and confirm the gate is open</strong><p>Do not publish by bypassing the pipeline. The recorded run is the evidence.</p></li>
+      <li><strong>Close the loop</strong><p>If a defect escaped the suite, add the check that would have caught it; if a check cried wolf, tighten or retire it.</p></li>
+    </ol>
+
+    <h2 id="performance">Performance and cost</h2>
+    <p>Validation competes with the pipelines it protects. Almost all of its cost is scanning large tables, plus Spark session start-up. Measure before you optimize: <code>duration_s</code> in the results table is the baseline.</p>
+<pre data-title="Spark SQL: slowest checks over recent runs"><code class="language-sql">SELECT test_name,
+       ROUND(AVG(duration_s), 1) AS avg_s,
+       ROUND(MAX(duration_s), 1) AS max_s,
+       COUNT(*)                  AS runs
+FROM qa.validation_results
+WHERE run_ts &gt;= current_timestamp() - INTERVAL 14 DAYS
+GROUP BY test_name
+ORDER BY avg_s DESC
+LIMIT 20;</code></pre>
+    <p>Durations of checks that ran in parallel overlap, so their sum overstates the wall-clock time of the run. Use the run's <code>started_at</code> and <code>finished_at</code> for that.</p>
+    <table>
+      <thead><tr><th>Lever</th><th>What to do</th><th>Caution</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Scan less</strong></td><td>For a per-load check, restrict the scan to the loaded partitions or time window through a <code>source_filter</code> and <code>target_filter</code>; run full-table checks on a slower schedule. Partitioning that matches the filter lets Spark skip files (see <a href="../08-delta-partitioning/index.html">Delta Lake Partitioning Strategy</a>).</td><td>A windowed check cannot see damage outside its window.</td></tr>
+        <tr><td><strong>Return numbers, not data</strong></td><td>Aggregate in SQL and bring back scalars and a handful of sample rows with <code>LIMIT</code>. Never <code>collect()</code> a table to compare it in Python.</td><td>Collecting distinct values also hides duplicates.</td></tr>
+        <tr><td><strong>Fuse scans</strong></td><td>When several checks read the same large table, compute their measures in one pass (see below).</td><td>Fused checks are harder to read; do it only where scans dominate.</td></tr>
+        <tr><td><strong>Use exact counts for equality</strong></td><td>Use <code>approx_count_distinct</code> only for drift and profiling, where an approximation is acceptable.</td><td>An approximate count cannot prove two numbers equal.</td></tr>
+        <tr><td><strong>Bound concurrency</strong></td><td>Start with a few workers (for example four) and measure. More threads than the cluster can run only queue.</td><td>Concurrency multiplies when notebooks also run in parallel (see <a href="orchestration.html#scheduling">scheduling</a>).</td></tr>
+        <tr><td><strong>Reuse sessions</strong></td><td>Share a Spark session between consecutive suites through a session tag in a pipeline with high concurrency mode.</td><td>Shared sessions share state; unique temp view names keep suites apart.</td></tr>
+        <tr><td><strong>Keep tables healthy</strong></td><td>Compact small files and vacuum within policy on Gold tables and on the results tables (<a href="https://learn.microsoft.com/fabric/data-engineering/lakehouse-table-maintenance">table maintenance</a>).</td><td>Scan time on a badly fragmented table can dwarf the check logic.</td></tr>
+        <tr><td><strong>Skip the pointless</strong></td><td>Use <code>depends_on</code> so that an expensive check does not run when its prerequisite already failed.</td><td>Only one level of dependency is supported by the harness.</td></tr>
+        <tr><td><strong>Cache deliberately</strong></td><td>If one check reads the same relation repeatedly, <code>CACHE TABLE</code> or <code>DataFrame.cache()</code> it and release it afterwards.</td><td>A temporary view is <em>not</em> a cache. It is only a name for a query, and each use runs the query again.</td></tr>
+      </tbody>
+    </table>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 270" role="img" aria-label="Left: three checks each scan the same table, three scans. Right: one aggregate query scans the table once and returns all measures">
+        <defs>
+          <marker id="fig-ops-3-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-ops-3-at" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <text class="t-b" x="215" y="20" text-anchor="middle">Per-check scans</text>
+        <text class="t-b" x="670" y="20" text-anchor="middle">Fused scan</text>
+        <path class="ln thin" d="M450 10V240"/>
+        <rect class="box gold" x="20" y="108" width="110" height="64" rx="10"/>
+        <text class="t-h" x="75" y="136" text-anchor="middle">Table</text><text class="t-s" x="75" y="154" text-anchor="middle">scanned 3 times</text>
+        <rect class="box blue" x="200" y="40" width="210" height="44" rx="8"/><text class="t-b" x="305" y="67" text-anchor="middle">Row count</text>
+        <rect class="box blue" x="200" y="118" width="210" height="44" rx="8"/><text class="t-b" x="305" y="145" text-anchor="middle">Key uniqueness</text>
+        <rect class="box blue" x="200" y="196" width="210" height="44" rx="8"/><text class="t-b" x="305" y="223" text-anchor="middle">Null completeness</text>
+        <path class="ln" d="M130 140H165V62H198" marker-end="url(#fig-ops-3-a)"/>
+        <path class="ln" d="M130 140H198" marker-end="url(#fig-ops-3-a)"/>
+        <path class="ln" d="M130 140H165V218H198" marker-end="url(#fig-ops-3-a)"/>
+        <rect class="box gold" x="480" y="108" width="110" height="64" rx="10"/>
+        <text class="t-h" x="535" y="136" text-anchor="middle">Table</text><text class="t-s" x="535" y="154" text-anchor="middle">scanned once</text>
+        <rect class="box green" x="650" y="80" width="240" height="120" rx="10"/>
+        <text class="t-h" x="770" y="112" text-anchor="middle">One aggregate query</text>
+        <text class="t-s" x="770" y="136" text-anchor="middle">COUNT(*), count_if NULLs,</text>
+        <text class="t-s" x="770" y="152" text-anchor="middle">COUNT(DISTINCT key),</text>
+        <text class="t-s" x="770" y="168" text-anchor="middle">MIN and MAX timestamp</text>
+        <path class="ln green" d="M590 140H648" marker-end="url(#fig-ops-3-at)"/>
+        <text class="t-s" x="215" y="262" text-anchor="middle">each check reads the data again</text>
+        <text class="t-s" x="670" y="262" text-anchor="middle">one result row per measure, derived afterwards</text>
+      </svg>
+      <figcaption><b>Where fusion pays.</b> Spark computes several aggregates in one pass over the data. Fuse checks that read the same large table; leave small tables on the simpler one-check-one-query form.</figcaption>
+    </figure>
+<pre data-title="Cell 20 (PySpark): optional fused profile check"><code class="language-python">@check("profile")
+def profile(cfg):
+    """One scan of the target: row count, key uniqueness, required columns and freshness."""
+    key, ts = col(cfg["key"]), col(cfg["timestamp_column"])
+    required = cfg.get("not_null", [])
+    extra = "".join(f", count_if({col(c)} IS NULL) AS {col('n_' + c)}" for c in required)
+    row = one_row(f"""
+        SELECT COUNT(*) AS n_rows, COUNT({key}) AS n_keys, COUNT(DISTINCT {key}) AS n_distinct,
+               timestampdiff(MINUTE, MAX({ts}), current_timestamp()) AS age_min{extra}
+        FROM {quote_name(cfg['target'])}""")
+    name = cfg["test_name"]
+    out = [
+        evaluate(new_result(cfg, test_name=f"{name}.rows", rule="ge",
+                            expected=float(cfg.get("min_rows", 1)), actual=num(row["n_rows"]))),
+        evaluate(new_result(cfg, test_name=f"{name}.unique_key", rule="eq",
+                            expected=num(row["n_keys"]), actual=num(row["n_distinct"]),
+                            message="distinct values compared with non-NULL key values")),
+        evaluate(new_result(cfg, test_name=f"{name}.fresh", rule="le",
+                            expected=float(cfg["max_age_hours"]),
+                            actual=None if row["age_min"] is None else row["age_min"] / 60.0,
+                            message="age in hours of the newest row")),
+    ]
+    for c in required:
+        out.append(evaluate(new_result(cfg, test_name=f"{name}.{c}.not_null", rule="eq",
+                                       expected=0.0, actual=num(row["n_" + c]))))
+    return out</code></pre>
+
+    <h2 id="troubleshooting">Troubleshooting</h2>
+    <p>Sort the symptom first. It usually belongs to one of three families: no verdict at all (an environment problem), a verdict you do not believe (a check design problem), or a verdict that costs too much (a scan problem).</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 290" role="img" aria-label="Triage: a surprising result splits into no verdict, which points to the environment; wrong verdict, which points to check design; and slow or costly, which points to scans, concurrency and capacity">
+        <defs>
+          <marker id="fig-ops-4-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box accent" x="10" y="110" width="150" height="70" rx="10"/>
+        <text class="t-h t-w" x="85" y="140" text-anchor="middle">Surprising</text><text class="t-h t-w" x="85" y="158" text-anchor="middle">QA result</text>
+        <rect class="box orange" x="250" y="20" width="200" height="64" rx="10"/>
+        <text class="t-h" x="350" y="46" text-anchor="middle">No verdict</text><text class="t-s" x="350" y="64" text-anchor="middle">ERROR, SKIPPED, no exit value</text>
+        <rect class="box orange" x="250" y="113" width="200" height="64" rx="10"/>
+        <text class="t-h" x="350" y="139" text-anchor="middle">Wrong verdict</text><text class="t-s" x="350" y="157" text-anchor="middle">flaky, false FAIL, false PASS</text>
+        <rect class="box orange" x="250" y="206" width="200" height="64" rx="10"/>
+        <text class="t-h" x="350" y="232" text-anchor="middle">Slow or costly</text><text class="t-s" x="350" y="250" text-anchor="middle">long runs, throttling</text>
+        <rect class="box blue" x="540" y="20" width="350" height="64" rx="10"/>
+        <text class="t-h" x="715" y="46" text-anchor="middle">Environment</text><text class="t-s" x="715" y="64" text-anchor="middle">names, permissions, parameters, runtime</text>
+        <rect class="box blue" x="540" y="113" width="350" height="64" rx="10"/>
+        <text class="t-h" x="715" y="139" text-anchor="middle">Check design</text><text class="t-s" x="715" y="157" text-anchor="middle">time, tolerance, precision, empty inputs</text>
+        <rect class="box blue" x="540" y="206" width="350" height="64" rx="10"/>
+        <text class="t-h" x="715" y="232" text-anchor="middle">Cost</text><text class="t-s" x="715" y="250" text-anchor="middle">scans, concurrency, sessions, capacity</text>
+        <path class="ln" d="M160 145H205V52H248" marker-end="url(#fig-ops-4-a)"/>
+        <path class="ln" d="M160 145H248" marker-end="url(#fig-ops-4-a)"/>
+        <path class="ln" d="M160 145H205V238H248" marker-end="url(#fig-ops-4-a)"/>
+        <path class="ln" d="M450 52H538" marker-end="url(#fig-ops-4-a)"/>
+        <path class="ln" d="M450 145H538" marker-end="url(#fig-ops-4-a)"/>
+        <path class="ln" d="M450 238H538" marker-end="url(#fig-ops-4-a)"/>
+      </svg>
+      <figcaption><b>Triage first.</b> Each family has its own tables below.</figcaption>
+    </figure>
+
+    <h3 id="ts-env">No verdict: environment and naming</h3>
+    <table>
+      <thead><tr><th>Symptom</th><th>Likely cause</th><th>Fix</th></tr></thead>
+      <tbody>
+        <tr><td>Table or view not found, or schema not found, for a four-part name</td><td>The notebook's default lakehouse is not schema-enabled, so schema-qualified names do not resolve as expected; the target lakehouse has no schemas; or a workspace or lakehouse name containing a space or hyphen is not back-quoted</td><td>Use schema-enabled lakehouses (or no default lakehouse) when you address schemas in code, build names with <code>quote_name</code>, and put the fully resolved name in the check message. See <a href="architecture.html#naming">naming</a>.</td></tr>
+        <tr><td>Permission error reading another workspace</td><td>The identity that runs the notebook in the pipeline cannot read the source item</td><td>Grant read access to that identity on the source items, and test with the same identity the pipeline uses, not your own.</td></tr>
+        <tr><td>T-SQL three-part name across workspaces fails</td><td>Three-part names resolve inside one workspace</td><td>Create a OneLake shortcut in the querying workspace, or run the check in Spark. See <a href="architecture.html#sql-dialects">T-SQL versus Spark SQL</a>.</td></tr>
+        <tr><td>Errors such as invalid cast input or divide by zero appear after a runtime upgrade</td><td>ANSI SQL mode is on by default in the Spark 4 line, so plain <code>CAST</code> and <code>/</code> fail instead of returning NULL</td><td>Use <code>try_cast</code>, <code>try_divide</code> and <code>NULLIF</code> (the harness does), and run the self-test on both runtimes before moving.</td></tr>
+        <tr><td>Parameters are ignored and defaults are used</td><td>The cell is not toggled as the parameter cell, names differ, or a value is not a simple type</td><td>Toggle the parameter cell, print the resolved parameters at the top of the run, and pass structured values as JSON text.</td></tr>
+        <tr><td>Pipeline sees no exit value</td><td>The notebook failed before reaching exit; exit is not in the last cell or is wrapped in a handler that swallows it; or the notebook type does not return one</td><td>Keep exit in its own final cell, route the activity's failure path to the same alert, and test the pipeline end to end once. See the <a href="orchestration.html#pipeline">pipeline page</a>.</td></tr>
+        <tr><td>A reference to another notebook or file by path fails</td><td><code>%run</code> resolves notebooks in the same workspace; files from built-in resources use the <code>-b</code> option rather than a workspace path</td><td>Reference notebooks by name inside one workspace, or package shared code as a library. See <a href="../06-shared-libraries/index.html">Shared Python Libraries</a>.</td></tr>
+      </tbody>
+    </table>
+
+    <h3 id="ts-verdict">Verdicts you do not believe</h3>
+    <table>
+      <thead><tr><th>Symptom</th><th>Likely cause</th><th>Fix</th></tr></thead>
+      <tbody>
+        <tr><td>A check passes on obviously wrong data</td><td>Empty source and target (<code>0 = 0</code>), a filter that removes everything, a table compared with itself, or a tolerance wider than the defect</td><td>Set <code>min_rows</code>, review the configuration, run the <a href="#selftest">self-test</a> and compare both sides' row counts in the message.</td></tr>
+        <tr><td>The same data gives different verdicts on different days</td><td>Expressions that use the current date, late-arriving data, or an unordered sample</td><td>Pass <code>as_of_date</code>, use fixed windows, order samples, and add the <a href="advanced-checks.html#late">late-arrival check</a>.</td></tr>
+        <tr><td>A tiny numeric difference fails a check</td><td>Floating-point accumulation, decimal scale or rounding at different stages</td><td>Round both sides to the contract precision, prefer decimals for money, and set the tolerance in the unit of the last reported digit. See <a href="results-model.html#precision">precision pitfalls</a>.</td></tr>
+        <tr><td>Strings match in Spark and differ in T-SQL, or the reverse</td><td>Collation, trailing spaces or Unicode normalization</td><td>Compare in the engine that produced the target, trim explicitly, or apply an explicit <code>COLLATE</code>.</td></tr>
+        <tr><td>Results appear twice for one run</td><td>The activity was retried or the notebook was rerun with the same <code>run_id</code></td><td>Retries to zero, or make the writer idempotent (see <a href="orchestration.html#pipeline">orchestration</a>).</td></tr>
+        <tr><td>Key uniqueness reports a huge duplicate group</td><td>NULL keys are grouped together</td><td>Read the completeness result for the key column; it reports the cause.</td></tr>
+        <tr><td>Drift check never fails, or fails every Monday</td><td>Not enough history yet, or weekly seasonality in the baseline</td><td>Keep <code>min_history</code> so the check stays quiet until it has a baseline, and compare with the same weekday.</td></tr>
+        <tr><td>A check starts failing right after an intended schema change</td><td>The contract changed in the data but not in the check</td><td>Change the check in the same release, through change control. Never relax a check silently to restore green.</td></tr>
+      </tbody>
+    </table>
+
+    <h3 id="ts-ops">Slow, stale or silent</h3>
+    <table>
+      <thead><tr><th>Symptom</th><th>Likely cause</th><th>Fix</th></tr></thead>
+      <tbody>
+        <tr><td>The suite takes much longer than it used to</td><td>A table grew, a plan changed, small files accumulated, or concurrency is oversubscribed</td><td>Compare <code>duration_s</code> by check over time, then see the <a href="#performance">performance levers</a>.</td></tr>
+        <tr><td>Session start dominates a short suite</td><td>Every activity starts its own session</td><td>Use a session tag with high concurrency mode, or run suites together with <code>runMultiple</code>.</td></tr>
+        <tr><td>A query through the SQL analytics endpoint shows the previous run</td><td>Metadata sync lag after the write</td><td>Gate on the exit value, or run the refresh activity first. See <a href="orchestration.html#gate">gating</a>.</td></tr>
+        <tr><td>The report shows yesterday</td><td>The semantic model was not refreshed or reframed after the run</td><td>End the QA pipeline with the Semantic model refresh activity.</td></tr>
+        <tr><td>Alerts stopped after a deployment</td><td>Notification connections are user-scoped and can be inactive after deployment or CI/CD</td><td>Reconnect, and keep notifications in one shared pipeline. See <a href="orchestration.html#alerts">alerting</a>.</td></tr>
+        <tr><td>A failure is hard to diagnose from the result row</td><td>The check stored only counts</td><td>Store a few sample keys in <code>detail</code> (the shipped checks do), and use the diagnostic queries below.</td></tr>
+      </tbody>
+    </table>
+
+    <h3 id="diagnostics">Diagnostic queries</h3>
+    <p>A failing count is a symptom; these find the rows. Use the same filters as the check, and keep the results to a sample.</p>
+<pre data-title="Spark SQL: keys missing from the target, and unexpected extras"><code class="language-sql">-- In the source, not in the target
+SELECT s.order_id
+FROM DEV_SALES_SLV.LH_SALES_SLV.dbo.orders AS s
+LEFT ANTI JOIN DEV_SALES_GLD.LH_SALES_GLD.dbo.fact_orders AS t ON t.order_id = s.order_id
+WHERE s.order_status &lt;&gt; 'VOID'
+LIMIT 20;
+
+-- In the target, not in the source
+SELECT t.order_id
+FROM DEV_SALES_GLD.LH_SALES_GLD.dbo.fact_orders AS t
+LEFT ANTI JOIN DEV_SALES_SLV.LH_SALES_SLV.dbo.orders AS s ON s.order_id = t.order_id
+LIMIT 20;
+
+-- Duplicated keys in the target
+SELECT order_id, COUNT(*) AS copies
+FROM DEV_SALES_GLD.LH_SALES_GLD.dbo.fact_orders
+GROUP BY order_id
+HAVING COUNT(*) &gt; 1
+ORDER BY copies DESC
+LIMIT 20;</code></pre>
+
+    <h2 id="pitfalls">Common pitfalls</h2>
+    <table>
+      <thead><tr><th>Pitfall</th><th>Why it hurts</th><th>Instead</th></tr></thead>
+      <tbody>
+        <tr><td>Treating a temporary view as a cache</td><td>Each use re-runs the query, so &quot;read once&quot; designs read many times and can see data that changed in between</td><td>Use views as names; cache explicitly only where measured to help</td></tr>
+        <tr><td>Replacing <code>COUNT(*)</code> with <code>DataFrame.count()</code> for speed</td><td>They compile to the same plan, so there is nothing to gain</td><td>Choose the form that is clearer; spend effort on scan size instead</td></tr>
+        <tr><td>Comparing a table with a result derived from itself</td><td>The check can only pass</td><td>Derive expected values from the source side</td></tr>
+        <tr><td>Letting a check pass on empty input</td><td><code>0 = 0</code> and an empty result are the most common silent failures</td><td>Minimum-row guards and fail-closed <code>ERROR</code> handling</td></tr>
+        <tr><td>Hard-coded dates or fiscal ranges</td><td>The check is correct for one period and wrong afterwards</td><td>Derive windows from <code>as_of_date</code> and parameters</td></tr>
+        <tr><td>Widening tolerance to get a green run</td><td>The suite stops testing what it was built to test</td><td>Account for expected rejects, and change tolerances only through the data owner</td></tr>
+        <tr><td>Collecting data to the driver to compare it</td><td>It does not scale and hides duplicates when compared as sets</td><td>Keyed joins and <code>EXCEPT ALL</code> in Spark</td></tr>
+        <tr><td>Gating on a read through the SQL analytics endpoint right after a write</td><td>The endpoint can lag the write and the gate reads the previous run</td><td>Gate on the exit value, or refresh first</td></tr>
+        <tr><td>Making every check a blocker on day one</td><td>One false positive teaches everyone to bypass the gate</td><td>Shadow, warn, then block, as in the lifecycle</td></tr>
+        <tr><td>A framework that only the author understands</td><td>The first absence turns every red run into a mystery</td><td>Check notes, owner roles, the self-test and this page</td></tr>
+      </tbody>
+    </table>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p><ul>
+      <li>Give every decision one accountable role, and put checks and configuration through the same change process as the code they protect.</li>
+      <li>Introduce checks as shadow, then warning, then blocker; demote flaky blockers instead of muting them.</li>
+      <li>Test the framework with seeded defects and clean controls, and version it so that a change in verdicts can be traced to a change in the framework.</li>
+      <li>Most cost is scan cost: restrict scans, return numbers instead of data, fuse scans where they dominate, and bound concurrency.</li>
+      <li>Triage symptoms into no verdict, wrong verdict or slow, and diagnose with the matching table.</li>
+    </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/lakehouse-table-maintenance">Lakehouse table maintenance (OPTIMIZE and VACUUM)</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/lakehouse-schemas">What are lakehouse schemas?</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/runtime">Apache Spark runtimes in Fabric</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/notebook-utilities">NotebookUtils for Fabric</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/author-execute-notebook">Develop, execute, and manage notebooks</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/sql-analytics-endpoint-metadata-sync">SQL analytics endpoint metadata sync</a></li>
+        <li><a href="https://docs.delta.io/latest/delta-utility.html#review-table-history">Delta Lake: review table history</a></li>
+        <li><a href="https://spark.apache.org/docs/latest/sql-ref-ansi-compliance.html">Spark SQL: ANSI compliance</a></li>
+        <li><a href="https://semver.org/">Semantic Versioning</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

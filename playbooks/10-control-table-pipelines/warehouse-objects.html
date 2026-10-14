@@ -1,0 +1,694 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Warehouse objects and seed data · Control tables</title>
+<meta name="description" content="Convert T-SQL scripts to stored procedures, then create the control table, task dependencies, append-only run log, views and procedures in a Fabric Warehouse and seed the first tasks.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="10-control-table-pipelines" data-page="warehouse-objects.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+
+    <header class="page-header">
+      <p class="eyebrow">Playbook 10 · Half B · Steps 0 to 2</p>
+      <h1>Warehouse objects and seed data</h1>
+      <p class="lede">Everything the framework stores lives in one Fabric Warehouse: a configuration table, a dependency table, an append-only run log, views over the log and a handful of stored procedures. This page turns your existing scripts into procedures (step 0), creates the objects (step 1) and seeds the first five tasks (step 2).</p>
+    </header>
+
+    <h2 id="overview">What you create</h2>
+    <p>All objects go into the hub Warehouse (<code>WH_ORCH_HUB_Control</code> in the example). Configuration and history live in a <code>ctl</code> schema so they are easy to secure and to keep apart from the procedures that do real work, which stay in <code>dbo</code> with a <code>usp_</code> prefix.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 330" role="img" aria-label="Object model: the master pipeline reads the control table and calls the validation and logging procedures; the sync procedure fills IDs from the inventory; logging writes the run log which three views read">
+        <defs>
+          <marker id="wh1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box gray" x="10" y="20" width="170" height="56" rx="10"/>
+        <text class="t-b" x="95" y="45" text-anchor="middle">fabric_inventory</text>
+        <text class="t-s" x="95" y="62" text-anchor="middle">inventory lakehouse</text>
+        <rect class="box teal" x="10" y="96" width="170" height="204" rx="10"/>
+        <text class="t-b" x="95" y="190" text-anchor="middle">PL_ORCH_HUB_Master</text>
+        <text class="t-s" x="95" y="208" text-anchor="middle">Lookup, ForEach, Switch</text>
+        <rect class="box blue" x="220" y="20" width="220" height="56" rx="10"/>
+        <text class="t-b" x="330" y="45" text-anchor="middle">dbo.usp_sync_object_ids</text>
+        <text class="t-s" x="330" y="62" text-anchor="middle">resolve IDs by name</text>
+        <rect class="box blue" x="220" y="130" width="220" height="56" rx="10"/>
+        <text class="t-b" x="330" y="155" text-anchor="middle">dbo.usp_validate_control_table</text>
+        <text class="t-s" x="330" y="172" text-anchor="middle">guard: fail fast</text>
+        <rect class="box blue" x="220" y="244" width="220" height="56" rx="10"/>
+        <text class="t-b" x="330" y="269" text-anchor="middle">dbo.usp_log_event</text>
+        <text class="t-s" x="330" y="286" text-anchor="middle">insert one event row</text>
+        <rect class="zone purple" x="470" y="10" width="180" height="204" rx="12"/>
+        <text class="t-s" x="484" y="28">Configuration</text>
+        <rect class="box purple" x="485" y="40" width="150" height="84" rx="10"/>
+        <text class="t-b" x="560" y="78" text-anchor="middle">ctl.control_table</text>
+        <text class="t-s" x="560" y="96" text-anchor="middle">one row per task</text>
+        <rect class="box purple" x="485" y="136" width="150" height="64" rx="10"/>
+        <text class="t-b" x="560" y="164" text-anchor="middle">ctl.task_dependency</text>
+        <text class="t-s" x="560" y="182" text-anchor="middle">task and prerequisite</text>
+        <rect class="box blue" x="490" y="244" width="160" height="56" rx="10"/>
+        <text class="t-b" x="570" y="269" text-anchor="middle">ctl.run_log</text>
+        <text class="t-s" x="570" y="286" text-anchor="middle">insert-only events</text>
+        <rect class="box gray" x="695" y="222" width="195" height="100" rx="10"/>
+        <text class="t-b" x="792" y="244" text-anchor="middle">Views in ctl</text>
+        <text class="t-s" x="792" y="264" text-anchor="middle">vw_task_last_status_per_run</text>
+        <text class="t-s" x="792" y="282" text-anchor="middle">vw_task_run_timeline</text>
+        <text class="t-s" x="792" y="300" text-anchor="middle">vw_run_summary</text>
+        <path class="ln" d="M180 48H218" marker-end="url(#wh1-a)"/>
+        <path class="ln" d="M440 48H483" marker-end="url(#wh1-a)"/>
+        <path class="ln" d="M180 103H483" marker-end="url(#wh1-a)"/>
+        <path class="ln" d="M180 158H218" marker-end="url(#wh1-a)"/>
+        <path class="ln" d="M440 158H483" marker-end="url(#wh1-a)"/>
+        <path class="ln" d="M180 272H218" marker-end="url(#wh1-a)"/>
+        <path class="ln" d="M440 272H488" marker-end="url(#wh1-a)"/>
+        <path class="ln" d="M650 272H693" marker-end="url(#wh1-a)"/>
+        <rect class="pill-bg" x="237" y="95" width="186" height="16"/>
+        <text class="t-s" x="330" y="107" text-anchor="middle">Lookup reads the control table</text>
+        <text class="t-s" x="461" y="150" text-anchor="middle">reads</text>
+        <text class="t-s" x="461" y="40" text-anchor="middle">updates</text>
+        <text class="t-s" x="199" y="150" text-anchor="middle">guard</text>
+        <text class="t-s" x="199" y="264" text-anchor="middle">log</text>
+        <text class="t-s" x="464" y="264" text-anchor="middle">insert</text>
+      </svg>
+      <figcaption><b>Object model.</b> Configuration is edited by people and versioned as a seed script. History is written only by <code>usp_log_event</code> and only ever appended to. The views turn events into status.</figcaption>
+    </figure>
+    <table>
+      <thead><tr><th>Object</th><th>Kind</th><th>Purpose</th></tr></thead>
+      <tbody>
+        <tr><td><code>ctl.control_table</code></td><td>Table</td><td>One row per task: type, stage, order, target item IDs, parameters, notification list.</td></tr>
+        <tr><td><code>ctl.task_dependency</code></td><td>Table</td><td>Which task needs which. Documents the DAG, is checked by the guard and can drive an optional per-task gate.</td></tr>
+        <tr><td><code>ctl.run_log</code></td><td>Table</td><td>Append-only events (<code>Started</code>, <code>Succeeded</code>, <code>Failed</code>, <code>Skipped</code>) with run ID, task, timestamp and message.</td></tr>
+        <tr><td><code>ctl.vw_task_last_status_per_run</code></td><td>View</td><td>The latest event for each task in each run. Used by restart logic and health checks.</td></tr>
+        <tr><td><code>ctl.vw_task_run_timeline</code></td><td>View</td><td>One row per task per run with start, end, duration and status. Feeds timeline and Gantt-style reports.</td></tr>
+        <tr><td><code>ctl.vw_run_summary</code></td><td>View</td><td>One row per run with counts of succeeded, failed, skipped and running tasks.</td></tr>
+        <tr><td><code>dbo.usp_validate_control_table</code></td><td>Procedure</td><td>The guard step. Throws if the configuration is inconsistent.</td></tr>
+        <tr><td><code>dbo.usp_log_event</code></td><td>Procedure</td><td>The only writer of the run log.</td></tr>
+        <tr><td><code>dbo.usp_sync_object_ids</code></td><td>Procedure</td><td>Fills item and workspace IDs from the inventory by name.</td></tr>
+        <tr><td><code>dbo.usp_create_snapshot</code>, <code>dbo.usp_archive_data</code></td><td>Procedures</td><td>The two example task procedures that stand in for your own converted scripts.</td></tr>
+      </tbody>
+    </table>
+    <div class="callout important"><p class="callout-title">Run each block as its own batch</p>
+      <p><code>CREATE VIEW</code> and <code>CREATE PROCEDURE</code> must be the first statement in a batch. Run every code block on this page separately in the SQL query editor, or separate them with <code>GO</code> if you use a client that supports it.</p></div>
+
+    <h2 id="convert">Step 0: convert T-SQL scripts into stored procedures</h2>
+    <p>The pipeline can run a stored procedure by name and observe whether it succeeded. It cannot do that with a saved query. So the first step is to turn each script you want to orchestrate into a procedure with the same body. Apply these rules:</p>
+    <ol>
+      <li><strong>One script, one procedure.</strong> Name it <code>dbo.usp_&lt;verb&gt;_&lt;noun&gt;</code>. The guard rejects any other pattern, which also keeps the name safe to use in generated SQL.</li>
+      <li><strong>Remove client-only statements.</strong> Delete <code>GO</code>, <code>USE</code> and hard-coded database names for objects in the same Warehouse. Keep three-part names only for items in the same workspace, such as a lakehouse SQL analytics endpoint.</li>
+      <li><strong>Make it safe to run twice.</strong> Replace plain inserts with delete-then-insert for a key range, <code>MERGE</code>, or <code>TRUNCATE</code> and reload. Pipelines retry and operators rerun.</li>
+      <li><strong>Wrap writes in a transaction and rethrow.</strong> An unhandled error must reach the Stored procedure activity so the activity fails and the failure path runs. Swallowing the error in <code>CATCH</code> makes a failed task look successful.</li>
+      <li><strong>Turn changing values into parameters with defaults.</strong> The framework calls procedures with no arguments unless you extend the Switch case, so every parameter needs a default.</li>
+      <li><strong>Return nothing.</strong> Logging belongs to the pipeline. A procedure that returns result sets adds noise and no value.</li>
+      <li><strong>Use <code>CREATE OR ALTER</code>.</strong> The script can then be redeployed without a drop step.</li>
+    </ol>
+    <p>The general shape is:</p>
+<pre data-title="template for a task procedure (T-SQL)"><code class="language-sql">CREATE OR ALTER PROCEDURE dbo.usp_name_of_task
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    BEGIN TRY
+        BEGIN TRANSACTION;
+
+        -- the body of your original script goes here
+
+        COMMIT TRANSACTION;
+    END TRY
+    BEGIN CATCH
+        IF @@TRANCOUNT &gt; 0
+            ROLLBACK TRANSACTION;
+        THROW;
+    END CATCH;
+END;</code></pre>
+    <p>The example uses two scripts that work on small summary tables in the hub Warehouse. Create the sample tables first (they stand in for your real data), then the two procedures.</p>
+    <details class="fold"><summary>Sample tables for the two example procedures</summary>
+<pre data-title="sample tables (T-SQL)"><code class="language-sql">CREATE TABLE dbo.sales_summary
+(
+    customer_id  INT           NOT NULL,
+    product_id   INT           NOT NULL,
+    total_amount DECIMAL(18,2) NOT NULL
+);
+
+CREATE TABLE dbo.sales_summary_snapshot
+(
+    snapshot_date DATE          NOT NULL,
+    customer_id   INT           NOT NULL,
+    product_id    INT           NOT NULL,
+    total_amount  DECIMAL(18,2) NOT NULL
+);
+
+CREATE TABLE dbo.sales_summary_archive
+(
+    snapshot_date DATE          NOT NULL,
+    customer_id   INT           NOT NULL,
+    product_id    INT           NOT NULL,
+    total_amount  DECIMAL(18,2) NOT NULL
+);</code></pre>
+    </details>
+<pre data-title="dbo.usp_create_snapshot (T-SQL)"><code class="language-sql">CREATE OR ALTER PROCEDURE dbo.usp_create_snapshot
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    DECLARE @snapshot_date DATE = CAST(SYSUTCDATETIME() AS DATE);
+
+    BEGIN TRY
+        BEGIN TRANSACTION;
+
+        -- idempotent: replace today's snapshot if the task is run again
+        DELETE FROM dbo.sales_summary_snapshot
+        WHERE snapshot_date = @snapshot_date;
+
+        INSERT INTO dbo.sales_summary_snapshot (snapshot_date, customer_id, product_id, total_amount)
+        SELECT @snapshot_date, customer_id, product_id, total_amount
+        FROM dbo.sales_summary;
+
+        COMMIT TRANSACTION;
+    END TRY
+    BEGIN CATCH
+        IF @@TRANCOUNT &gt; 0
+            ROLLBACK TRANSACTION;
+        THROW;
+    END CATCH;
+END;</code></pre>
+<pre data-title="dbo.usp_archive_data (T-SQL)"><code class="language-sql">CREATE OR ALTER PROCEDURE dbo.usp_archive_data
+    @retain_days INT = 30
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    DECLARE @cutoff DATE = DATEADD(DAY, -@retain_days, CAST(SYSUTCDATETIME() AS DATE));
+
+    BEGIN TRY
+        BEGIN TRANSACTION;
+
+        -- copy only rows that are not already archived, then remove them from the live table
+        INSERT INTO dbo.sales_summary_archive (snapshot_date, customer_id, product_id, total_amount)
+        SELECT s.snapshot_date, s.customer_id, s.product_id, s.total_amount
+        FROM dbo.sales_summary_snapshot AS s
+        WHERE s.snapshot_date &lt; @cutoff
+          AND NOT EXISTS (SELECT 1
+                          FROM dbo.sales_summary_archive AS a
+                          WHERE a.snapshot_date = s.snapshot_date
+                            AND a.customer_id   = s.customer_id
+                            AND a.product_id    = s.product_id);
+
+        DELETE FROM dbo.sales_summary_snapshot
+        WHERE snapshot_date &lt; @cutoff;
+
+        COMMIT TRANSACTION;
+    END TRY
+    BEGIN CATCH
+        IF @@TRANCOUNT &gt; 0
+            ROLLBACK TRANSACTION;
+        THROW;
+    END CATCH;
+END;</code></pre>
+    <p>Test each procedure by hand before it enters the control table: run it twice and check that the second run changes nothing, then force an error halfway through and check that no partial rows remain.</p>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p>
+      <p><code>THROW</code>, <code>TRY...CATCH</code>, <code>MERGE</code> and <code>CREATE OR ALTER</code> for procedures and views are documented as supported in Fabric Warehouse. The pages do not describe how an error inside an explicit transaction interacts with <code>@@TRANCOUNT</code> in a <code>CATCH</code> block in Warehouse, so the failure-path test above is not optional. See <a href="https://learn.microsoft.com/fabric/data-warehouse/transactions">Transactions in Fabric Data Warehouse</a>.</p></div>
+
+    <h2 id="create-objects">Step 1: create the control table, run log and procedures</h2>
+
+    <h3 id="schema">Schema</h3>
+<pre data-title="schema (T-SQL)"><code class="language-sql">CREATE SCHEMA ctl;</code></pre>
+    <p>Run this once. It fails if the schema already exists.</p>
+
+    <h3 id="control-table">Control table</h3>
+    <p>Each row is a task. The table holds configuration only, so it carries no status or retry counters that the pipeline would have to update. Runtime state belongs in the run log.</p>
+<pre data-title="ctl.control_table (T-SQL)"><code class="language-sql">CREATE TABLE ctl.control_table
+(
+    task_id              VARCHAR(64)   NOT NULL,  -- stable key, for example T1
+    task_name            VARCHAR(256)  NOT NULL,  -- unique, readable, used in the run log
+    task_type            VARCHAR(32)   NOT NULL,  -- Notebook | StoredProcedure | Pipeline
+    stage                INT           NOT NULL,  -- gate: stage n must succeed before n+1
+    sequence_no          INT           NOT NULL,  -- order inside a stage
+    is_enabled           BIT           NOT NULL,
+    workspace_name       VARCHAR(256)  NULL,      -- where the item lives (Notebook, Pipeline)
+    object_name          VARCHAR(512)  NOT NULL,  -- item name, or dbo.usp_* for procedures
+    object_id            VARCHAR(36)   NULL,      -- item ID, filled by usp_sync_object_ids
+    target_workspace_id  VARCHAR(36)   NULL,      -- workspace ID, filled by usp_sync_object_ids
+    parameters_json      VARCHAR(4000) NULL,      -- JSON object passed to the task as one string
+    timeout_minutes      INT           NULL,      -- used by the dispatcher notebook
+    max_attempts         INT           NULL,      -- used by the dispatcher notebook
+    notify_to            VARCHAR(1024) NULL,      -- semicolon-separated recipients
+    config_version       INT           NOT NULL,
+    created_at_utc       DATETIME2(6)  NOT NULL,
+    modified_at_utc      DATETIME2(6)  NOT NULL
+);</code></pre>
+<pre data-title="constraints (T-SQL)"><code class="language-sql">ALTER TABLE ctl.control_table
+    ADD CONSTRAINT pk_control_table PRIMARY KEY NONCLUSTERED (task_id) NOT ENFORCED;
+
+ALTER TABLE ctl.control_table
+    ADD CONSTRAINT uq_control_table_task_name UNIQUE NONCLUSTERED (task_name) NOT ENFORCED;</code></pre>
+    <div class="callout important"><p class="callout-title">NOT ENFORCED means metadata only</p>
+      <p>Warehouse accepts primary key and unique constraints only as <code>NOT ENFORCED</code> (and <code>NONCLUSTERED</code> for a primary key), and the scripts add them with <code>ALTER TABLE</code>. The engine uses them as metadata and will not reject a duplicate row. That is why the guard procedure below checks for duplicates itself.</p></div>
+    <table>
+      <thead><tr><th>Column</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td><code>task_type</code></td><td>The value the Switch activity branches on. Adding a new type means one new Switch case and one new guard rule; see <a href="framework-design.html#extensibility">extensibility</a>.</td></tr>
+        <tr><td><code>stage</code>, <code>sequence_no</code></td><td>Order is explicit. Do not rely on alphabetical task names. See <a href="framework-design.html#ordering">ordering</a>.</td></tr>
+        <tr><td><code>workspace_name</code>, <code>object_name</code></td><td>What humans edit and review. IDs are derived from them.</td></tr>
+        <tr><td><code>object_id</code>, <code>target_workspace_id</code></td><td>What the pipeline uses. Stored as <code>VARCHAR(36)</code> in lower case. The <code>uniqueidentifier</code> type is not used because its values cannot be read through a SQL analytics endpoint.</td></tr>
+        <tr><td><code>parameters_json</code></td><td>The long tail of per-task settings, as a JSON string. Warehouse has no JSON column type, so validate it in the task.</td></tr>
+        <tr><td><code>timeout_minutes</code>, <code>max_attempts</code></td><td>Read by the <a href="dispatcher.html">dispatcher notebook</a>. The native Notebook activity ignores them because its timeout and retry settings are static.</td></tr>
+        <tr><td><code>notify_to</code></td><td>Recipients for the failure notice. Use a team mailbox or distribution list.</td></tr>
+        <tr><td><code>config_version</code></td><td>Bump it when a seed script changes a row, so a run can be correlated with the configuration it used.</td></tr>
+      </tbody>
+    </table>
+
+    <h3 id="task-dependency">Task dependency table</h3>
+    <p>The source design stored dependencies as a comma-separated list inside the task row. A separate table is easier to validate, query and join, and needs no string parsing.</p>
+<pre data-title="ctl.task_dependency (T-SQL)"><code class="language-sql">CREATE TABLE ctl.task_dependency
+(
+    task_name            VARCHAR(256) NOT NULL,   -- the dependent task
+    depends_on_task_name VARCHAR(256) NOT NULL,   -- the prerequisite
+    created_at_utc       DATETIME2(6) NOT NULL
+);
+
+ALTER TABLE ctl.task_dependency
+    ADD CONSTRAINT pk_task_dependency PRIMARY KEY NONCLUSTERED (task_name, depends_on_task_name) NOT ENFORCED;</code></pre>
+
+    <h3 id="run-log">Run log</h3>
+    <p>The run log is the key design decision on this page. It is <strong>insert-only</strong>: a task writes a <code>Started</code> row when it begins and one end row (<code>Succeeded</code>, <code>Failed</code> or <code>Skipped</code>) when it finishes. Nothing is ever updated. Parallel iterations therefore never write to the same row, and the Warehouse's snapshot isolation never has an update conflict to report.</p>
+<pre data-title="ctl.run_log (T-SQL)"><code class="language-sql">CREATE TABLE ctl.run_log
+(
+    run_id          VARCHAR(64)   NOT NULL,   -- @pipeline().RunId of the master pipeline run
+    task_name       VARCHAR(256)  NOT NULL,   -- ctl.control_table.task_name, or (pipeline) for run-level events
+    stage           INT           NULL,
+    activity        VARCHAR(128)  NOT NULL,   -- which step wrote the event, for example Notebook
+    event           VARCHAR(16)   NOT NULL,   -- Started | Succeeded | Failed | Skipped
+    event_time_utc  DATETIME2(6)  NOT NULL,   -- set by the procedure with SYSUTCDATETIME()
+    message         VARCHAR(4000) NULL,       -- error text for Failed events
+    external_id     VARCHAR(64)   NULL        -- for example the job instance ID from the dispatcher
+);</code></pre>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 290" role="img" aria-label="Four log rows for two tasks, each with a Started row and an end row, collapse through a view into one status row per task: ingest customers Succeeded after 248 seconds, ingest products Failed after 102 seconds">
+        <defs>
+          <marker id="wh2-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <text class="t-h" x="10" y="22">ctl.run_log: append-only rows</text>
+        <rect class="zone" x="10" y="34" width="420" height="206" rx="12"/>
+        <rect class="box blue" x="24" y="48" width="392" height="32" rx="6"/>
+        <text class="t-m" x="36" y="68">R1 | ingest_customers | Started   | 10:00:02</text>
+        <rect class="box blue" x="24" y="86" width="392" height="32" rx="6"/>
+        <text class="t-m" x="36" y="106">R1 | ingest_products  | Started   | 10:00:03</text>
+        <rect class="box red" x="24" y="124" width="392" height="32" rx="6"/>
+        <text class="t-m" x="36" y="144">R1 | ingest_products  | Failed    | 10:01:45</text>
+        <rect class="box green" x="24" y="162" width="392" height="32" rx="6"/>
+        <text class="t-m" x="36" y="182">R1 | ingest_customers | Succeeded | 10:04:10</text>
+        <text class="t-s" x="24" y="220">Each task writes a Started row and one end row. Rows are never updated.</text>
+        <path class="ln thick" d="M434 140H496" marker-end="url(#wh2-a)"/>
+        <text class="t-s" x="465" y="130" text-anchor="middle">collapse</text>
+        <text class="t-h" x="500" y="22">vw_task_run_timeline: one row per task</text>
+        <rect class="zone" x="500" y="34" width="390" height="206" rx="12"/>
+        <text class="t-s" x="516" y="58">task | status | seconds</text>
+        <rect class="box green" x="514" y="68" width="362" height="32" rx="6"/>
+        <text class="t-m" x="526" y="88">ingest_customers | Succeeded | 248</text>
+        <rect class="box red" x="514" y="108" width="362" height="32" rx="6"/>
+        <text class="t-m" x="526" y="128">ingest_products  | Failed    | 102</text>
+        <text class="t-s" x="516" y="170">Failed rows carry the error text in the message column.</text>
+        <text class="t-s" x="516" y="190">A Started row with no end row is shown as Running.</text>
+        <text class="t-s" x="516" y="210">Latest event wins; Started loses a tie.</text>
+        <text class="t-s" x="450" y="272" text-anchor="middle">Parallel tasks only insert, so they never collide on a shared row.</text>
+      </svg>
+      <figcaption><b>From events to status.</b> Status is derived, not stored. Because the log is the only source of truth, a view can answer what is running, what failed and how long each task took.</figcaption>
+    </figure>
+
+    <h3 id="procedures">Stored procedures</h3>
+    <p>Three procedures belong to the framework itself. The two example task procedures were created in step 0.</p>
+
+    <h4 id="proc-log-event">usp_log_event</h4>
+    <p>The only writer of the run log. The pipeline calls it through a Stored procedure activity with typed parameters, which avoids building SQL strings from error messages that contain quotes.</p>
+<pre data-title="dbo.usp_log_event (T-SQL)"><code class="language-sql">CREATE OR ALTER PROCEDURE dbo.usp_log_event
+    @run_id      VARCHAR(64),
+    @task_name   VARCHAR(256),
+    @activity    VARCHAR(128),
+    @event       VARCHAR(16),
+    @stage       INT           = NULL,
+    @message     VARCHAR(4000) = NULL,
+    @external_id VARCHAR(64)   = NULL
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    IF @event NOT IN ('Started', 'Succeeded', 'Failed', 'Skipped')
+        THROW 50010, 'Unknown event. Use Started, Succeeded, Failed or Skipped.', 1;
+
+    INSERT INTO ctl.run_log
+        (run_id, task_name, stage, activity, event, event_time_utc, message, external_id)
+    VALUES
+        (@run_id, @task_name, @stage, @activity, @event, SYSUTCDATETIME(), LEFT(@message, 4000), @external_id);
+END;</code></pre>
+
+    <h4 id="proc-validate">usp_validate_control_table</h4>
+    <p>The guard. Run it at the top of every master pipeline run. Each rule throws with the name of the first offending task, so the pipeline fails before any work starts. The rules cover what <code>NOT ENFORCED</code> constraints cannot: duplicate names, unknown task types, missing or malformed IDs, procedures that do not exist, and dependencies that cannot be honored.</p>
+    <details class="fold"><summary>Full guard procedure (T-SQL)</summary>
+<pre data-title="dbo.usp_validate_control_table (T-SQL)"><code class="language-sql">CREATE OR ALTER PROCEDURE dbo.usp_validate_control_table
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    DECLARE @bad VARCHAR(256);
+    DECLARE @msg VARCHAR(1000);
+
+    -- 0. there must be something to run
+    IF NOT EXISTS (SELECT 1 FROM ctl.control_table WHERE is_enabled = 1)
+        THROW 50000, 'ctl.control_table has no enabled tasks.', 1;
+
+    -- 1. task_name must be unique (the UNIQUE constraint is not enforced)
+    SET @bad = NULL;
+    SELECT TOP (1) @bad = task_name
+    FROM ctl.control_table
+    GROUP BY task_name
+    HAVING COUNT(*) &gt; 1
+    ORDER BY task_name;
+    IF @bad IS NOT NULL
+    BEGIN
+        SET @msg = CONCAT('Duplicate task_name: ', @bad);
+        THROW 50001, @msg, 1;
+    END;
+
+    -- 2. task_type must be one the Switch activity knows
+    SET @bad = NULL;
+    SELECT TOP (1) @bad = task_name
+    FROM ctl.control_table
+    WHERE is_enabled = 1
+      AND task_type NOT IN ('Notebook', 'StoredProcedure', 'Pipeline')
+    ORDER BY task_name;
+    IF @bad IS NOT NULL
+    BEGIN
+        SET @msg = CONCAT('Unknown task_type for task: ', @bad);
+        THROW 50002, @msg, 1;
+    END;
+
+    -- 3. notebooks and pipelines need a workspace ID and an item ID (36 characters)
+    SET @bad = NULL;
+    SELECT TOP (1) @bad = task_name
+    FROM ctl.control_table
+    WHERE is_enabled = 1
+      AND task_type IN ('Notebook', 'Pipeline')
+      AND (object_id IS NULL OR LEN(object_id) &lt;&gt; 36
+           OR target_workspace_id IS NULL OR LEN(target_workspace_id) &lt;&gt; 36)
+    ORDER BY task_name;
+    IF @bad IS NOT NULL
+    BEGIN
+        SET @msg = CONCAT('Missing or malformed object_id or target_workspace_id for task: ', @bad);
+        THROW 50003, @msg, 1;
+    END;
+
+    -- 4. procedures must follow the naming rule and must exist
+    SET @bad = NULL;
+    SELECT TOP (1) @bad = task_name
+    FROM ctl.control_table
+    WHERE is_enabled = 1
+      AND task_type = 'StoredProcedure'
+      AND (object_name NOT LIKE 'dbo.usp[_]%' OR OBJECT_ID(object_name, 'P') IS NULL)
+    ORDER BY task_name;
+    IF @bad IS NOT NULL
+    BEGIN
+        SET @msg = CONCAT('Stored procedure missing or not named dbo.usp_*: ', @bad);
+        THROW 50004, @msg, 1;
+    END;
+
+    -- 5. dependencies must point at an existing, earlier, enabled task
+    SET @bad = NULL;
+    SELECT TOP (1) @bad = d.task_name
+    FROM ctl.task_dependency AS d
+    LEFT JOIN ctl.control_table AS t ON t.task_name = d.task_name
+    LEFT JOIN ctl.control_table AS p ON p.task_name = d.depends_on_task_name
+    WHERE t.task_name IS NULL
+       OR p.task_name IS NULL
+       OR p.stage &gt; t.stage
+       OR (p.stage = t.stage AND p.sequence_no &gt;= t.sequence_no)
+       OR (t.is_enabled = 1 AND p.is_enabled = 0)
+    ORDER BY d.task_name;
+    IF @bad IS NOT NULL
+    BEGIN
+        SET @msg = CONCAT('Invalid dependency (unknown task, later stage, wrong order or disabled prerequisite): ', @bad);
+        THROW 50005, @msg, 1;
+    END;
+END;</code></pre>
+    </details>
+    <p>Two design points. First, because every dependency must point to an earlier stage or an earlier sequence number, a cycle is impossible and no cycle check is needed. Second, rule 4 doubles as protection: the procedure name comes from a table, so insisting on <code>dbo.usp_*</code> and checking it exists stops a bad row from running arbitrary SQL. Add an inventory check (the dangling-ID query on the <a href="asset-inventory.html#use-orchestration">inventory page</a>) as a further rule once the inventory lakehouse exists.</p>
+    <div class="callout note"><p class="callout-title">Dependencies inside a parallel stage</p>
+      <p>The guard allows a dependency within a stage only when the prerequisite has a lower <code>sequence_no</code>. That is meaningful in a sequential stage. In a parallel stage nothing orders the tasks, so put dependent tasks in a later stage.</p></div>
+
+    <h4 id="proc-sync">usp_sync_object_ids</h4>
+    <p>Looks up each task's workspace ID and item ID in the inventory by name and writes them to the control table. People edit names, which are stable and reviewable; IDs, which differ between environments, are derived. The procedure uses <code>MERGE</code>, because the Warehouse documents <code>UPDATE</code> as single-table only.</p>
+<pre data-title="dbo.usp_sync_object_ids (T-SQL)"><code class="language-sql">CREATE OR ALTER PROCEDURE dbo.usp_sync_object_ids
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    MERGE ctl.control_table AS t
+    USING (
+        SELECT workspace_name,
+               item_name,
+               CASE item_type WHEN 'DataPipeline' THEN 'Pipeline' ELSE item_type END AS task_type,
+               LOWER(item_id)      AS item_id,
+               LOWER(workspace_id) AS workspace_id
+        FROM LH_ORCH_HUB_Inventory.dbo.fabric_inventory
+        WHERE item_type IN ('Notebook', 'DataPipeline')
+    ) AS s
+    ON  t.task_type      = s.task_type
+    AND t.workspace_name = s.workspace_name
+    AND t.object_name    = s.item_name
+    WHEN MATCHED
+         AND (t.object_id IS NULL OR t.object_id &lt;&gt; s.item_id
+              OR t.target_workspace_id IS NULL OR t.target_workspace_id &lt;&gt; s.workspace_id)
+    THEN UPDATE SET
+         object_id           = s.item_id,
+         target_workspace_id = s.workspace_id,
+         modified_at_utc     = SYSUTCDATETIME();
+END;</code></pre>
+    <ul>
+      <li>The inventory lakehouse (<code>LH_ORCH_HUB_Inventory</code>) must be in the same workspace as the Warehouse so a three-part name can reach it. Add it to the Explorer with <strong>+ Warehouses</strong> before creating the procedure.</li>
+      <li>Names match case-sensitively under the Warehouse's default collation.</li>
+      <li>If two inventory rows match one task (for example two workspaces with the same display name), <code>MERGE</code> raises an error about multiple matches. That is the right outcome; make the names unique.</li>
+      <li>Stored-procedure rows never match, because the inventory only holds items.</li>
+    </ul>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p>
+      <p>Cross-database reads with three-part names within one workspace and <code>MERGE</code> are both documented, but the pages do not show them combined. If your Warehouse rejects the cross-database source inside <code>MERGE</code>, first copy the inventory rows into a local staging table with <code>INSERT ... SELECT</code> and merge from that. See <a href="https://learn.microsoft.com/fabric/data-warehouse/query-warehouse">Query the Warehouse</a>.</p></div>
+    <p>If you have not built the inventory yet, skip this procedure and set the IDs by hand after seeding (shown in step 2).</p>
+
+    <h3 id="views">Status views</h3>
+    <p>Three views turn the event stream into status. Each is a separate batch.</p>
+<pre data-title="ctl.vw_task_last_status_per_run (T-SQL)"><code class="language-sql">CREATE OR ALTER VIEW ctl.vw_task_last_status_per_run
+AS
+SELECT x.run_id,
+       x.task_name,
+       x.stage,
+       x.activity,
+       x.event          AS last_event,
+       x.event_time_utc AS last_event_utc,
+       x.message
+FROM (
+    SELECT l.run_id, l.task_name, l.stage, l.activity, l.event, l.event_time_utc, l.message,
+           ROW_NUMBER() OVER (
+               PARTITION BY l.run_id, l.task_name
+               ORDER BY l.event_time_utc DESC,
+                        CASE WHEN l.event = 'Started' THEN 0 ELSE 1 END DESC) AS rn
+    FROM ctl.run_log AS l
+) AS x
+WHERE x.rn = 1;</code></pre>
+<pre data-title="ctl.vw_task_run_timeline (T-SQL)"><code class="language-sql">CREATE OR ALTER VIEW ctl.vw_task_run_timeline
+AS
+SELECT s.run_id,
+       s.task_name,
+       s.stage,
+       COALESCE(b.started_utc, s.last_event_utc) AS started_utc,
+       CASE WHEN s.last_event = 'Started' THEN NULL ELSE s.last_event_utc END AS ended_utc,
+       CASE WHEN s.last_event = 'Started' THEN NULL
+            ELSE DATEDIFF(SECOND, COALESCE(b.started_utc, s.last_event_utc), s.last_event_utc) END AS duration_seconds,
+       CASE s.last_event WHEN 'Started' THEN 'Running' ELSE s.last_event END AS status,
+       s.message
+FROM ctl.vw_task_last_status_per_run AS s
+LEFT JOIN (
+    SELECT run_id, task_name, MIN(event_time_utc) AS started_utc
+    FROM ctl.run_log
+    WHERE event = 'Started'
+    GROUP BY run_id, task_name
+) AS b
+  ON b.run_id = s.run_id AND b.task_name = s.task_name;</code></pre>
+<pre data-title="ctl.vw_run_summary (T-SQL)"><code class="language-sql">CREATE OR ALTER VIEW ctl.vw_run_summary
+AS
+SELECT run_id,
+       MIN(started_utc) AS started_utc,
+       MAX(ended_utc)   AS ended_utc,
+       COUNT(*)         AS tasks_logged,
+       SUM(CASE WHEN status = 'Succeeded' THEN 1 ELSE 0 END) AS succeeded,
+       SUM(CASE WHEN status = 'Failed'    THEN 1 ELSE 0 END) AS failed,
+       SUM(CASE WHEN status = 'Skipped'   THEN 1 ELSE 0 END) AS skipped,
+       SUM(CASE WHEN status = 'Running'   THEN 1 ELSE 0 END) AS running,
+       CASE WHEN SUM(CASE WHEN status = 'Failed'  THEN 1 ELSE 0 END) &gt; 0 THEN 'Failed'
+            WHEN SUM(CASE WHEN status = 'Running' THEN 1 ELSE 0 END) &gt; 0 THEN 'Running'
+            ELSE 'Succeeded' END AS run_status
+FROM ctl.vw_task_run_timeline
+GROUP BY run_id;</code></pre>
+    <p>A run that is between stages has no task in <code>Running</code> state for a moment, so <code>vw_run_summary</code> can briefly show <code>Succeeded</code> for a run that is still going. For pipeline-level state use the Monitor hub, or compare the number of logged tasks with the number of enabled tasks.</p>
+
+    <h3 id="warehouse-rules">Warehouse behaviors that shaped these scripts</h3>
+    <p>If you adapt scripts from SQL Server or Azure SQL, expect these differences.</p>
+    <table>
+      <thead><tr><th>Behavior</th><th>What the scripts do about it</th></tr></thead>
+      <tbody>
+        <tr><td>Primary key and unique constraints are accepted only as <code>NOT ENFORCED</code>.</td><td>A guard procedure checks uniqueness before every run.</td></tr>
+        <tr><td>No <code>nvarchar</code>, <code>tinyint</code> or <code>datetime</code> columns. <code>uniqueidentifier</code> values cannot be read through a SQL analytics endpoint.</td><td>Text is <code>VARCHAR</code>, flags are <code>BIT</code>, times are <code>DATETIME2(6)</code> and IDs are <code>VARCHAR(36)</code>.</td></tr>
+        <tr><td>The default collation is case-sensitive.</td><td>Names compare case-sensitively and IDs are stored in lower case. A case-insensitive collation can only be chosen when the Warehouse is created, through the workspace default collation setting or the REST API, and cannot be changed afterwards.</td></tr>
+        <tr><td><code>ALTER TABLE ... ADD</code> accepts nullable columns only.</td><td>New configuration columns are added as nullable and given a default in the pipeline expression or the dispatcher.</td></tr>
+        <tr><td><code>UPDATE</code> supports a single table without a <code>FROM</code> clause. <code>MERGE</code> is available.</td><td>The sync procedure uses <code>MERGE</code>.</td></tr>
+        <tr><td>Snapshot isolation with table-level conflict detection: concurrent <code>UPDATE</code>, <code>DELETE</code>, <code>MERGE</code> or <code>TRUNCATE</code> on one table can fail.</td><td>The run log only inserts. Procedures that modify shared tables run in a sequential stage.</td></tr>
+        <tr><td>No triggers, and no sequences.</td><td>The log needs no surrogate key. Ordering comes from the event timestamp.</td></tr>
+        <tr><td>Queries that mix system catalog views and user tables are not supported.</td><td>The guard calls <code>OBJECT_ID()</code> instead of joining <code>sys.procedures</code>.</td></tr>
+      </tbody>
+    </table>
+    <p>Adding a column to the control table later is a nullable <code>ALTER TABLE ... ADD</code>, which is fine in the Warehouse. If you keep the Warehouse in Git, read the source-control limitations for adding columns and constraints first.</p>
+
+    <h2 id="seed">Step 2: seed the control table</h2>
+    <p>The seed script is idempotent: it deletes the five example rows by name and inserts them again inside one transaction, so you can run it repeatedly. It holds <strong>names, not IDs</strong>. IDs are filled in afterwards by the sync procedure, which is what keeps one script valid for development, test and production.</p>
+    <p>Replace <code>alerts@example.com</code> with your team's shared mailbox or distribution list.</p>
+<pre data-title="seed the five example tasks (T-SQL)"><code class="language-sql">DECLARE @now DATETIME2(6) = SYSUTCDATETIME();
+DECLARE @version INT = 1;
+DECLARE @notify VARCHAR(1024) = 'alerts@example.com';
+
+BEGIN TRANSACTION;
+
+DELETE FROM ctl.task_dependency
+WHERE task_name IN ('ingest_customers', 'ingest_products', 'transform_sales', 'create_snapshot', 'archive_data');
+
+DELETE FROM ctl.control_table
+WHERE task_name IN ('ingest_customers', 'ingest_products', 'transform_sales', 'create_snapshot', 'archive_data');
+
+-- Stage 1: ingests, run in parallel
+INSERT INTO ctl.control_table
+    (task_id, task_name, task_type, stage, sequence_no, is_enabled, workspace_name, object_name,
+     object_id, target_workspace_id, parameters_json, timeout_minutes, max_attempts, notify_to,
+     config_version, created_at_utc, modified_at_utc)
+VALUES
+    ('T1', 'ingest_customers', 'Notebook', 1, 1, 1, 'DEV_SALES_BRZ', 'NB_SALES_BRZ_IngestCustomers',
+     NULL, NULL, '{"load_mode":"incremental"}', 60, 2, @notify, @version, @now, @now),
+    ('T2', 'ingest_products',  'Notebook', 1, 2, 1, 'DEV_SALES_BRZ', 'NB_SALES_BRZ_IngestProducts',
+     NULL, NULL, '{"load_mode":"incremental"}', 60, 2, @notify, @version, @now, @now);
+
+-- Stage 2: transform, after both ingests
+INSERT INTO ctl.control_table
+    (task_id, task_name, task_type, stage, sequence_no, is_enabled, workspace_name, object_name,
+     object_id, target_workspace_id, parameters_json, timeout_minutes, max_attempts, notify_to,
+     config_version, created_at_utc, modified_at_utc)
+VALUES
+    ('T3', 'transform_sales', 'Notebook', 2, 1, 1, 'DEV_SALES_SLV', 'NB_SALES_SLV_TransformSales',
+     NULL, NULL, '{"window_days":7}', 120, 2, @notify, @version, @now, @now);
+
+-- Stage 3: stored procedures in the hub Warehouse, run in sequence
+INSERT INTO ctl.control_table
+    (task_id, task_name, task_type, stage, sequence_no, is_enabled, workspace_name, object_name,
+     object_id, target_workspace_id, parameters_json, timeout_minutes, max_attempts, notify_to,
+     config_version, created_at_utc, modified_at_utc)
+VALUES
+    ('T4', 'create_snapshot', 'StoredProcedure', 3, 1, 1, NULL, 'dbo.usp_create_snapshot',
+     NULL, NULL, NULL, NULL, NULL, @notify, @version, @now, @now),
+    ('T5', 'archive_data',    'StoredProcedure', 3, 2, 1, NULL, 'dbo.usp_archive_data',
+     NULL, NULL, NULL, NULL, NULL, @notify, @version, @now, @now);
+
+INSERT INTO ctl.task_dependency (task_name, depends_on_task_name, created_at_utc)
+VALUES
+    ('transform_sales', 'ingest_customers', @now),
+    ('transform_sales', 'ingest_products',  @now),
+    ('create_snapshot', 'transform_sales',  @now),
+    ('archive_data',    'create_snapshot',  @now);
+
+COMMIT TRANSACTION;</code></pre>
+    <h3 id="resolve-ids">Resolve the IDs</h3>
+    <p>With the inventory in place, resolve and validate in one go:</p>
+<pre data-title="resolve IDs, then run the guard (T-SQL)"><code class="language-sql">EXEC dbo.usp_sync_object_ids;
+EXEC dbo.usp_validate_control_table;
+
+SELECT stage, sequence_no, task_name, task_type, workspace_name, object_name, object_id, target_workspace_id
+FROM ctl.control_table
+WHERE is_enabled = 1
+ORDER BY stage, sequence_no, task_name;</code></pre>
+    <p>The guard finishes without an error, and the notebook rows now carry lower-case GUIDs. If the guard throws, it names the task to fix.</p>
+    <p>If you have no inventory yet, set the IDs by hand. Take them from the item's URL in the browser or from the inventory notebook's output. The values below are placeholders:</p>
+<pre data-title="set IDs by hand (T-SQL)"><code class="language-sql">UPDATE ctl.control_table
+SET object_id = '00000000-0000-0000-0000-000000000001',
+    target_workspace_id = '00000000-0000-0000-0000-000000000011',
+    modified_at_utc = SYSUTCDATETIME()
+WHERE task_name = 'ingest_customers';
+
+UPDATE ctl.control_table
+SET object_id = '00000000-0000-0000-0000-000000000002',
+    target_workspace_id = '00000000-0000-0000-0000-000000000011',
+    modified_at_utc = SYSUTCDATETIME()
+WHERE task_name = 'ingest_products';
+
+UPDATE ctl.control_table
+SET object_id = '00000000-0000-0000-0000-000000000003',
+    target_workspace_id = '00000000-0000-0000-0000-000000000010',
+    modified_at_utc = SYSUTCDATETIME()
+WHERE task_name = 'transform_sales';</code></pre>
+    <p>The seeded plan, as the master pipeline will read it:</p>
+    <table>
+      <thead><tr><th>Stage</th><th>Seq</th><th>Task</th><th>Type</th><th>Target</th><th>Runs</th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td>1</td><td><code>ingest_customers</code></td><td>Notebook</td><td><code>NB_SALES_BRZ_IngestCustomers</code></td><td rowspan="2">In parallel</td></tr>
+        <tr><td>1</td><td>2</td><td><code>ingest_products</code></td><td>Notebook</td><td><code>NB_SALES_BRZ_IngestProducts</code></td></tr>
+        <tr><td>2</td><td>1</td><td><code>transform_sales</code></td><td>Notebook</td><td><code>NB_SALES_SLV_TransformSales</code></td><td>After stage 1 succeeds</td></tr>
+        <tr><td>3</td><td>1</td><td><code>create_snapshot</code></td><td>StoredProcedure</td><td><code>dbo.usp_create_snapshot</code></td><td rowspan="2">In sequence</td></tr>
+        <tr><td>3</td><td>2</td><td><code>archive_data</code></td><td>StoredProcedure</td><td><code>dbo.usp_archive_data</code></td></tr>
+      </tbody>
+    </table>
+
+    <h3 id="day-two">Changing the plan later</h3>
+    <p>After the engine exists, the plan changes with data entry. Each of these is a single-table statement:</p>
+<pre data-title="day-two changes (T-SQL)"><code class="language-sql">-- switch a task off without deleting it
+UPDATE ctl.control_table
+SET is_enabled = 0, modified_at_utc = SYSUTCDATETIME()
+WHERE task_name = 'archive_data';
+
+-- move a task to another stage
+UPDATE ctl.control_table
+SET stage = 3, sequence_no = 3, modified_at_utc = SYSUTCDATETIME()
+WHERE task_name = 'transform_sales';</code></pre>
+    <p>Keep the seed script in source control and treat direct edits in production as emergency changes: record them in the script afterwards, bump <code>config_version</code>, and rerun the guard.</p>
+    <div class="callout warning"><p class="callout-title">Resolve IDs at sync time, not at run time</p>
+      <p>Do not look up IDs from the inventory inside the master pipeline. An inventory that is a few hours old, or briefly empty during a refresh, would then fail or mis-route a run. Sync into the control table on a schedule or after a deployment, run the guard, and let the pipeline read only the control table.</p></div>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p><ul>
+      <li>Turn every orchestrated script into a re-runnable procedure that rethrows errors; test the failure path by hand.</li>
+      <li>Keep configuration and history apart: the control table holds intent, the append-only run log holds facts, and views derive status.</li>
+      <li>Do not trust <code>NOT ENFORCED</code> constraints. Run the guard procedure at the start of every run.</li>
+      <li>Seed names and derive IDs per environment with the sync procedure, so one seed script serves development, test and production.</li>
+      <li>Write the log through a procedure with typed parameters; never build log SQL from error text.</li>
+    </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/fabric/data-warehouse/tsql-surface-area">T-SQL surface area in Fabric Data Warehouse</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-warehouse/data-types">Data types in Fabric Data Warehouse</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-warehouse/tables">Tables in Fabric Data Warehouse (constraints)</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-warehouse/transactions">Transactions in Fabric Data Warehouse</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-warehouse/collation">Collation in Fabric Data Warehouse</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-warehouse/query-warehouse">Query the Warehouse (cross-database queries)</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-warehouse/source-control">Source control with Warehouse</a></li>
+        <li><a href="https://learn.microsoft.com/sql/t-sql/statements/create-procedure-transact-sql?view=fabric">CREATE PROCEDURE (Fabric)</a></li>
+        <li><a href="https://learn.microsoft.com/sql/t-sql/statements/create-view-transact-sql?view=fabric">CREATE VIEW (Fabric)</a></li>
+        <li><a href="https://learn.microsoft.com/sql/t-sql/statements/merge-transact-sql?view=fabric">MERGE (Fabric)</a></li>
+        <li><a href="https://learn.microsoft.com/sql/t-sql/language-elements/throw-transact-sql?view=fabric">THROW (Fabric)</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Report design and performance · Report Dev Standards</title>
+<meta name="description" content="Design reports that are consistent, accessible and fast: layout and theme rules, a visual budget, query reduction settings, a Performance Analyzer triage path and the optimization levers that matter.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="12-power-bi-report-development" data-page="report-design.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+
+    <header class="page-header">
+      <p class="eyebrow">Playbook 12 · Power BI Report Development Standards</p>
+      <h1>Report design and performance</h1>
+      <p class="lede">A report is a set of queries with a layout on top. Design it so the number of queries is small and predictable, the layout is consistent across the estate, and anyone can use it. When it is still slow, measure which of four time buckets is responsible before changing anything.</p>
+    </header>
+
+    <h2 id="layout">Layout, theme and consistency</h2>
+    <p>Consistency is the cheapest quality control a report team has. A reader who learns where filters, headline numbers and detail live in one report can use the next one without help, and a reviewer can check a report against a template instead of against taste.</p>
+    <table>
+      <thead><tr><th>Standard</th><th>Rule</th><th>Reason</th></tr></thead>
+      <tbody>
+        <tr><td><strong>One theme</strong></td><td>Ship a single theme file (colors, fonts, visual defaults) and apply it to every report with <strong>View &gt; Themes &gt; Browse for themes</strong>. Keep the file in the repository next to the reports.</td><td>Brand and accessibility decisions are made once. In a PBIR project the theme resource sits under the report's registered resources, so a corporate theme change can be applied across many reports by script.</td></tr>
+        <tr><td><strong>Fixed page grid</strong></td><td>Same page size, header band, filter placement and margin on every page. Headline cards across the top, supporting visuals below, one detail area at most.</td><td>Predictable scanning and predictable alignment; fewer pixel-nudging edits in review.</td></tr>
+        <tr><td><strong>Titles state the question</strong></td><td>"Sales by region, last 12 months", not "Sales Amount by Region".</td><td>Titles are the first thing a screen reader announces and the first thing a reader scans.</td></tr>
+        <tr><td><strong>Consistent slicers</strong></td><td>Same type, position, font and size on every page; sync slicers across pages deliberately.</td><td>Learn lists slicer consistency in its accessibility checklist; it also prevents a reader from thinking a filter applies when it does not.</td></tr>
+        <tr><td><strong>Semantic color</strong></td><td>One color per meaning (good, bad, neutral, target) used identically on every page.</td><td>Reduces legend reading and supports color-blind readers when combined with labels or icons.</td></tr>
+        <tr><td><strong>No decoration that costs queries</strong></td><td>Skip images, shapes and background art that duplicate what the theme does. Prefer native visuals; put each custom visual through the same performance test as a native one.</td><td>A poorly optimized custom visual can slow the whole report.</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="accessibility">Accessibility</h2>
+    <p>Power BI gives you the features; accessibility is the author's responsibility. Treat the items below as acceptance criteria, not polish.</p>
+    <ul class="checklist">
+      <li>Text and data labels have at least 4.5:1 contrast against their background; use fewer, higher-contrast colors rather than many pale ones.</li>
+      <li>Color is never the only carrier of meaning: add a label, icon or pattern.</li>
+      <li>Every non-decorative visual has alt text that states the insight to take away. Screen readers already announce the title and visual type, so do not repeat them.</li>
+      <li>Text boxes put their content in alt text as well, so screen readers can read it.</li>
+      <li>Tab order follows reading order, and the whole report can be operated with the keyboard, including bookmark navigation.</li>
+      <li>Key information is not reachable only through a click or a filter: pre-filter so the main conclusion is visible on load.</li>
+      <li>No unexplained jargon or acronyms in titles and labels.</li>
+    </ul>
+
+    <h2 id="mobile">Mobile layout</h2>
+    <p>Mobile is a separate canvas, not a shrunk copy. Open it from the <strong>View</strong> ribbon (<strong>Mobile layout</strong>), then either let Desktop auto-create a layout and curate it, or drag visuals in yourself. Auto-create reads the page left to right from the top, so a page that depends on a left-hand navigation column translates poorly.</p>
+    <ul>
+      <li>Include only the visuals people actually need on a phone. A mobile page that mirrors a ten-visual desktop page defeats the purpose.</li>
+      <li>Order visuals top to bottom by importance, because the phone layout is a single scrolling column.</li>
+      <li>Size each visual so its contents are not cut off and you avoid nested scroll bars.</li>
+      <li>Formatting changes in the mobile layout do not change the desktop view, and tooltips are disabled there, so do not rely on hover for meaning.</li>
+    </ul>
+
+    <h2 id="interaction">Bookmarks, drillthrough and tooltips</h2>
+    <ul>
+      <li><strong>Drillthrough</strong> sends a reader from a summary to a detail page filtered to what they selected. It is the default way to give detail without putting detail on the first page. Field parameters cannot be the linked field of a drillthrough page; use the underlying fields.</li>
+      <li><strong>Report page tooltips</strong> give a small contextual visual on hover. Keep them light: a tooltip page runs queries too.</li>
+      <li><strong>Bookmarks</strong> capture the state of a page, including filters and selections. Use them for views (an executive and an analyst view), not as a substitute for page navigation or security. Name and group them; a bookmark saved against a field that is later renamed will break.</li>
+      <li><strong>Persisted values.</strong> In a PBIR project, filter values, slicer selections and similar state are stored in the report files. If a filter selects a specific customer name, that name is in the repository. Do not save a bookmark with sensitive selections.</li>
+    </ul>
+
+    <h2 id="visual-budget">Set a visual budget</h2>
+    <p>Every visual on a page issues at least one query when the page loads and again when a filter changes. Microsoft's optimization guidance is plain: limit the visuals on a page to what is necessary and use drillthrough pages and report tooltips for the rest. It publishes no numeric limit.</p>
+    <div class="callout warning"><p class="callout-title">A number you may have been given</p>
+      <p>Some internal guidance quotes a figure such as "10 to 20 fields per visual" as a Microsoft recommendation. No such figure appears in the current Microsoft optimization or visualization guidance. Treat any numeric budget as a house heuristic you set and review, and base it on what Performance Analyzer shows for your model.</p></div>
+    <p>A workable house heuristic, to adapt: one row of headline cards, two to four supporting visuals, and at most one detail table per page, with the detail table filtered by default (for example with a Top N filter) rather than listing every row. If a page needs more, split it or move the detail behind drillthrough.</p>
+
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 290" role="img" aria-label="Left: sixteen visuals on one page all refresh together on every slicer change. Right: a summary page with six visuals and a detail page that loads only when the reader drills through">
+        <defs>
+          <marker id="fig-rd-2-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-rd-2-ag" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="zone red" x="20" y="36" width="410" height="240" rx="12"/>
+        <text class="t-h" x="36" y="58">Everything on one page</text>
+        <rect class="box plain" x="40" y="70" width="250" height="170" rx="6"/>
+        <rect class="box blue" x="52" y="82" width="52" height="30" rx="4"/>
+        <rect class="box blue" x="110" y="82" width="52" height="30" rx="4"/>
+        <rect class="box blue" x="168" y="82" width="52" height="30" rx="4"/>
+        <rect class="box blue" x="226" y="82" width="52" height="30" rx="4"/>
+        <rect class="box blue" x="52" y="120" width="52" height="30" rx="4"/>
+        <rect class="box blue" x="110" y="120" width="52" height="30" rx="4"/>
+        <rect class="box blue" x="168" y="120" width="52" height="30" rx="4"/>
+        <rect class="box blue" x="226" y="120" width="52" height="30" rx="4"/>
+        <rect class="box blue" x="52" y="158" width="52" height="30" rx="4"/>
+        <rect class="box blue" x="110" y="158" width="52" height="30" rx="4"/>
+        <rect class="box blue" x="168" y="158" width="52" height="30" rx="4"/>
+        <rect class="box blue" x="226" y="158" width="52" height="30" rx="4"/>
+        <rect class="box blue" x="52" y="196" width="52" height="30" rx="4"/>
+        <rect class="box blue" x="110" y="196" width="52" height="30" rx="4"/>
+        <rect class="box blue" x="168" y="196" width="52" height="30" rx="4"/>
+        <rect class="box blue" x="226" y="196" width="52" height="30" rx="4"/>
+        <path class="ln" d="M290 155H318" marker-end="url(#fig-rd-2-a)"/>
+        <rect class="box red" x="320" y="100" width="100" height="110" rx="8"/>
+        <text class="t-lg" x="370" y="134" text-anchor="middle">16</text>
+        <text class="t-s" x="370" y="156" text-anchor="middle">visual queries</text>
+        <text class="t-s" x="370" y="172" text-anchor="middle">per slicer</text>
+        <text class="t-s" x="370" y="188" text-anchor="middle">change</text>
+        <text class="t-s" x="165" y="262" text-anchor="middle">All visuals refresh together</text>
+        <rect class="zone green" x="470" y="36" width="410" height="240" rx="12"/>
+        <text class="t-h" x="486" y="58">Summary plus drillthrough</text>
+        <rect class="box plain" x="490" y="70" width="150" height="170" rx="6"/>
+        <rect class="box green" x="500" y="84" width="60" height="36" rx="4"/>
+        <rect class="box green" x="570" y="84" width="60" height="36" rx="4"/>
+        <rect class="box green" x="500" y="128" width="60" height="36" rx="4"/>
+        <rect class="box green" x="570" y="128" width="60" height="36" rx="4"/>
+        <rect class="box green" x="500" y="172" width="60" height="36" rx="4"/>
+        <rect class="box green" x="570" y="172" width="60" height="36" rx="4"/>
+        <path class="ln green" d="M640 155H718" marker-end="url(#fig-rd-2-ag)"/>
+        <rect class="pill-bg" x="650" y="136" width="60" height="16"/>
+        <text class="t-s" x="680" y="148" text-anchor="middle">on demand</text>
+        <rect class="box green" x="720" y="110" width="140" height="90" rx="8"/>
+        <text class="t-b" x="790" y="142" text-anchor="middle">Detail page</text>
+        <text class="t-s" x="790" y="162" text-anchor="middle">one filtered table,</text>
+        <text class="t-s" x="790" y="178" text-anchor="middle">queried when opened</text>
+        <text class="t-s" x="675" y="262" text-anchor="middle">Six queries on load; detail only when asked</text>
+      </svg>
+      <figcaption><b>Detail on demand.</b> The numbers are illustrative. What matters is the shape: a crowded page pays for every visual on every interaction, while drillthrough pays for detail only when someone asks for it.</figcaption>
+    </figure>
+
+    <h2 id="query-reduction">Query reduction settings</h2>
+    <p>Query reduction trades some immediacy for fewer queries. It matters most for DirectQuery sources and for pages with many slicers. For a fast Import or Direct Lake model on a modest page, the default interactive behavior is usually right, so apply it where Performance Analyzer shows a problem.</p>
+    <p>Open <strong>File &gt; Options and settings &gt; Options &gt; Current File &gt; Query reduction</strong>. The settings are stored per report:</p>
+    <table>
+      <thead><tr><th>Group</th><th>Setting</th><th>Guidance</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Reduce number of queries sent by</strong></td><td>Disabling cross highlighting/filtering by default</td><td>Turn on for DirectQuery or heavy pages. Authors can still enable an interaction between two visuals deliberately. Choose it when you first build the report, because changing it later alters behavior readers already know.</td></tr>
+        <tr><td><strong>Slicers</strong></td><td>Add an Apply button to each individual slicer</td><td>Labelled "not recommended". Add one <strong>Apply all slicers</strong> button to the page instead (<strong>Insert &gt; Buttons &gt; Apply all slicers</strong>, or the Buttons menu when editing in the service), usually with a Clear all slicers button beside it.</td></tr>
+        <tr><td><strong>Filters</strong></td><td>Instantly apply basic filter changes, or Apply buttons on basic filters, or a single Apply button on the filter pane</td><td>The single Apply button in the filter pane is the usual choice for heavy reports. It is a report-level setting that you configure in Desktop.</td></tr>
+      </tbody>
+    </table>
+    <p>The <strong>Optimize</strong> ribbon bundles these as presets. <strong>Query reduction</strong> turns off cross-highlighting and cross-filtering and adds an Apply button to the filter pane. <strong>Interactivity</strong> is the default and allows cross-filtering and live slicer changes. <strong>Customize</strong> opens the dialog above. The same ribbon has <strong>Pause visuals</strong>, which stops queries while you rearrange fields so authoring is not slowed by every change; remember to resume before you test.</p>
+
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 260" role="img" aria-label="With instant slicers, each of three slicer changes triggers twelve visual queries for a total of thirty-six; with an Apply all slicers button the three changes are batched into one set of twelve queries">
+        <defs>
+          <marker id="fig-rd-3-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-rd-3-ag" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="lane" x="20" y="30" width="860" height="100" rx="10"/>
+        <text class="t-b" x="36" y="54">Instant slicers</text>
+        <rect class="box" x="40" y="70" width="90" height="40" rx="8"/>
+        <text class="t-b" x="85" y="95" text-anchor="middle">Slicer 1</text>
+        <path class="ln" d="M130 90H170" marker-end="url(#fig-rd-3-a)"/>
+        <rect class="box red" x="172" y="70" width="100" height="40" rx="8"/>
+        <text class="t-b" x="222" y="95" text-anchor="middle">12 queries</text>
+        <rect class="box" x="290" y="70" width="90" height="40" rx="8"/>
+        <text class="t-b" x="335" y="95" text-anchor="middle">Slicer 2</text>
+        <path class="ln" d="M380 90H420" marker-end="url(#fig-rd-3-a)"/>
+        <rect class="box red" x="422" y="70" width="100" height="40" rx="8"/>
+        <text class="t-b" x="472" y="95" text-anchor="middle">12 queries</text>
+        <rect class="box" x="540" y="70" width="90" height="40" rx="8"/>
+        <text class="t-b" x="585" y="95" text-anchor="middle">Slicer 3</text>
+        <path class="ln" d="M630 90H670" marker-end="url(#fig-rd-3-a)"/>
+        <rect class="box red" x="672" y="70" width="100" height="40" rx="8"/>
+        <text class="t-b" x="722" y="95" text-anchor="middle">12 queries</text>
+        <text class="t-h" x="826" y="95" text-anchor="middle">= 36</text>
+        <rect class="lane" x="20" y="150" width="860" height="100" rx="10"/>
+        <text class="t-b" x="36" y="174">Apply all slicers button</text>
+        <rect class="box" x="40" y="190" width="90" height="40" rx="8"/>
+        <text class="t-b" x="85" y="215" text-anchor="middle">Slicer 1</text>
+        <rect class="box" x="150" y="190" width="90" height="40" rx="8"/>
+        <text class="t-b" x="195" y="215" text-anchor="middle">Slicer 2</text>
+        <rect class="box" x="260" y="190" width="90" height="40" rx="8"/>
+        <text class="t-b" x="305" y="215" text-anchor="middle">Slicer 3</text>
+        <path class="ln green" d="M350 210H398" marker-end="url(#fig-rd-3-ag)"/>
+        <text class="t-s" x="374" y="203" text-anchor="middle">click</text>
+        <rect class="box accent" x="400" y="190" width="120" height="40" rx="8"/>
+        <text class="t-b t-w" x="460" y="215" text-anchor="middle">Apply all</text>
+        <path class="ln green" d="M520 210H568" marker-end="url(#fig-rd-3-ag)"/>
+        <rect class="box green" x="570" y="190" width="100" height="40" rx="8"/>
+        <text class="t-b" x="620" y="215" text-anchor="middle">12 queries</text>
+        <text class="t-h" x="826" y="215" text-anchor="middle">= 12</text>
+      </svg>
+      <figcaption><b>Batching slicer changes.</b> Illustrative arithmetic for a page with twelve visuals and three slicer changes. Microsoft's own example for the Apply all slicers button cuts a page from 66 visual queries to six.</figcaption>
+    </figure>
+
+    <h2 id="performance-analyzer">Measure with Performance Analyzer</h2>
+    <p>Do not tune by intuition. Performance Analyzer records, for each visual, how long each stage took, so you can see whether the DAX, the visual or the queue is the problem.</p>
+    <ol class="steps">
+      <li><strong>Open it</strong><p>In Desktop, <strong>Optimize &gt; Performance analyzer</strong> (also on the View ribbon). When editing a report in the service, <strong>View &gt; Performance analyzer</strong>.</p></li>
+      <li><strong>Record a real interaction</strong><p>Select <strong>Start recording</strong>, then do what a reader does: open the page, change a slicer, click a bar. Each interaction is logged as its own section. Use <strong>Refresh visuals</strong> or <strong>Analyze this visual</strong> to re-time a page or one visual.</p></li>
+      <li><strong>Read the four buckets</strong><p>For every visual you get <strong>DAX query</strong>, <strong>Direct query</strong> (DirectQuery tables only), <strong>Visual display</strong> and <strong>Other</strong>. Field-parameter evaluation appears as a fifth bucket where it applies.</p></li>
+      <li><strong>Copy the query</strong><p>Select <strong>Copy query</strong> or <strong>Run in DAX query view</strong> to execute the visual's DAX against the model and read its result and shape. In the service, paste the copied query into DAX query view in web modeling.</p></li>
+      <li><strong>Export and compare</strong><p>Export the log as JSON before and after a change so the improvement is a number, not an impression.</p></li>
+    </ol>
+    <p>Two cautions from the documentation. Durations are the gap between a start and an end timestamp, and most canvas and visual work runs sequentially on one UI thread, so a duration includes time spent queued behind other visuals. And Desktop on your machine is not the service: confirm important findings against the published report on the real capacity, with realistic security roles applied.</p>
+
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 310" role="img" aria-label="Triage path: profile a slow visual, find which Performance Analyzer bucket is largest, then fix the measure, the source, the visual or the visual count accordingly">
+        <defs>
+          <marker id="fig-rd-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box gray" x="20" y="20" width="200" height="50" rx="10"/>
+        <text class="t-b" x="120" y="50" text-anchor="middle">Slow visual or page</text>
+        <path class="ln" d="M220 45H318" marker-end="url(#fig-rd-1-a)"/>
+        <text class="t-s" x="269" y="36" text-anchor="middle">profile</text>
+        <rect class="box purple" x="320" y="20" width="260" height="50" rx="25"/>
+        <text class="t-b" x="450" y="50" text-anchor="middle">Which time bucket dominates?</text>
+        <path class="ln" d="M450 70V110H120V148" marker-end="url(#fig-rd-1-a)"/>
+        <path class="ln" d="M450 110H340V148" marker-end="url(#fig-rd-1-a)"/>
+        <path class="ln" d="M450 110H560V148" marker-end="url(#fig-rd-1-a)"/>
+        <path class="ln" d="M450 110H780V148" marker-end="url(#fig-rd-1-a)"/>
+        <rect class="box blue" x="20" y="150" width="200" height="130" rx="10"/>
+        <text class="t-h" x="120" y="176" text-anchor="middle">DAX query</text>
+        <text class="t-s" x="120" y="200" text-anchor="middle">Measure or model is heavy</text>
+        <text class="t-s" x="120" y="218" text-anchor="middle">Use variables, drop nested</text>
+        <text class="t-s" x="120" y="236" text-anchor="middle">iterators, check cardinality</text>
+        <text class="t-s" x="120" y="254" text-anchor="middle">and relationships</text>
+        <rect class="box gray" x="240" y="150" width="200" height="130" rx="10"/>
+        <text class="t-h" x="340" y="176" text-anchor="middle">Direct query</text>
+        <text class="t-s" x="340" y="200" text-anchor="middle">The source answers slowly</text>
+        <text class="t-s" x="340" y="218" text-anchor="middle">Pre-aggregate in Gold, add</text>
+        <text class="t-s" x="340" y="236" text-anchor="middle">aggregations, cut the number</text>
+        <text class="t-s" x="340" y="254" text-anchor="middle">of queries sent</text>
+        <rect class="box orange" x="460" y="150" width="200" height="130" rx="10"/>
+        <text class="t-h" x="560" y="176" text-anchor="middle">Visual display</text>
+        <text class="t-s" x="560" y="200" text-anchor="middle">Too many marks or a heavy</text>
+        <text class="t-s" x="560" y="218" text-anchor="middle">custom visual: apply Top N,</text>
+        <text class="t-s" x="560" y="236" text-anchor="middle">simplify, or swap the visual</text>
+        <rect class="box orange" x="680" y="150" width="200" height="130" rx="10"/>
+        <text class="t-h" x="780" y="176" text-anchor="middle">Other</text>
+        <text class="t-s" x="780" y="200" text-anchor="middle">The visual waits in a queue</text>
+        <text class="t-s" x="780" y="218" text-anchor="middle">Cut the visual count, add an</text>
+        <text class="t-s" x="780" y="236" text-anchor="middle">Apply all slicers button, move</text>
+        <text class="t-s" x="780" y="254" text-anchor="middle">detail to drillthrough</text>
+      </svg>
+      <figcaption><b>Triage.</b> The fix depends on the bucket. Rewriting DAX when the time is in Visual display or Other changes nothing, which is the most common wasted effort in report tuning.</figcaption>
+    </figure>
+
+    <div class="callout tip"><p class="callout-title">Go deeper with external tools</p>
+      <p>Performance Analyzer shows the report side. For server timings, query plans and model size by column, use an external tool such as DAX Studio, or Tabular Editor with its best-practice analyzer, against the model. They attach to the open Desktop model and to models in a workspace through the XMLA endpoint. The external tools page on Learn lists how they integrate.</p></div>
+
+    <h2 id="optimization">Optimization levers</h2>
+    <p>Most slow reports are slow for one of a handful of reasons. The table orders the levers by how often they pay off on a Fabric platform.</p>
+    <table>
+      <thead><tr><th>Lever</th><th>Applies to</th><th>What to do</th><th>Trade-off</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Pre-aggregate upstream</strong></td><td>All modes; the main option for Direct Lake</td><td>Build summary tables in the Gold layer for the grains reports actually use, and point headline visuals at them.</td><td>More tables to maintain; define the grain and owner for each.</td></tr>
+        <tr><td><strong>User-defined aggregations</strong></td><td>Import aggregation tables over DirectQuery, composite models</td><td>Hold a summarized Import table that answers common queries and falls through to the detail table otherwise.</td><td>Not supported on Direct Lake tables. Adds model complexity.</td></tr>
+        <tr><td><strong>Reduce cardinality</strong></td><td>Import and Direct Lake</td><td>Split date-time into a date and a time (or hour) column, remove GUIDs and free text from the model, use integer keys, drop unused columns and old rows.</td><td>Needs the data team to agree on what is safe to remove.</td></tr>
+        <tr><td><strong>Avoid bidirectional relationships</strong></td><td>All</td><td>Single direction from dimensions to facts; use measures with <code>CROSSFILTER</code> where a one-off reverse filter is needed.</td><td>Some slicer behaviors need a bridge table instead of a single switch.</td></tr>
+        <tr><td><strong>Replace calculated columns</strong></td><td>Import</td><td>Compute in the Gold layer or Power Query; use measures for anything that should respond to filters.</td><td>Calculated columns consume memory and are not available on Direct Lake on SQL endpoints.</td></tr>
+        <tr><td><strong>Incremental refresh</strong></td><td>Import</td><td>Refresh only recent partitions of large fact tables.</td><td>Direct Lake has no model partitions; partition and maintain the Delta table instead (see <a href="../08-delta-partitioning/index.html">Delta Lake partitioning</a>).</td></tr>
+        <tr><td><strong>Restrictive filters on visuals</strong></td><td>All</td><td>Apply Top N on tables and ranked charts, and filter the default view to what readers want first. An unfiltered table over a very large fact is the classic memory hog.</td><td>Readers who want everything need an export or a paginated report.</td></tr>
+        <tr><td><strong>Tune Delta tables for Direct Lake</strong></td><td>Direct Lake</td><td>Compact small files, keep V-Order and row-group sizes within guidance, and stay under the guardrails for your SKU.</td><td>Needs table maintenance on a schedule; see <a href="../03-medallion-architecture/index.html">Medallion Architecture</a>.</td></tr>
+        <tr><td><strong>Watch the capacity</strong></td><td>All</td><td>Use the Fabric Capacity Metrics app to see which items consume the capacity and when, not just which are slow.</td><td>A report can be fast for one user and still expensive in aggregate.</td></tr>
+      </tbody>
+    </table>
+    <p>For Direct Lake, columns are paged into memory when first queried, so the first query after a refresh or idle period can be slower than later ones. Test cold and warm, and decide whether a warm-up query is worth scheduling after refresh.</p>
+
+    <h2 id="troubleshooting">Troubleshooting</h2>
+    <table>
+      <thead><tr><th>Symptom</th><th>Likely cause</th><th>What to do</th></tr></thead>
+      <tbody>
+        <tr><td>Each visual is fast alone but the page feels slow</td><td>Too many visuals queue behind each other</td><td>Reduce the visual count, consolidate cards, move detail to drillthrough, add Apply all slicers.</td></tr>
+        <tr><td>Changing a slicer freezes the page</td><td>Instant slicers with many dependent visuals</td><td>Apply all slicers button; consider a single Apply button for the filter pane.</td></tr>
+        <tr><td>A Direct Lake report became slow after a data load</td><td>Fallback to DirectQuery on the SQL endpoint variant, or guardrails exceeded and paging, or cold columns</td><td>Check the model's Direct Lake behavior and refresh history, inspect Delta file counts and sizes, test warm.</td></tr>
+        <tr><td>Totals change when a relationship is added</td><td>New filter path or bidirectional ambiguity</td><td>Review the model diagram; prefer single direction; use <code>USERELATIONSHIP</code> for alternate paths.</td></tr>
+        <tr><td>"Can't determine relationships between the fields"</td><td>Fields from tables that are not related through a star path</td><td>Fix the model, or add a measure to the visual so the measure's filter context defines the relationship.</td></tr>
+        <tr><td>Date hierarchy disappeared</td><td>Auto date/time was switched off</td><td>Rebuild the axis on the Date table and its hierarchy.</td></tr>
+        <tr><td>Phone layout is empty or cluttered</td><td>Mobile layout not curated</td><td>Open Mobile layout, place only key visuals, order them top to bottom.</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="checklist">Report design checklist</h2>
+    <ul class="checklist">
+      <li>Theme applied from the shared file; page grid and slicer placement match the template.</li>
+      <li>Alt text on every non-decorative visual; contrast and keyboard navigation checked.</li>
+      <li>Mobile layout curated if the report is used on phones.</li>
+      <li>Visual budget respected; detail behind drillthrough or tooltip pages; tables filtered by default.</li>
+      <li>Query reduction settings chosen and recorded; Apply all slicers present on slicer-heavy pages.</li>
+      <li>Performance Analyzer log exported for the busiest page; no bucket unexplained.</li>
+      <li>No bookmarks holding sensitive selections.</li>
+    </ul>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p>
+      <ul>
+        <li>Make the page cheap before you make it clever: fewer visuals, detail on demand, a single Apply for slicers.</li>
+        <li>No published numeric limit exists for fields per visual; set your own budget and enforce it in review.</li>
+        <li>Performance Analyzer's four buckets tell you where to look. DAX is only one of them.</li>
+        <li>For Direct Lake, the biggest performance levers are in the Delta tables and the SKU guardrails, not the report.</li>
+      </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/power-bi/guidance/power-bi-optimization">Optimization guide for Power BI</a></li>
+        <li><a href="https://learn.microsoft.com/power-bi/create-reports/performance-analyzer">Use Performance Analyzer to examine report performance</a></li>
+        <li><a href="https://learn.microsoft.com/power-bi/create-reports/desktop-optimize-ribbon">Optimize ribbon in Power BI Desktop</a></li>
+        <li><a href="https://learn.microsoft.com/power-bi/create-reports/buttons-apply-all-clear-all-slicers">Create Apply all and Clear all slicers buttons</a></li>
+        <li><a href="https://learn.microsoft.com/power-bi/create-reports/desktop-accessibility-creating-reports">Design Power BI reports for accessibility</a></li>
+        <li><a href="https://learn.microsoft.com/power-bi/create-reports/power-bi-create-mobile-optimized-report-mobile-layout-view">Mobile layout view</a></li>
+        <li><a href="https://learn.microsoft.com/power-bi/create-reports/power-bi-create-mobile-optimized-report-best-practices">Best practices for mobile-optimized reports</a></li>
+        <li><a href="https://learn.microsoft.com/power-bi/guidance/import-modeling-data-reduction">Data reduction techniques for Import modeling</a></li>
+        <li><a href="https://learn.microsoft.com/power-bi/guidance/directquery-model-guidance">DirectQuery model guidance in Power BI Desktop</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/fundamentals/direct-lake-overview">Direct Lake overview</a></li>
+        <li><a href="https://learn.microsoft.com/power-bi/transform-model/desktop-external-tools">External tools in Power BI Desktop</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

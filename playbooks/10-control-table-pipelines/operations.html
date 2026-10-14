@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Operations, security and checklist · Control tables</title>
+<meta name="description" content="Run the control-table framework in production: health-check queries, monitoring and observability, troubleshooting, security, CI/CD with variable libraries and a go-live checklist.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="10-control-table-pipelines" data-page="operations.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+
+    <header class="page-header">
+      <p class="eyebrow">Playbook 10 · Half B · Production</p>
+      <h1>Operations, security and checklist</h1>
+      <p class="lede">A framework that runs well on the first day still needs someone to watch it, secure it, promote it between environments and fix it at two in the morning. This page covers the health checks to run every day, the monitoring layers, a troubleshooting table, the security model, CI/CD with variable libraries and a go-live checklist.</p>
+    </header>
+
+    <h2 id="health-checks">Quick health checks</h2>
+    <p>All of these read the run log or its views. Save them in the Warehouse query editor, or build a small report on the views. First, one more view that answers "what happened last time" for every task across all runs:</p>
+<pre data-title="ctl.vw_task_latest_status (T-SQL)"><code class="language-sql">CREATE OR ALTER VIEW ctl.vw_task_latest_status
+AS
+SELECT x.task_name, x.run_id, x.stage, x.started_utc, x.ended_utc, x.duration_seconds, x.status, x.message
+FROM (
+    SELECT t.task_name, t.run_id, t.stage, t.started_utc, t.ended_utc, t.duration_seconds, t.status, t.message,
+           ROW_NUMBER() OVER (PARTITION BY t.task_name ORDER BY t.started_utc DESC) AS rn
+    FROM ctl.vw_task_run_timeline AS t
+) AS x
+WHERE x.rn = 1;</code></pre>
+        <p class="hc-q"><strong>What is the latest status of every task, enabled or not?</strong></p>
+<pre data-title="latest status per task (T-SQL)"><code class="language-sql">SELECT c.stage, c.sequence_no, c.task_name, c.is_enabled,
+       s.status AS last_status, s.started_utc AS last_started_utc, s.duration_seconds
+FROM ctl.control_table AS c
+LEFT JOIN ctl.vw_task_latest_status AS s ON s.task_name = c.task_name
+ORDER BY c.stage, c.sequence_no, c.task_name;</code></pre>
+    <p class="hc-q"><strong>What happened in the last hour?</strong></p>
+<pre data-title="last hour of the run log (T-SQL)"><code class="language-sql">SELECT TOP (200) *
+FROM ctl.run_log
+WHERE event_time_utc &gt;= DATEADD(HOUR, -1, SYSUTCDATETIME())
+ORDER BY event_time_utc DESC;</code></pre>
+    <p class="hc-q"><strong>What failed in the last day, and why?</strong></p>
+<pre data-title="failures in the last 24 hours (T-SQL)"><code class="language-sql">SELECT run_id, task_name, event_time_utc, message
+FROM ctl.run_log
+WHERE event = 'Failed'
+  AND event_time_utc &gt;= DATEADD(HOUR, -24, SYSUTCDATETIME())
+ORDER BY event_time_utc DESC;</code></pre>
+    <p class="hc-q"><strong>Is anything running longer than its timeout?</strong></p>
+<pre data-title="stuck tasks (T-SQL)"><code class="language-sql">SELECT t.run_id, t.task_name, t.started_utc,
+       DATEDIFF(MINUTE, t.started_utc, SYSUTCDATETIME()) AS minutes_running,
+       COALESCE(c.timeout_minutes, 60) AS timeout_minutes
+FROM ctl.vw_task_run_timeline AS t
+JOIN ctl.control_table AS c ON c.task_name = t.task_name
+WHERE t.status = 'Running'
+  AND DATEDIFF(MINUTE, t.started_utc, SYSUTCDATETIME()) &gt; COALESCE(c.timeout_minutes, 60);</code></pre>
+    <p class="hc-q"><strong>Which tasks are getting slower?</strong></p>
+<pre data-title="duration by task, last 14 days (T-SQL)"><code class="language-sql">SELECT task_name, COUNT(*) AS runs, AVG(duration_seconds) AS avg_seconds, MAX(duration_seconds) AS max_seconds
+FROM ctl.vw_task_run_timeline
+WHERE status = 'Succeeded'
+  AND started_utc &gt;= DATEADD(DAY, -14, SYSUTCDATETIME())
+GROUP BY task_name
+ORDER BY avg_seconds DESC;</code></pre>
+    <p class="hc-q"><strong>Which enabled tasks have not succeeded for a week?</strong></p>
+<pre data-title="stale tasks (T-SQL)"><code class="language-sql">SELECT c.stage, c.task_name, MAX(t.started_utc) AS last_success_utc
+FROM ctl.control_table AS c
+LEFT JOIN ctl.vw_task_run_timeline AS t
+       ON t.task_name = c.task_name AND t.status = 'Succeeded'
+WHERE c.is_enabled = 1
+GROUP BY c.stage, c.task_name
+HAVING MAX(t.started_utc) IS NULL
+    OR MAX(t.started_utc) &lt; DATEADD(DAY, -7, SYSUTCDATETIME())
+ORDER BY c.stage, c.task_name;</code></pre>
+    <p class="hc-q"><strong>Do enabled tasks point at items that no longer exist?</strong> Use the dangling-ID query on the <a href="asset-inventory.html#use-orchestration">inventory page</a>, and run <code>usp_sync_object_ids</code> afterwards.</p>
+    <div class="callout note"><p class="callout-title">A Started row with no end row</p>
+      <p>A pipeline run that is cancelled or whose capacity is lost mid-task never writes an end event, so the task shows as <code>Running</code> for ever. The stuck-tasks query finds these. Treat them as failed in your reports once they are older than the task's timeout, and do not let them block anything: the overlap check on the master pipeline uses a time window for the same reason.</p></div>
+
+    <h2 id="monitoring">Monitoring and observability</h2>
+    <p>Use two layers and join them on the pipeline run ID. The run log tells you what the business process did, task by task. The platform's telemetry tells you how the pipelines and capacity behaved.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 300" role="img" aria-label="Framework data flows from the control table (intent) to the run log (facts) to status views (derived) to reports and checks; platform telemetry below, including the Monitor hub, workspace monitoring, pipeline run alerts and the capacity metrics app, is joined to the run log by the pipeline run ID">
+        <defs>
+          <marker id="op1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box purple" x="10" y="20" width="190" height="64" rx="10"/>
+        <text class="t-b" x="105" y="46" text-anchor="middle">Control table</text>
+        <text class="t-s" x="105" y="64" text-anchor="middle">intent: what should run</text>
+        <rect class="box blue" x="235" y="20" width="190" height="64" rx="10"/>
+        <text class="t-b" x="330" y="46" text-anchor="middle">Run log</text>
+        <text class="t-s" x="330" y="64" text-anchor="middle">facts: what did run</text>
+        <rect class="box gray" x="460" y="20" width="190" height="64" rx="10"/>
+        <text class="t-b" x="555" y="46" text-anchor="middle">Status views</text>
+        <text class="t-s" x="555" y="64" text-anchor="middle">derived status and timing</text>
+        <rect class="box green" x="685" y="20" width="190" height="64" rx="10"/>
+        <text class="t-b" x="780" y="46" text-anchor="middle">Reports and checks</text>
+        <text class="t-s" x="780" y="64" text-anchor="middle">stale-task and failure alerts</text>
+        <path class="ln" d="M200 52H233" marker-end="url(#op1-a)"/>
+        <path class="ln" d="M425 52H458" marker-end="url(#op1-a)"/>
+        <path class="ln" d="M650 52H683" marker-end="url(#op1-a)"/>
+        <rect class="zone" x="10" y="130" width="880" height="150" rx="12"/>
+        <text class="t-s" x="24" y="150">Platform telemetry (outside the Warehouse)</text>
+        <rect class="box teal" x="24" y="170" width="190" height="64" rx="10"/>
+        <text class="t-b" x="119" y="196" text-anchor="middle">Monitor hub</text>
+        <text class="t-s" x="119" y="214" text-anchor="middle">runs, hierarchy, rerun</text>
+        <rect class="box teal" x="249" y="170" width="190" height="64" rx="10"/>
+        <text class="t-b" x="344" y="196" text-anchor="middle">Workspace monitoring</text>
+        <text class="t-s" x="344" y="214" text-anchor="middle">pipeline logs, KQL queries</text>
+        <rect class="box teal" x="474" y="170" width="190" height="64" rx="10"/>
+        <text class="t-b" x="569" y="196" text-anchor="middle">Pipeline run alerts</text>
+        <text class="t-s" x="569" y="214" text-anchor="middle">notify on pipeline events</text>
+        <rect class="box teal" x="699" y="170" width="177" height="64" rx="10"/>
+        <text class="t-b" x="787" y="196" text-anchor="middle">Capacity Metrics app</text>
+        <text class="t-s" x="787" y="214" text-anchor="middle">capacity consumption</text>
+        <path class="ln dash" d="M330 84V168" marker-end="url(#op1-a)"/>
+        <rect class="pill-bg" x="262" y="116" width="136" height="16"/>
+        <text class="t-s" x="330" y="128" text-anchor="middle">joined on the run ID</text>
+        <text class="t-s" x="450" y="262" text-anchor="middle">The log explains what the process did. Platform telemetry explains how the pipelines and capacity behaved.</text>
+      </svg>
+      <figcaption><b>Two layers of observability.</b> The log is yours: you control its shape and retention. The platform layer is Microsoft's. Neither replaces the other.</figcaption>
+    </figure>
+    <table>
+      <thead><tr><th>Question</th><th>Where to look</th></tr></thead>
+      <tbody>
+        <tr><td>Which task failed, and with what message?</td><td>The run log and its views.</td></tr>
+        <tr><td>How long has each task taken over the last month?</td><td>The run log. Keep the history long enough for trends.</td></tr>
+        <tr><td>What did the pipeline do in this run, and which child runs did it start?</td><td>The Monitoring hub. Its hierarchical view lists upstream and downstream runs, and the run detail page lists activity runs.</td></tr>
+        <tr><td>Can I rerun from the failed activity?</td><td>The Monitoring hub offers rerun by failed activity or selected activity. The framework's own restart (<code>restart_run_id</code>) works at task level and tolerates configuration changes between runs.</td></tr>
+        <tr><td>I want pipeline and activity logs in a queryable store</td><td>Workspace monitoring writes them to an eventhouse that you query with KQL.</td></tr>
+        <tr><td>I want to be told when a pipeline fails</td><td>Pipeline run alerts in the new Monitoring hub, plus the failure notification built into the framework.</td></tr>
+        <tr><td>Is the framework starving other workloads?</td><td>The Microsoft Fabric Capacity Metrics app.</td></tr>
+      </tbody>
+    </table>
+    <p>Two recommendations. Alert on the <em>absence</em> of success as well as on failure: the stale-tasks query catches a schedule that silently stopped, which no failure alert can. And build one small report on <code>vw_task_run_timeline</code> and <code>vw_task_latest_status</code> so operators have a single page with last status, duration trend and the current failures.</p>
+
+    <h2 id="troubleshooting">Troubleshooting</h2>
+    <table>
+      <thead><tr><th>Symptom</th><th>Likely cause</th><th>What to do</th></tr></thead>
+      <tbody>
+        <tr><td>The guard fails at the top of the run</td><td>A configuration rule is violated. The message names the first offending task.</td><td>Fix the row, rerun the guard in the query editor, and rerun the pipeline.</td></tr>
+        <tr><td>A Lookup returns no rows</td><td>No enabled task in that stage, a wrong stage number, or a <code>restart_run_id</code> that excludes everything.</td><td>Run the Lookup query by hand with the same parameter value.</td></tr>
+        <tr><td>A task failed but the next stage still ran</td><td>The Switch has only a failure path, so the stage reports success.</td><td>Add the success path, as described under <a href="master-pipeline.html#outcome">success and failure paths</a>.</td></tr>
+        <tr><td>Later tasks of a sequential stage ran after an earlier one failed</td><td>A sequential ForEach does not necessarily stop after a failed iteration.</td><td>Add the <a href="master-pipeline.html#dependency-gate">dependency gate</a> for tasks that must not run after a failed prerequisite.</td></tr>
+        <tr><td>A notebook task fails at once with item not found</td><td>The stored ID is stale: the notebook was deleted and recreated.</td><td>Run <code>usp_sync_object_ids</code>, then the guard.</td></tr>
+        <tr><td>A notebook task fails with a capacity error (HTTP 430)</td><td>Capacity is full and a REST-started run is not queued.</td><td>Lower the batch count, stagger the stage or use the native Notebook activity, which queues. See the <a href="dispatcher.html#capacity">dispatcher page</a>.</td></tr>
+        <tr><td>A procedure fails with an update conflict</td><td>Two transactions modified the same table. Warehouse uses snapshot isolation with table-level conflict detection.</td><td>Run procedures that update the same table in a sequential stage, and retry once.</td></tr>
+        <tr><td>No email arrives</td><td>The connection expired, the activity became inactive after a deployment, or several upstream activities are attached and not all conditions were met.</td><td>Open <code>PL_ORCH_HUB_Notify</code>, check the connection and the activity state, and run it by hand with sample values.</td></tr>
+        <tr><td>The run log has no rows for a task</td><td>The logging connection lacks permission, or the Stored procedure activity failed and was ignored.</td><td>Run <code>EXEC dbo.usp_log_event</code> by hand as the same identity.</td></tr>
+        <tr><td>A task is stuck as Running</td><td>The run was cancelled and wrote no end event.</td><td>Use the stuck-tasks query, treat the row as failed and rerun.</td></tr>
+        <tr><td>The same task runs twice</td><td>Overlapping runs, or a duplicate row that the guard did not catch.</td><td>Add the overlap check and rerun the guard.</td></tr>
+        <tr><td>A Lookup stops at 5,000 rows</td><td>The Lookup row limit.</td><td>Split the stage, or move the work into a child pipeline per group of tasks.</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="security">Security</h2>
+    <p>The control table is a powerful object: whoever can edit it can make the platform run any notebook or procedure the pipeline's identity can reach. Treat edits as code changes.</p>
+    <ul>
+      <li><strong>Limit who can write the control table.</strong> Keep the seed script in Git and apply it through a reviewed pull request and a release step. Give day-to-day operators read access to the views, not write access to the tables. Workspace roles take precedence, so keep Contributor and higher roles in the hub workspace to the platform team and use item-level permissions for everyone else.</li>
+      <li><strong>Constrain what a row can execute.</strong> The guard accepts only procedures named <code>dbo.usp_*</code> that exist, and the Switch accepts only known task types, so a row cannot inject SQL or call an unexpected activity. Escape pipeline parameters that you interpolate into SQL, as the restart clause does.</li>
+      <li><strong>Prefer non-user identities.</strong> Use a workspace identity or service principal for the Notebook, Invoke pipeline and (if you can administer the Graph permissions) Outlook activities, and avoid connections owned by a person who may leave. Add the identity to each workspace it must reach, with the least role that works, through a security group per environment.</li>
+      <li><strong>Keep secrets out of everything the framework stores.</strong> <code>parameters_json</code>, pipeline parameters and activity outputs are visible to people who can read run details and the log. Put secrets in Azure Key Vault, read them in the notebook with <code>notebookutils.credentials.getSecret</code> and mark activities that handle sensitive values as secure input and output.</li>
+      <li><strong>Audit changes.</strong> <code>config_version</code> and <code>modified_at_utc</code> record when a row changed, and Git records who changed the script. For a stricter trail, write control-table changes to an audit table inside the seed and sync procedures.</li>
+      <li><strong>Review on a schedule.</strong> Review the identities' workspace roles, the people who can edit the hub workspace, the shared mailbox membership and the Key Vault access policies at least quarterly.</li>
+    </ul>
+    <table>
+      <thead><tr><th>Identity</th><th>Needs</th></tr></thead>
+      <tbody>
+        <tr><td>Warehouse connection used by the pipeline</td><td>Read the control table and views, execute the procedures, insert into the run log through <code>usp_log_event</code>.</td></tr>
+        <tr><td>Notebook and Invoke pipeline connection</td><td>Permission to run items in each target workspace; the tenant setting for service principals to call Fabric APIs if it is not a user.</td></tr>
+        <tr><td>Dispatcher notebook</td><td>The same as the Notebook connection that runs it, plus Key Vault read access for secrets.</td></tr>
+        <tr><td>Notification connection</td><td>Permission to send mail from the chosen mailbox, or to post in the Teams channel.</td></tr>
+        <tr><td>Operators</td><td>Read access to the views and the Monitoring hub, without write access to <code>ctl.control_table</code>.</td></tr>
+      </tbody>
+    </table>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p>
+      <p>The Warehouse T-SQL surface lists permissions and security roles as supported but excludes <code>CREATE USER</code>. Confirm the exact <code>GRANT</code> and <code>DENY</code> syntax for the object and schema permissions you plan to use in <a href="https://learn.microsoft.com/fabric/data-warehouse/security">Security for data warehousing in Microsoft Fabric</a> before scripting it.</p></div>
+
+    <h2 id="cicd">CI/CD of the framework</h2>
+    <p>The framework is a set of items (a Warehouse, pipelines, notebooks and a variable library) plus a body of configuration data. Promote the items through your normal path, and treat the data as environment-specific.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 330" role="img" aria-label="Development, test and production hub workspaces each hold the Warehouse objects, the pipelines and notebooks and a variable library with a stage-specific active value set; a deployment pipeline promotes between them; after each deployment five steps run: activate the value set, reconnect email and Teams, sync item IDs, run the guard, and smoke test">
+        <defs>
+          <marker id="op2-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="op2-at" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar teal" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="zone teal" x="20" y="30" width="260" height="140" rx="12"/>
+        <text class="t-h" x="34" y="50">Development hub workspace</text>
+        <rect class="box blue" x="34" y="60" width="232" height="30" rx="6"/>
+        <text class="t-s" x="150" y="79" text-anchor="middle">Warehouse objects and seed script</text>
+        <rect class="box teal" x="34" y="96" width="232" height="30" rx="6"/>
+        <text class="t-s" x="150" y="115" text-anchor="middle">Pipelines and notebooks</text>
+        <rect class="box purple" x="34" y="132" width="232" height="30" rx="6"/>
+        <text class="t-s" x="150" y="151" text-anchor="middle">Variable library, DEV value set active</text>
+        <rect class="zone teal" x="320" y="30" width="260" height="140" rx="12"/>
+        <text class="t-h" x="334" y="50">Test hub workspace</text>
+        <rect class="box blue" x="334" y="60" width="232" height="30" rx="6"/>
+        <text class="t-s" x="450" y="79" text-anchor="middle">Warehouse objects and seed script</text>
+        <rect class="box teal" x="334" y="96" width="232" height="30" rx="6"/>
+        <text class="t-s" x="450" y="115" text-anchor="middle">Pipelines and notebooks</text>
+        <rect class="box purple" x="334" y="132" width="232" height="30" rx="6"/>
+        <text class="t-s" x="450" y="151" text-anchor="middle">Variable library, TST value set active</text>
+        <rect class="zone teal" x="620" y="30" width="260" height="140" rx="12"/>
+        <text class="t-h" x="634" y="50">Production hub workspace</text>
+        <rect class="box blue" x="634" y="60" width="232" height="30" rx="6"/>
+        <text class="t-s" x="750" y="79" text-anchor="middle">Warehouse objects and seed script</text>
+        <rect class="box teal" x="634" y="96" width="232" height="30" rx="6"/>
+        <text class="t-s" x="750" y="115" text-anchor="middle">Pipelines and notebooks</text>
+        <rect class="box purple" x="634" y="132" width="232" height="30" rx="6"/>
+        <text class="t-s" x="750" y="151" text-anchor="middle">Variable library, PRD value set active</text>
+        <path class="ln teal thick" d="M280 100H318" marker-end="url(#op2-at)"/>
+        <path class="ln teal thick" d="M580 100H618" marker-end="url(#op2-at)"/>
+        <text class="t-s" x="299" y="92" text-anchor="middle">deploy</text>
+        <text class="t-s" x="599" y="92" text-anchor="middle">deploy</text>
+        <text class="t-h" x="20" y="200">After every deployment into a stage</text>
+        <rect class="box orange" x="20" y="212" width="150" height="56" rx="8"/>
+        <text class="t-b" x="95" y="236" text-anchor="middle">1 Activate</text>
+        <text class="t-s" x="95" y="254" text-anchor="middle">value set for the stage</text>
+        <rect class="box orange" x="200" y="212" width="150" height="56" rx="8"/>
+        <text class="t-b" x="275" y="236" text-anchor="middle">2 Reconnect</text>
+        <text class="t-s" x="275" y="254" text-anchor="middle">email and Teams</text>
+        <rect class="box blue" x="380" y="212" width="150" height="56" rx="8"/>
+        <text class="t-b" x="455" y="236" text-anchor="middle">3 Sync</text>
+        <text class="t-s" x="455" y="254" text-anchor="middle">resolve item IDs</text>
+        <rect class="box blue" x="560" y="212" width="150" height="56" rx="8"/>
+        <text class="t-b" x="635" y="236" text-anchor="middle">4 Guard</text>
+        <text class="t-s" x="635" y="254" text-anchor="middle">validate the config</text>
+        <rect class="box green" x="740" y="212" width="150" height="56" rx="8"/>
+        <text class="t-b" x="815" y="236" text-anchor="middle">5 Smoke test</text>
+        <text class="t-s" x="815" y="254" text-anchor="middle">run one no-op task</text>
+        <path class="ln" d="M170 240H198" marker-end="url(#op2-a)"/>
+        <path class="ln" d="M350 240H378" marker-end="url(#op2-a)"/>
+        <path class="ln" d="M530 240H558" marker-end="url(#op2-a)"/>
+        <path class="ln" d="M710 240H738" marker-end="url(#op2-a)"/>
+        <text class="t-s" x="20" y="302">Item IDs differ in every stage. They are never promoted; they are re-resolved from names.</text>
+      </svg>
+      <figcaption><b>Promotion.</b> Items travel through the deployment pipeline. The five steps below the stages are the part a deployment does not do for you.</figcaption>
+    </figure>
+
+    <h3 id="where-config-lives">Where each setting lives</h3>
+    <table>
+      <thead><tr><th>Setting</th><th>Lives in</th><th>Why</th></tr></thead>
+      <tbody>
+        <tr><td>What runs, in which stage and order, with which dependencies</td><td>The control table and dependency table, seeded from a script in Git</td><td>It is the same in every environment, so it is reviewed as code.</td></tr>
+        <tr><td>Workspace IDs and item IDs</td><td>Derived into the control table by the sync procedure</td><td>They differ in every environment.</td></tr>
+        <tr><td>Workspace names, when they carry an environment prefix</td><td>A seed-script variable, or <code>logical_id</code> mapping from the inventory</td><td>Names differ by environment even when items are identical.</td></tr>
+        <tr><td>Default recipient, Key Vault address, environment name</td><td>A variable library, with one value set per stage</td><td>Environment settings that pipelines and notebooks read at run time.</td></tr>
+        <tr><td>Connections (Warehouse, Notebook, notification)</td><td>Connection references in a variable library where supported, otherwise recreated per stage</td><td>Connections are workspace-scoped and are not promoted with their credentials.</td></tr>
+        <tr><td>Secrets</td><td>Azure Key Vault</td><td>Never in the control table, a variable or a parameter.</td></tr>
+      </tbody>
+    </table>
+    <h3 id="variable-library">Using a variable library</h3>
+    <p>Create <code>VL_ORCH_HUB_Config</code> in the hub workspace with variables such as <code>EnvironmentName</code> (String), <code>DefaultNotifyTo</code> (String) and <code>KeyVaultUri</code> (String), and a value set for each stage. In the master pipeline, add a library variable reference and use it in dynamic content in place of a hard-coded value, for example <code>@pipeline().libraryVariables.DefaultNotifyTo</code> as the default recipient instead of the <code>default_notify_to</code> parameter's literal value. The <a href="../09-variable-libraries/index.html">Variable Libraries playbook</a> covers creating the library, the supported types, and the activation step that follows the first deployment into each stage.</p>
+    <ul>
+      <li><strong>Resolve in the pipeline, pass down.</strong> Notebooks that read a library with <code>notebookutils.variableLibrary</code> are limited to the same workspace and do not support a service principal identity. The dispatcher may run under a service principal, so have the pipeline read the variable and pass it as a notebook parameter.</li>
+      <li><strong>Activate before the first run.</strong> A library arrives in a new stage with its default value set active. Activate the stage's set before anything reads a variable, and add the step to the release.</li>
+      <li><strong>Keep IDs out of the library.</strong> It is tempting to hold notebook IDs as variables. The control table plus sync does the same job per task, with a guard, and without one variable per task.</li>
+    </ul>
+    <h3 id="deploy-steps">What to automate in the release</h3>
+    <ol class="steps">
+      <li><strong>Deploy the Warehouse objects.</strong><p>Promote the Warehouse through source control or a deployment pipeline. If you keep the Warehouse in Git, read the source-control limitations for adding columns and constraints first.</p></li>
+      <li><strong>Deploy pipelines, notebooks and the variable library.</strong><p>Follow the layer order from the <a href="../07-deployment/index.html">Deployment Pipelines and Promotion playbook</a>, and put the library with the items that consume it.</p></li>
+      <li><strong>Run the post-deployment steps.</strong><p>Activate the value set, recreate the Outlook and Teams connections, run the seed (with the stage's workspace names) and <code>usp_sync_object_ids</code>, then <code>usp_validate_control_table</code>. A small <code>PL_ORCH_HUB_PostDeploy</code> pipeline can run the last three.</p></li>
+      <li><strong>Smoke test.</strong><p>Run the master pipeline with one enabled no-op task and a test recipient, check the log, then re-enable the real plan.</p></li>
+    </ol>
+<pre data-title="seed with a stage prefix (T-SQL)"><code class="language-sql">DECLARE @env VARCHAR(8) = 'TST';   -- DEV, TST or PRD; set from the pipeline's library variable
+
+-- inside the seed script from the Warehouse objects page, build workspace names from the prefix
+-- ... VALUES ('T1', 'ingest_customers', 'Notebook', 1, 1, 1, CONCAT(@env, '_SALES_BRZ'), 'NB_SALES_BRZ_IngestCustomers', ...)</code></pre>
+    <p>The hub-and-spoke variant of this framework, where the hub invokes pipelines that spokes own, is covered in <a href="../04-cross-workspace-orchestration/index.html">Cross-Workspace Pipeline Orchestration</a>. The workspace layout that these tasks run against is in <a href="../03-medallion-architecture/index.html">Medallion Architecture</a>.</p>
+
+    <h2 id="runbook">Day-two runbook</h2>
+    <table>
+      <thead><tr><th>Frequency</th><th>Task</th></tr></thead>
+      <tbody>
+        <tr><td>Every run</td><td>Failure notification triage. Read the message, then the log.</td></tr>
+        <tr><td>Daily</td><td>Run the stale-task, stuck-task and failures queries, or look at the operator report.</td></tr>
+        <tr><td>After any rename, delete or recreate of an item</td><td>Run the inventory notebook, <code>usp_sync_object_ids</code> and the guard.</td></tr>
+        <tr><td>Weekly</td><td>Review the slowest tasks and the capacity trend; adjust batch counts and timeouts.</td></tr>
+        <tr><td>Monthly</td><td>Purge old log rows (below), review disabled tasks and remove the ones that are not coming back.</td></tr>
+        <tr><td>Quarterly</td><td>Review identities, workspace roles, mailbox membership and secret expiry; rehearse the failure drill and a restart.</td></tr>
+      </tbody>
+    </table>
+<pre data-title="dbo.usp_purge_run_log (T-SQL)"><code class="language-sql">CREATE OR ALTER PROCEDURE dbo.usp_purge_run_log
+    @retain_days INT = 90
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    DELETE FROM ctl.run_log
+    WHERE event_time_utc &lt; DATEADD(DAY, -@retain_days, SYSUTCDATETIME());
+END;</code></pre>
+    <p>The log is insert-only by design, and this is its one delete. Run it only when the master pipeline is idle, because a delete concurrent with inserts into the same table can raise an update conflict.</p>
+
+    <h2 id="go-live">Go-live checklist</h2>
+    <h3 id="check-config">Configuration</h3>
+    <ul class="checklist">
+      <li>Every orchestrated script is a procedure that is idempotent, wrapped in a transaction and rethrows its error.</li>
+      <li>The seed script is in Git, holds names and not IDs, and has been reviewed.</li>
+      <li>IDs are filled by the sync procedure and the guard passes in the target environment.</li>
+      <li>Order is set with <code>stage</code> and <code>sequence_no</code>, never by name, and dependencies are recorded.</li>
+    </ul>
+    <h3 id="check-pipeline">Pipeline</h3>
+    <ul class="checklist">
+      <li>The Switch has both a success path and a failure path, and a default case that fails.</li>
+      <li>A deliberate failure fails the stage and blocks the next one.</li>
+      <li>A restart with <code>restart_run_id</code> reruns only the tasks that did not succeed.</li>
+      <li>Batch counts and activity timeouts are set from capacity tests, not left at defaults.</li>
+      <li>The overlap check is in place, or schedules cannot overlap.</li>
+    </ul>
+    <h3 id="check-notify">Notifications</h3>
+    <ul class="checklist">
+      <li>Failure notification goes through one notification pipeline, tested on its own.</li>
+      <li>The mail sender is a team-owned mailbox or a non-user identity, and the connection will be recreated after each deployment.</li>
+    </ul>
+    <h3 id="check-security">Security</h3>
+    <ul class="checklist">
+      <li>Only the platform team can edit the control table; operators have read-only access.</li>
+      <li>The identities have the least workspace roles that work, through a security group per environment.</li>
+      <li>No secret appears in the control table, parameters, variables or notebooks.</li>
+    </ul>
+    <h3 id="check-observe">Observability and operations</h3>
+    <ul class="checklist">
+      <li>The health-check queries or an operator report exist, and someone owns them.</li>
+      <li>Alerts cover failure and the absence of success.</li>
+      <li>Log retention is decided and the purge runs when the pipeline is idle.</li>
+      <li>The release includes the five post-deployment steps and a smoke test.</li>
+    </ul>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p><ul>
+      <li>Watch the framework at two layers: the run log for what the process did, and platform telemetry for how the pipelines behaved. Join them on the run ID.</li>
+      <li>Alert on missing success as well as on failure; stale and stuck tasks are the failures nobody notices.</li>
+      <li>Control who can edit the control table as strictly as you control who can deploy code.</li>
+      <li>Promote items, derive IDs, keep environment settings in a variable library and secrets in a vault. Never promote an ID.</li>
+      <li>Make post-deployment steps (activate, reconnect, sync, guard, smoke test) part of the release, not a memory.</li>
+    </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/monitor-pipeline-runs">Choose how to monitor pipeline runs</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/monitoring-hub-pipeline-runs">Browse pipeline runs in the Monitoring hub</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/workspace-monitoring">Enable workspace monitoring for pipelines</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/create-alerts-for-pipeline-runs">Create alerts for pipeline runs</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/enterprise/metrics-app-install">Install the Microsoft Fabric Capacity Metrics app</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-warehouse/security">Security for data warehousing in Microsoft Fabric</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-warehouse/source-control">Source control with Warehouse</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/cicd/variable-library/variable-library-overview">Variable libraries overview</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/cicd/deployment-pipelines/intro-to-deployment-pipelines">Introduction to deployment pipelines</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/activity-overview">Activity overview (secure input and output, retries, timeouts)</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Content, models and discovery · Tenant Settings</title>
+<meta name="description" content="Reference for cross-workspace models, information protection, discovery, apps, visuals, legacy dataflows and semantic model settings.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="16-tenant-settings" data-page="content-models.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 16 · Tenant Settings</p>
+      <h1>Content, models and discovery</h1>
+      <p class="lede">Settings that govern how content is created, protected, discovered and distributed: shared semantic models, sensitivity labels, discovery, apps, custom visuals, legacy dataflows and datamarts, and semantic model behavior.</p>
+      <ul class="chips"><li><b>Portal groups</b> Workspace, Information protection, Discovery, App, Power BI visuals, Dataflow, Datamart</li><li><b>Default stance</b> Enable guardrails, scope creation</li></ul>
+    </header>
+<h2 id="cross-workspace">Shared semantic models across workspaces</h2>
+<p>Building reports on a model in another workspace is the backbone of a governed, shared-model approach: one certified model, many reports. Without it every report needs its own copy.</p>
+<figure class="diagram">
+<svg class="dg" viewBox="0 0 880 230" role="img" aria-label="A report in one workspace can use a semantic model in another when three gates are open: the tenant setting, Build permission on the model, and row-level security evaluation. Endorsement tells authors which model to pick">
+<defs><marker id="fig-xws-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker></defs>
+<rect class="box purple" x="20" y="40" width="170" height="84" rx="10"/>
+<text class="t-b" x="105" y="71.5" text-anchor="middle">Tenant gate</text>
+<text class="t-s" x="105" y="86.4" text-anchor="middle">Use semantic models</text>
+<text class="t-s" x="105" y="100.9" text-anchor="middle">across workspaces</text>
+<rect class="box blue" x="250" y="40" width="170" height="84" rx="10"/>
+<text class="t-b" x="335" y="71.5" text-anchor="middle">Item gate</text>
+<text class="t-s" x="335" y="86.4" text-anchor="middle">Build permission</text>
+<text class="t-s" x="335" y="100.9" text-anchor="middle">on the semantic model</text>
+<rect class="box blue" x="480" y="40" width="170" height="84" rx="10"/>
+<text class="t-b" x="565" y="71.5" text-anchor="middle">Data gate</text>
+<text class="t-s" x="565" y="86.4" text-anchor="middle">RLS and OLS roles</text>
+<text class="t-s" x="565" y="100.9" text-anchor="middle">evaluate per user</text>
+<rect class="box green" x="710" y="40" width="150" height="84" rx="10"/>
+<text class="t-b" x="785" y="71.5" text-anchor="middle">Result</text>
+<text class="t-s" x="785" y="86.4" text-anchor="middle">report in workspace B</text>
+<text class="t-s" x="785" y="100.9" text-anchor="middle">reads model in A</text>
+<path class="ln" d="M190 82L248 82" marker-end="url(#fig-xws-a)"/>
+<rect class="pill-bg" x="204" y="58" width="32" height="15"/>
+<text class="t-s" x="220" y="69.5" text-anchor="middle">and</text>
+<path class="ln" d="M420 82L478 82" marker-end="url(#fig-xws-a)"/>
+<rect class="pill-bg" x="434" y="58" width="32" height="15"/>
+<text class="t-s" x="450" y="69.5" text-anchor="middle">and</text>
+<path class="ln" d="M650 82L708 82" marker-end="url(#fig-xws-a)"/>
+<rect class="pill-bg" x="661" y="58" width="38" height="15"/>
+<text class="t-s" x="680" y="69.5" text-anchor="middle">then</text>
+<rect class="box purple dashed" x="250" y="160" width="400" height="48" rx="10"/>
+<text class="t-b" x="450" y="180.8" text-anchor="middle">Endorse and certify the shared model</text>
+<text class="t-s" x="450" y="195.6" text-anchor="middle">so authors choose the governed copy</text>
+</svg>
+<figcaption><b>Gate chain for cross-workspace models.</b> The tenant setting is the weakest gate in the chain: leaving it on costs little because Build permission and row-level security still decide who sees which rows.</figcaption>
+</figure>
+<h3 id="s-cross-workspace-models">Use semantic models across workspaces</h3>
+<dl class="kv">
+<dt>Where</dt><dd>Workspace settings</dd>
+<dt>Default</dt><dd>Not stated</dd>
+<dt>Typical posture</dt><dd><strong>Enable for all</strong> — It is the foundation of shared, governed models; the real gate is Build permission.</dd>
+<dt>Scope and delegation</dt><dd>Supports specific security groups and exceptions.</dd>
+<dt>What it controls</dt><dd>Lets users build a report in one workspace on a semantic model in another. Users still need Build permission on the specific semantic model.</dd>
+<dt>Risk or benefit</dt><dd>Without it every report needs its own copy of the model, which multiplies refreshes and definitions. With it, access still flows through Build permission, row-level security and object-level security on the shared model.</dd>
+<dt>Notes</dt><dd>Enable for the organization and steer authors to endorsed models by certifying them. Governance happens at the model, not at this switch.</dd>
+</dl>
+
+<h2 id="models">Semantic model behavior</h2>
+<p>These settings change how models are edited, published, refreshed and connected. Most are low risk individually; together they define how tightly you control the model lifecycle.</p>
+<table class="tight">
+<thead><tr><th>Setting</th><th>Default</th><th>Typical posture</th><th>What it controls; risk or benefit</th><th>Notes</th></tr></thead>
+<tbody>
+<tr id="s-edit-models-service"><td><strong>Users can edit semantic models in the Power BI service</strong></td><td>Not stated</td><td class="maybe">Enable for specific groups</td><td>Lets users edit semantic models in the service. It does not apply to Direct Lake semantic models or to edits made through an API or the XMLA endpoint.</td><td>Scope to model owners; pair with Git integration for change history.</td></tr>
+<tr id="s-block-republish"><td><strong>Block republish and disable package refresh</strong></td><td>Not stated</td><td>Decide per organization</td><td>Disables package refresh and lets only the semantic model owner publish updates. When on, users discover through the XMLA endpoint only the models they own.</td><td>Strong control against overwrites but changes workflows for shared models; decide per model-ownership strategy.</td></tr>
+<tr id="s-granular-connections"><td><strong>Enable granular access control for all data connections</strong></td><td>Not stated</td><td class="yes">Enable for all</td><td>Enforces strict access control for all connection types: shared items disconnect from data sources when edited by users who lack permission to use the connection.</td><td>Prevents silent credential reuse; expect some broken refreshes until connection permissions are cleaned up.</td></tr>
+<tr id="s-models-export-onelake"><td><strong>Semantic models can export data to OneLake</strong></td><td>Not stated</td><td class="maybe">Enable for specific groups</td><td>Lets semantic models configured for OneLake integration write import tables to OneLake, where lakehouses and warehouses can use them.</td><td>Creates a second copy of model data in OneLake; scope to model owners and apply OneLake security there.</td></tr>
+<tr id="s-models-auto-update"><td><strong>Semantic model owners can choose to automatically update semantic models from files imported from OneDrive or SharePoint</strong></td><td>Not stated</td><td class="no">Disable</td><td>Lets owners let a semantic model update automatically when the source .pbix in OneDrive or SharePoint changes, including new or changed data connections. Turn off to prevent automatic updates.</td><td>Disable to keep changes inside a controlled release process.</td></tr>
+<tr id="s-scale-out"><td><strong>Scale out queries for large semantic models</strong></td><td>Not stated</td><td class="yes">Enable for all</td><td>Lets Premium or Fabric capacity distribute queries across replicas for large-format semantic models.</td><td>Performance feature; consumes capacity. Leave on.</td></tr>
+<tr id="s-pbir"><td><strong>Automatically convert and store reports using Power BI enhanced metadata format (PBIR)</strong> <span class="badge preview">Preview</span></td><td>On</td><td class="maybe">Enable for specific groups</td><td>Converts reports to the PBIR format after they are edited in the service and creates new reports in PBIR. PBIR has a source-control-friendly file structure.</td><td>Pilot with the developers who use Git and deployment pipelines, then widen. Learn describes a staged rollout with an opt-out for this setting, so confirm the behavior in your tenant and tooling support on Learn before relying on it.</td></tr>
+</tbody></table>
+<div class="callout tip"><p class="callout-title">Combine with Git and deployment pipelines</p>
+<p>Editing models in the service is convenient but leaves no review trail. If you allow it, pair it with source control and release processes; see <a href="../05-github-integration/index.html">GitHub Integration and Branching</a> and <a href="workspace-git-onelake.html#git">the Git settings</a> on the workspace page.</p></div>
+
+<h2 id="protection">Information protection and sensitivity labels</h2>
+<p>Sensitivity labels from Microsoft Purview Information Protection travel with items and exports. The settings below decide whether people can apply labels and whether labels propagate automatically.</p>
+<figure class="diagram">
+<svg class="dg" viewBox="0 0 860 300" role="img" aria-label="Sensitivity-label-based access control is enforced for items inside the labeling tenant, in pbix files and in Excel, PowerPoint and PDF exports from supported paths, but not for csv or txt exports, cross-tenant sharing or Git export">
+<defs><marker id="fig-label-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker><marker id="fig-label-a-green" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker><marker id="fig-label-a-red" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar red" d="M0 0L10 5L0 10z"/></marker></defs>
+<rect class="box purple" x="300" y="14" width="260" height="56" rx="10"/>
+<text class="t-b" x="430" y="38.8" text-anchor="middle">Sensitivity label on an item</text>
+<text class="t-s" x="430" y="53.6" text-anchor="middle">Microsoft Purview</text>
+<rect class="zone green" x="20" y="100" width="400" height="186" rx="12"/>
+<text class="t-s" x="34" y="119">Enforced</text>
+<rect class="zone red" x="440" y="100" width="400" height="186" rx="12"/>
+<text class="t-s" x="454" y="119">Not enforced</text>
+<rect class="box green" x="36" y="128" width="368" height="38" rx="10"/>
+<text x="220" y="151" text-anchor="middle">Items inside the labeling tenant</text>
+<rect class="box green" x="36" y="178" width="368" height="38" rx="10"/>
+<text x="220" y="201" text-anchor="middle">pbix files in Power BI Desktop</text>
+<rect class="box green" x="36" y="228" width="368" height="38" rx="10"/>
+<text x="220" y="251" text-anchor="middle">Excel, PowerPoint, PDF on supported exports</text>
+<rect class="box red" x="456" y="128" width="368" height="38" rx="10"/>
+<text x="640" y="151" text-anchor="middle">Export to .csv or .txt</text>
+<rect class="box red" x="456" y="178" width="368" height="38" rx="10"/>
+<text x="640" y="201" text-anchor="middle">Cross-tenant sharing, including external data shares</text>
+<rect class="box red" x="456" y="228" width="368" height="38" rx="10"/>
+<text x="640" y="251" text-anchor="middle">Git export (labels are not exported)</text>
+<path class="ln green" d="M380 70L380 86L220 86L220 98" marker-end="url(#fig-label-a-green)"/>
+<path class="ln red" d="M480 70L480 86L640 86L640 98" marker-end="url(#fig-label-a-red)"/>
+</svg>
+<figcaption><b>Where label enforcement applies.</b> Labels are strongest inside the tenant and on supported exports. Treat the right-hand column as places where policy, DLP and the posture of the related tenant setting must do the work.</figcaption>
+</figure>
+<div class="callout important"><p class="callout-title">What label-based access control does not cover</p>
+<p>Enforcement applies inside the tenant where the label was applied, in .pbix files, and in Excel, PowerPoint and PDF files from supported export paths. It does not apply to .csv or .txt exports or across tenants (including OneLake external data shares), and Git export does not include labels. Label settings such as content marking are not applied to content inside Fabric; encryption is applied on supported export paths.</p></div>
+<table class="tight">
+<thead><tr><th>Setting</th><th>Default</th><th>Typical posture</th><th>What it controls; risk or benefit</th><th>Notes</th></tr></thead>
+<tbody>
+<tr id="s-label-apply"><td><strong>Allow users to apply sensitivity labels for content</strong></td><td>Not stated</td><td class="yes">Enable for all</td><td>Lets users apply Microsoft Purview Information Protection labels published to them. Complete the Purview prerequisites before enabling.</td><td>Label-based access control is enforced only in the tenant where the labels were applied, in .pbix files and in Excel, PowerPoint and PDF files from supported export paths. It is not enforced for .csv or .txt, or across tenants.</td></tr>
+<tr id="s-label-datasource"><td><strong>Apply sensitivity labels from data sources to their data in Power BI</strong></td><td>Not stated</td><td class="yes">Enable for all</td><td>Applies labels from supported data sources to the data brought into Power BI.</td><td>Only supported data sources are covered.</td></tr>
+<tr id="s-label-downstream"><td><strong>Automatically apply sensitivity labels to downstream content</strong></td><td>Not stated</td><td class="yes">Enable for all</td><td>When a label is applied or changed on Fabric content, applies it to eligible downstream content.</td><td>Keeps reports and exports at least as protected as the models behind them.</td></tr>
+<tr id="s-label-override"><td><strong>Allow workspace admins to override automatically applied sensitivity labels</strong></td><td>Not stated</td><td class="no">Disable</td><td>Lets workspace admins change or remove labels that Fabric applied automatically, for example by inheritance.</td><td>Disable so inherited labels stay sticky; allow a small exceptions group if a valid case appears.</td></tr>
+<tr id="s-label-link-restrict"><td><strong>Restrict content with protected labels from being shared via link with everyone in your organization</strong></td><td>Not stated</td><td class="yes">Enable for all</td><td>Prevents content whose label has protection settings from being shared through an organization-wide link.</td><td>Cheap guardrail that works even if the broader shareable-links setting stays on for some groups.</td></tr>
+<tr id="s-label-domain-default"><td><strong>Domain admins can set default sensitivity labels for their domains</strong> <span class="badge preview">Preview</span></td><td>Not stated</td><td class="maybe">Enable for specific groups</td><td>Lets domain admins set a default label for their domain, which overrides the tenant default if it has higher priority and applies to new Fabric items in the domain. Reports, semantic models, dataflows and dashboards are not supported by it.</td><td>Enable for domains that own sensitive data; check item-type support on Learn. <em>Domain-level feature.</em></td></tr>
+</tbody></table>
+<h3 id="label-order">Suggested rollout order</h3>
+<ol class="steps">
+  <li><strong>Complete the Purview prerequisites</strong><p>Publish labels to users and enable sensitivity labels for Fabric in the Microsoft Purview portal, following the Learn prerequisites.</p></li>
+  <li><strong>Enable applying labels for a pilot group</strong><p>Use an allow group first and gather feedback on label names and defaults.</p></li>
+  <li><strong>Turn on propagation</strong><p>Enable downstream inheritance and data-source labels so content is at least as protected as its sources.</p></li>
+  <li><strong>Lock down overrides and links</strong><p>Disable workspace-admin override and keep the protected-label link guard on.</p></li>
+  <li><strong>Widen exports</strong><p>Only after labels are in place, widen Excel, PowerPoint and PDF export to more groups.</p></li>
+</ol>
+
+<h2 id="discovery">Discovery</h2>
+<p>Discovery lets people find content they cannot yet open and request access. They see metadata (name, description, owner) only. That shortens the path to the right data and reduces duplicated work, at the cost of exposing metadata beyond the item's audience.</p>
+<h3 id="s-promoted-discoverable">Make promoted content discoverable</h3>
+<dl class="kv">
+<dt>Where</dt><dd>Discovery settings</dd>
+<dt>Default</dt><dd>Not stated</dd>
+<dt>Typical posture</dt><dd><strong>Enable for specific groups</strong> — Self-service promotion is a weak trust signal for broad discovery.</dd>
+<dt>Scope and delegation</dt><dd>Supports specific security groups and exceptions.</dd>
+<dt>What it controls</dt><dd>Lets users who can promote content make it discoverable by people who do not have access to it. They see metadata only (name, description, owner) and must request access.</dd>
+<dt>Risk or benefit</dt><dd>Discovery shortens the path to data and reduces duplicate content, but item names, descriptions and owners become visible beyond the item's audience. Promotion is self-service, so quality varies.</dd>
+<dt>Notes</dt><dd>Prefer making certified content discoverable and keep promoted discovery to trusted groups. Write metadata standards so titles and descriptions never contain sensitive values, and exclude restricted groups.</dd>
+</dl>
+<table class="tight">
+<thead><tr><th>Setting</th><th>Default</th><th>Typical posture</th><th>What it controls; risk or benefit</th><th>Notes</th></tr></thead>
+<tbody>
+<tr id="s-certified-discoverable"><td><strong>Make certified content discoverable</strong></td><td>Not stated</td><td class="maybe">Enable for specific groups</td><td>Lets certifiers make the content they certify discoverable by users without access.</td><td>Pairs with a certification standard; a better discovery signal than promotion.</td></tr>
+<tr id="s-discover-content"><td><strong>Discover content</strong></td><td>Not stated</td><td class="yes">Enable for all</td><td>Lets users find and request access to content that its owners made discoverable.</td><td>No effect on content that is not discoverable.</td></tr>
+<tr id="s-find-objects"><td><strong>Users can find objects in search</strong></td><td>Not stated</td><td class="yes">Enable for all</td><td>Includes objects such as tables and columns in OneLake catalog and global search. Users find only objects inside items they can access; turn off to limit discovery to top-level items.</td><td>Low risk because it respects access.</td></tr>
+</tbody></table>
+<div class="callout tip"><p class="callout-title">Write metadata for a wider audience</p>
+<p>Once content is discoverable, its title, description and owner are visible to people without access. Publish a naming standard and keep sensitive values out of item names and descriptions.</p></div>
+
+<h2 id="apps">Apps and template apps</h2>
+<p>Apps distribute curated content to consumers. Two feature families use the word "app", which is a frequent source of misconfiguration.</p>
+<table>
+  <thead><tr><th>Feature</th><th>Purpose</th><th>Settings</th></tr></thead>
+  <tbody>
+    <tr><td><strong>Workspace apps and organizational apps</strong></td><td>Distribute reports and models inside the organization.</td><td><a href="content-models.html#s-push-apps">Push apps to end users</a>, <a href="content-models.html#s-publish-apps-org">Publish apps to the entire organization</a>, <a href="content-models.html#s-org-app-items">Users can discover and create org apps</a></td></tr>
+    <tr><td><strong>Template apps</strong></td><td>Packaged solutions built from a data source, shared with other organizations.</td><td><a href="content-models.html#s-template-org-apps">Create template organizational apps</a>, <a href="content-models.html#s-template-publish">Publish template apps</a>, <a href="content-models.html#s-template-install">Install template apps</a>, <a href="content-models.html#s-template-install-unlisted">Install template apps not listed in AppSource</a></td></tr>
+  </tbody>
+</table>
+<div class="callout warning"><p class="callout-title">Two easy mix-ups</p>
+<p><strong>Publish apps to the entire organization</strong> is the real setting name; some documents call it pushing apps to the organization, and it is separate from <strong>Push apps to end users</strong>. And <strong>Create template organizational apps</strong> is about template apps, not about internal organizational apps. For the end-to-end approach to organizational apps, see <a href="../11-org-apps/index.html">Organizational Apps</a>.</p></div>
+<h3 id="s-template-org-apps">Create template organizational apps</h3>
+<dl class="kv">
+<dt>Where</dt><dd>App settings</dd>
+<dt>Default</dt><dd>Not stated</dd>
+<dt>Typical posture</dt><dd><strong>Disable</strong> — Needed by solution builders only.</dd>
+<dt>Scope and delegation</dt><dd>Group scoping is not stated in the reference; check the setting panel.</dd>
+<dt>What it controls</dt><dd>Lets users create template apps that use semantic models built on one data source in Power BI Desktop. Template apps are meant for distribution as a packaged solution, not for everyday sharing inside the organization.</dd>
+<dt>Risk or benefit</dt><dd>Packaged apps spread a solution to other workspaces and, with the template-app publishing settings, to other organizations. Few enterprises need it.</dd>
+<dt>Notes</dt><dd>Keep it off unless a team publishes reusable solution templates. Internal distribution is normally done with organizational apps; see the organizational-apps playbook.</dd>
+</dl>
+<h3 id="s-push-apps">Push apps to end users</h3>
+<dl class="kv">
+<dt>Where</dt><dd>App settings</dd>
+<dt>Default</dt><dd>Not stated</dd>
+<dt>Typical posture</dt><dd><strong>Enable for specific groups</strong> — Distribution rights should sit with accountable publishers.</dd>
+<dt>Scope and delegation</dt><dd>Supports specific security groups and exceptions.</dd>
+<dt>What it controls</dt><dd>Lets app publishers install an app automatically for selected end users or groups, with no AppSource installation step by the recipient.</dd>
+<dt>Risk or benefit</dt><dd>Automatic installation puts content in front of people without their action, which is good for governed rollout and bad for unreviewed content.</dd>
+<dt>Notes</dt><dd>Enable for app owners in a governed publisher group, require certification before a push, and announce pushes through change management. See the organizational-apps playbook.</dd>
+</dl>
+<h3 id="s-publish-apps-org">Publish apps to the entire organization</h3>
+<dl class="kv">
+<dt>Where</dt><dd>App settings</dd>
+<dt>Default</dt><dd>Not stated</dd>
+<dt>Typical posture</dt><dd><strong>Enable for specific groups</strong> — Organization-wide publication needs a named owner.</dd>
+<dt>Scope and delegation</dt><dd>Supports specific security groups and exceptions.</dd>
+<dt>What it controls</dt><dd>Decides who can publish an app to the entire organization rather than to chosen groups. Some documents refer to this setting as pushing apps to the entire organization; the portal name is Publish apps to the entire organization.</dd>
+<dt>Risk or benefit</dt><dd>An organization-wide app exposes its content, including the semantic models and reports it bundles, to everyone, which is rarely what a department wants.</dd>
+<dt>Notes</dt><dd>Enable for a small group of enterprise report owners. Distinct from Push apps to end users.</dd>
+</dl>
+<table class="tight">
+<thead><tr><th>Setting</th><th>Default</th><th>Typical posture</th><th>What it controls; risk or benefit</th><th>Notes</th></tr></thead>
+<tbody>
+<tr id="s-org-app-items"><td><strong>Users can discover and create org apps</strong> <span class="badge preview">Preview</span></td><td>Not stated</td><td class="maybe">Enable for specific groups</td><td>Lets users create org apps as items; people with access can view them. If turned off, org app items are hidden and the previous workspace apps remain available.</td><td>Pilot with app publishers; see the organizational-apps playbook.</td></tr>
+<tr id="s-template-publish"><td><strong>Publish template apps</strong></td><td>Not stated</td><td class="no">Disable</td><td>Lets users publish template apps for distribution to clients outside the organization.</td><td>Enable only for a solution team with a commercial or partner distribution need.</td></tr>
+<tr id="s-template-install"><td><strong>Install template apps</strong></td><td>Not stated</td><td class="maybe">Enable for specific groups</td><td>Lets users install template apps created outside the organization. Installing creates an upgraded workspace.</td><td>Scope to evaluators; template apps bring third-party content and connectors.</td></tr>
+<tr id="s-template-install-unlisted"><td><strong>Install template apps not listed in AppSource</strong></td><td>Not stated</td><td class="no">Disable</td><td>Lets permitted users install template apps that were not published to AppSource.</td><td>Unvetted packages; keep off.</td></tr>
+</tbody></table>
+
+<h2 id="visuals">Custom visuals</h2>
+<p>Custom visuals are JavaScript that runs inside reports. The tenant settings control the service; Power BI Desktop needs matching group policy settings, and the Organizational visuals store bypasses the tenant switches by design.</p>
+<figure class="diagram">
+<svg class="dg" viewBox="0 0 880 250" role="img" aria-label="Approved custom visuals reach reports through the Organizational visuals store after review, which bypasses the certified-only and SDK settings. Everything else is governed by the tenant switches, and Power BI Desktop needs group policy values to match">
+<defs><marker id="fig-vis-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker></defs>
+<rect class="box gray" x="20" y="30" width="185" height="84" rx="10"/>
+<text class="t-b" x="112.5" y="61.5" text-anchor="middle">Request</text>
+<text class="t-s" x="112.5" y="76.4" text-anchor="middle">author names the</text>
+<text class="t-s" x="112.5" y="90.9" text-anchor="middle">visual and the need</text>
+<rect class="box purple" x="235" y="30" width="185" height="84" rx="10"/>
+<text class="t-b" x="327.5" y="61.5" text-anchor="middle">Review</text>
+<text class="t-s" x="327.5" y="76.4" text-anchor="middle">security and license</text>
+<text class="t-s" x="327.5" y="90.9" text-anchor="middle">check, data flow</text>
+<rect class="box green" x="450" y="30" width="185" height="84" rx="10"/>
+<text class="t-b" x="542.5" y="61.5" text-anchor="middle">Organizational store</text>
+<text class="t-s" x="542.5" y="76.4" text-anchor="middle">admin adds the visual</text>
+<text class="t-s" x="542.5" y="90.9" text-anchor="middle">to the store</text>
+<rect class="box blue" x="665" y="30" width="185" height="84" rx="10"/>
+<text class="t-b" x="757.5" y="61.5" text-anchor="middle">Used in reports</text>
+<text class="t-s" x="757.5" y="76.4" text-anchor="middle">works in service</text>
+<text class="t-s" x="757.5" y="90.9" text-anchor="middle">and Desktop</text>
+<path class="ln" d="M205 72L233 72" marker-end="url(#fig-vis-a)"/>
+<path class="ln" d="M420 72L448 72" marker-end="url(#fig-vis-a)"/>
+<path class="ln" d="M635 72L663 72" marker-end="url(#fig-vis-a)"/>
+<rect class="box red dashed" x="20" y="160" width="410" height="60" rx="10"/>
+<text class="t-b" x="225" y="186.8" text-anchor="middle">Everything else</text>
+<text class="t-s" x="225" y="201.6" text-anchor="middle">blocked unless certified, per the tenant settings</text>
+<rect class="box orange dashed" x="450" y="160" width="410" height="60" rx="10"/>
+<text class="t-b" x="655" y="186.8" text-anchor="middle">Power BI Desktop</text>
+<text class="t-s" x="655" y="201.6" text-anchor="middle">needs group policy registry values to match</text>
+</svg>
+<figcaption><b>Approved-visual workflow.</b> Pair a strict tenant posture with a fast review route. Without the route, report authors work around the block.</figcaption>
+</figure>
+<h3 id="s-certified-visuals-only">Add and use certified visuals only (block uncertified)</h3>
+<dl class="kv">
+<dt>Where</dt><dd>Power BI visuals</dd>
+<dt>Default</dt><dd>Off</dd>
+<dt>Typical posture</dt><dd><strong>Enable for all</strong> — Certification is the cheapest available control over visual code.</dd>
+<dt>Scope and delegation</dt><dd>Applies to the entire organization only; groups cannot be selected.</dd>
+<dt>What it controls</dt><dd>When on, only certified Power BI visuals render in reports and dashboards; uncertified visuals from AppSource or .pbiviz files show an error. Visuals added to the Organizational visuals page are not affected, whether certified or not.</dd>
+<dt>Risk or benefit</dt><dd>Custom visuals run JavaScript in the report. Certified visuals are tested not to call external services, so the setting reduces both a data-exfiltration path and rendering and performance surprises.</dd>
+<dt>Notes</dt><dd>Org-wide only. The tenant setting affects the service; use the Power BI Desktop group policy EnableUncertifiedVisuals to align Desktop. Audit existing reports for uncertified visuals before enabling and route needed visuals through an internal review into the Organizational visuals page.</dd>
+</dl>
+<table class="tight">
+<thead><tr><th>Setting</th><th>Default</th><th>Typical posture</th><th>What it controls; risk or benefit</th><th>Notes</th></tr></thead>
+<tbody>
+<tr id="s-sdk-visuals"><td><strong>Allow visuals created using the Power BI SDK</strong></td><td>Off</td><td class="no">Disable</td><td>Lets users import .pbiviz files and add visuals from AppSource. It does not affect visuals in the organizational store.</td><td>Group policy EnableCustomVisuals aligns Desktop. Keep off and provide approved visuals through the organizational store.</td></tr>
+<tr id="s-visual-downloads"><td><strong>Allow downloads from custom visuals</strong></td><td>Off</td><td class="no">Disable</td><td>Lets custom visuals download data and configuration to files (txt, csv, json, xml, pdf, xlsx and others) on user consent. It is separate from the export and sharing settings and applies to all visuals, including organizational ones.</td><td>Group policy AllowCVToExportDataToFile aligns Desktop. A hidden export path; keep off.</td></tr>
+<tr id="s-visual-sso"><td><strong>AppSource Custom Visuals SSO</strong></td><td>Off</td><td class="no">Disable</td><td>Lets AppSource custom visuals obtain Entra access tokens (including name and e-mail) for the signed-in user. Visuals can send tokens across regions and compliance boundaries and are responsible for what they hold. The portal text is Allow custom visuals to get user Microsoft Entra access tokens.</td><td>Keep off unless a vetted visual requires it.</td></tr>
+<tr id="s-visual-local-storage"><td><strong>Allow access to the browser's local storage</strong></td><td>On</td><td class="yes">Enable for all</td><td>Lets custom visuals store data in the browser's local storage to improve performance. Applies to all visuals.</td><td>Low risk; consider disabling for shared kiosks.</td></tr>
+</tbody></table>
+<h3 id="visual-gpo">Align Power BI Desktop with group policy</h3>
+<p>The tenant settings for visuals apply to the Power BI service. For Power BI Desktop, administrators set matching registry values through group policy under <code>Software\Policies\Microsoft\Power BI Desktop\</code>. Each value is 0 to disable and 1 to enable, and Learn documents 1 as the default.</p>
+<table>
+  <thead><tr><th>Registry value</th><th>Aligns with tenant setting</th></tr></thead>
+  <tbody>
+    <tr><td><code>EnableCustomVisuals</code></td><td>Allow visuals created using the Power BI SDK</td></tr>
+    <tr><td><code>EnableUncertifiedVisuals</code></td><td>Add and use certified visuals only (block uncertified)</td></tr>
+    <tr><td><code>AllowCVToExportDataToFile</code></td><td>Allow downloads from custom visuals. When the value is 1, a visual can export only if the tenant setting is on and the user is signed in.</td></tr>
+  </tbody>
+</table>
+<div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p>
+<p>Check the value names, data types and meanings before you deploy a policy: <a href="https://learn.microsoft.com/fabric/admin/organizational-visuals">Manage Power BI visuals admin settings</a>. Test with a pilot device group first.</p></div>
+<h3 id="visual-org">Organizational visuals store</h3>
+<p>Adding a visual to the Organizational visuals page makes it available whether or not it is certified and regardless of the SDK and certified-only switches. Organizational visuals deploy to Power BI Desktop automatically. Use the store as the controlled release channel: review the visual for data flow and licensing, add it, and tell authors. Teams building report standards can find guidance in <a href="../12-power-bi-report-development/index.html">Power BI Report Development Standards</a>.</p>
+<div class="callout warning"><p class="callout-title">Store behaviors to plan for</p>
+<ul>
+  <li>AppSource visuals in the store update automatically, so a reviewed version can change later. Re-review on your cadence.</li>
+  <li>Deleting a visual from the store is irreversible and stops it rendering in existing reports at once. Disabling it instead keeps it in the list.</li>
+  <li>Power BI Report Server does not support organizational visuals.</li>
+</ul></div>
+
+<h2 id="legacy">Legacy objects: Gen1 dataflows and datamarts</h2>
+<p>Two features have modern replacements. Both should be retired on a plan, because live content depends on them.</p>
+<h3 id="s-gen1-dataflows">Create and use Gen1 dataflows</h3>
+<dl class="kv">
+<dt>Where</dt><dd>Gen1 dataflow settings</dd>
+<dt>Default</dt><dd>Not stated</dd>
+<dt>Typical posture</dt><dd><strong>Disable</strong> — Retire legacy dataflows on a plan, not by surprise.</dd>
+<dt>Scope and delegation</dt><dd>Applies to the entire organization only; groups cannot be selected.</dd>
+<dt>What it controls</dt><dd>Lets users create and use Gen1 dataflows, the original Power BI self-service ETL (Power Query Online with storage managed by Power BI). The setting applies to the entire organization and cannot be limited to groups.</dd>
+<dt>Risk or benefit</dt><dd>Gen1 dataflows are the original self-service ETL path, outside the OneLake-based items and CI/CD patterns that Dataflow Gen2 provides. Existing datasets and refreshes may depend on dataflows people already built, so retirement needs a plan.</dd>
+<dt>Notes</dt><dd>Sequence it: inventory Gen1 dataflows with the admin APIs, communicate that new work uses Dataflow Gen2, migrate, then disable. Disabling too early breaks refreshes.</dd>
+</dl>
+<h3 id="s-datamarts">Create Datamarts</h3>
+<dl class="kv">
+<dt>Where</dt><dd>Datamart settings</dd>
+<dt>Status</dt><dd><span class="badge preview">Preview</span> Labeled preview on Microsoft Learn.</dd>
+<dt>Default</dt><dd>Not stated</dd>
+<dt>Typical posture</dt><dd><strong>Disable</strong> — Retired feature; build on Warehouse instead.</dd>
+<dt>Scope and delegation</dt><dd>Group scoping is not stated in the reference; check the setting panel.</dd>
+<dt>What it controls</dt><dd>Lets specified users create datamarts. Learn still lists the setting with a preview label.</dd>
+<dt>Risk or benefit</dt><dd>Datamarts are superseded by Fabric Warehouse. Microsoft's guidance is to migrate existing datamarts to a warehouse, so this setting should stay off for new work.</dd>
+<dt>Notes</dt><dd>Keep it off, inventory remaining datamarts with the admin APIs or workspace lists, and follow the upgrade-to-warehouse guidance. Confirm the retirement status on Learn.</dd>
+</dl>
+<div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p>
+<p>Datamart documentation redirects to a landing page and the migration guidance points to Fabric Warehouse, but the settings index still lists <em>Create Datamarts</em> with a preview label. Confirm the status and follow the <a href="https://learn.microsoft.com/fabric/data-warehouse/datamart-upgrade-to-warehouse">upgrade guide</a> before you plan the retirement.</p></div>
+<table>
+  <thead><tr><th>Legacy feature</th><th>Replacement</th><th>Retirement sequence</th></tr></thead>
+  <tbody>
+    <tr><td><strong>Gen1 dataflows</strong></td><td>Dataflow Gen2 in Fabric</td><td>Inventory with admin APIs, stop new creation by policy, migrate, then disable the setting.</td></tr>
+    <tr><td><strong>Datamarts</strong></td><td>Fabric Warehouse</td><td>Inventory, upgrade each datamart to a warehouse, then keep the setting off.</td></tr>
+  </tbody>
+</table>
+
+<h2 id="other">Other creation features</h2>
+<p>Smaller settings for Q&amp;A, scorecards, insights, R and Python visuals and dashboards. Each has a narrow footprint; the two to question are R and Python visuals (scripts run in the service) and web content on dashboard tiles (a malicious content risk that Learn calls out).</p>
+<table class="tight">
+<thead><tr><th>Setting</th><th>Default</th><th>Typical posture</th><th>What it controls; risk or benefit</th><th>Notes</th></tr></thead>
+<tbody>
+<tr id="s-qna-review"><td><strong>Review questions</strong></td><td>Not stated</td><td class="maybe">Enable for specific groups</td><td>Lets semantic model owners review the Q&A questions people asked about their data.</td><td>Questions can reveal sensitive interests; scope to model owners.</td></tr>
+<tr id="s-qna-synonyms"><td><strong>Synonym sharing</strong></td><td>Not stated</td><td class="yes">Enable for all</td><td>Lets people share Q&A synonyms with the organization.</td><td>Low risk.</td></tr>
+<tr id="s-scorecards"><td><strong>Create and use Scorecards</strong></td><td>Not stated</td><td class="yes">Enable for all</td><td>Lets users create and use scorecards.</td><td>Low risk; no security implication beyond item sharing.</td></tr>
+<tr id="s-insights-notify"><td><strong>Receive notifications for top insights</strong> <span class="badge preview">Preview</span></td><td>Not stated</td><td>Decide per organization</td><td>Lets users enable notifications for top insights in report settings.</td><td>Preview; leave at the default until evaluated.</td></tr>
+<tr id="s-insights-entry"><td><strong>Show entry points for insights</strong> <span class="badge preview">Preview</span></td><td>Not stated</td><td>Decide per organization</td><td>Lets users use entry points that request insights inside reports.</td><td>Preview; leave at the default until evaluated.</td></tr>
+<tr id="s-rpy-visuals"><td><strong>Interact with and share R and Python visuals</strong></td><td>Not stated</td><td class="maybe">Enable for specific groups</td><td>Lets users interact with and share visuals created with R or Python scripts.</td><td>Scope to analysts who build them; scripts run server-side and add review burden.</td></tr>
+<tr id="s-web-content-tiles"><td><strong>Web content on dashboard tiles</strong></td><td>Not stated</td><td class="no">Disable</td><td>Lets users add and view web content tiles on dashboards. Learn notes it may expose the organization to malicious web content.</td><td>Disable.</td></tr>
+</tbody></table>
+
+<div class="takeaways"><p class="tk-title">Key takeaways</p>
+<ul>
+  <li>Enable cross-workspace model use for everyone; the real gates are Build permission and row-level security.</li>
+  <li>Deploy labels with inheritance and link restrictions first, then widen exports; remember labels are not enforced on CSV, across tenants or in Git.</li>
+  <li>Prefer certified discovery to promoted discovery, and keep sensitive values out of item metadata.</li>
+  <li>Separate organizational apps from template apps, and use the real setting names: Publish apps to the entire organization and Push apps to end users.</li>
+  <li>Enforce certified visuals only, run an Organizational visuals review route, and align Desktop with group policy.</li>
+  <li>Retire Gen1 dataflows and datamarts on a plan, not by toggling the switch first.</li>
+</ul></div>
+
+<section class="refs">
+  <h2 id="refs">References</h2>
+  <ul>
+    <li><a href="https://learn.microsoft.com/fabric/admin/portal-workspace">Workspace tenant settings</a></li>
+    <li><a href="https://learn.microsoft.com/fabric/admin/service-admin-portal-information-protection">Information protection tenant settings</a></li>
+    <li><a href="https://learn.microsoft.com/power-bi/enterprise/service-security-sensitivity-label-overview">Sensitivity labels in Power BI</a></li>
+    <li><a href="https://learn.microsoft.com/fabric/admin/service-admin-portal-discovery">Discovery tenant settings</a></li>
+    <li><a href="https://learn.microsoft.com/fabric/admin/organizational-visuals">Manage Power BI visuals admin settings</a></li>
+    <li><a href="https://learn.microsoft.com/fabric/admin/service-admin-portal-app">App tenant settings</a></li>
+    <li><a href="https://learn.microsoft.com/fabric/admin/service-admin-portal-template-app">Template app tenant settings</a></li>
+    <li><a href="https://learn.microsoft.com/fabric/admin/service-admin-portal-dataflow">Gen1 dataflow tenant settings</a></li>
+    <li><a href="https://learn.microsoft.com/fabric/data-warehouse/datamart-upgrade-to-warehouse">Upgrade a datamart to a warehouse</a></li>
+    <li><a href="https://learn.microsoft.com/fabric/admin/service-admin-portal-dataset-security">Semantic model security tenant settings</a></li>
+  </ul>
+</section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

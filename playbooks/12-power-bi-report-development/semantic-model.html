@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Semantic model standards · Report Dev Standards</title>
+<meta name="description" content="Choose a storage mode, switch off auto date/time and relationship autodetection, build a star schema, decide what authors see, and manage the model as a PBIP/TMDL project.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="12-power-bi-report-development" data-page="semantic-model.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+
+    <header class="page-header">
+      <p class="eyebrow">Playbook 12 · Power BI Report Development Standards</p>
+      <h1>Semantic model standards</h1>
+      <p class="lede">Everything a report inherits is decided here. Pick the storage mode deliberately, change two Desktop defaults before loading any data, shape the tables as a star, hide and document what authors should not guess at, and keep the model in a project format that Git can diff.</p>
+    </header>
+
+    <h2 id="storage-mode">Choose the storage mode first</h2>
+    <p>Storage mode is a property of each table, and the choice drives refresh cost, latency, which features you can use, and how you secure the data. On a Fabric platform with a curated Gold layer there are five realistic options. Decide before you build, because switching later changes how measures behave and what has to be re-tested.</p>
+
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 330" role="img" aria-label="Decision path for storage mode: if Gold data is not in OneLake Delta tables use Import; otherwise use Direct Lake on OneLake with Import tables when other sources are needed; use Direct Lake on SQL endpoint only if you depend on SQL views or SQL-level security">
+        <defs>
+          <marker id="fig-sm-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box purple" x="20" y="40" width="210" height="56" rx="28"/>
+        <text class="t-b" x="125" y="64" text-anchor="middle">Gold data already in</text>
+        <text class="t-b" x="125" y="80" text-anchor="middle">Delta tables in OneLake?</text>
+        <rect class="box purple" x="300" y="40" width="230" height="56" rx="28"/>
+        <text class="t-b" x="415" y="64" text-anchor="middle">Also need non-lake sources</text>
+        <text class="t-b" x="415" y="80" text-anchor="middle">or Power Query shaping?</text>
+        <rect class="box purple" x="600" y="40" width="250" height="56" rx="28"/>
+        <text class="t-b" x="725" y="64" text-anchor="middle">Depend on SQL views or</text>
+        <text class="t-b" x="725" y="80" text-anchor="middle">SQL-level row security?</text>
+        <rect class="box blue" x="20" y="150" width="210" height="62" rx="10"/>
+        <text class="t-h" x="125" y="174" text-anchor="middle">Import</text>
+        <text class="t-s" x="125" y="192" text-anchor="middle">Any connector, aggregations,</text>
+        <text class="t-s" x="125" y="206" text-anchor="middle">incremental refresh</text>
+        <rect class="box green" x="300" y="150" width="230" height="62" rx="10"/>
+        <text class="t-h" x="415" y="174" text-anchor="middle">Direct Lake on OneLake</text>
+        <text class="t-s" x="415" y="192" text-anchor="middle">plus Import tables for the rest</text>
+        <text class="t-s" x="415" y="206" text-anchor="middle">(composite model)</text>
+        <rect class="box orange" x="600" y="150" width="250" height="62" rx="10"/>
+        <text class="t-h" x="725" y="174" text-anchor="middle">Direct Lake on SQL endpoint</text>
+        <text class="t-s" x="725" y="192" text-anchor="middle">falls back to DirectQuery for</text>
+        <text class="t-s" x="725" y="206" text-anchor="middle">views and SQL security</text>
+        <rect class="box green" x="600" y="240" width="250" height="62" rx="10"/>
+        <text class="t-h" x="725" y="264" text-anchor="middle">Direct Lake on OneLake</text>
+        <text class="t-s" x="725" y="282" text-anchor="middle">materialize views as Delta tables</text>
+        <path class="ln" d="M230 68H298" marker-end="url(#fig-sm-1-a)"/>
+        <path class="ln" d="M530 68H598" marker-end="url(#fig-sm-1-a)"/>
+        <path class="ln" d="M125 96V148" marker-end="url(#fig-sm-1-a)"/>
+        <path class="ln" d="M415 96V148" marker-end="url(#fig-sm-1-a)"/>
+        <path class="ln" d="M725 96V148" marker-end="url(#fig-sm-1-a)"/>
+        <path class="ln" d="M850 68H872V271H852" marker-end="url(#fig-sm-1-a)"/>
+        <text class="t-s c-green" x="264" y="59" text-anchor="middle">yes</text>
+        <text class="t-s c-red" x="564" y="59" text-anchor="middle">no</text>
+        <text class="t-s c-red" x="137" y="126">no</text>
+        <text class="t-s c-green" x="427" y="126">yes</text>
+        <text class="t-s c-green" x="737" y="126">yes</text>
+        <text class="t-s c-red" x="866" y="170" text-anchor="end">no</text>
+      </svg>
+      <figcaption><b>Storage mode decision path.</b> Illustrative. Read the first question as "did the data team already land and shape this in Fabric?" If not, Import is the straightforward answer. Where the two Direct Lake variants differ, the difference is almost always SQL features.</figcaption>
+    </figure>
+
+    <table>
+      <thead><tr><th>Mode</th><th>Choose it when</th><th>Watch for</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Import</strong></td><td>You need any connector, Power Query shaping, user-defined aggregations or incremental refresh, or the author cannot write to the lake.</td><td>Refresh copies data and consumes capacity. Freshness is the refresh schedule.</td></tr>
+        <tr><td><strong>DirectQuery</strong></td><td>Data must stay in the source or must be current on every query, and the source can absorb report traffic.</td><td>Each interaction sends queries to the source. Plan query reduction from day one (see <a href="report-design.html#query-reduction">report design</a>).</td></tr>
+        <tr><td><strong>Composite</strong></td><td>You combine storage modes or build a model on top of an existing shared model.</td><td>Relationships across source groups are limited and are the slowest to evaluate. Keep cross-group joins few.</td></tr>
+        <tr><td><strong>Direct Lake on OneLake</strong></td><td>Gold tables are Delta tables in OneLake (possibly from more than one Fabric item) and you want near-Import speed without a data copy refresh.</td><td>No DirectQuery fallback: when a guardrail is exceeded, refresh fails until the Delta tables are optimized. Cloud connections only; no gateways.</td></tr>
+        <tr><td><strong>Direct Lake on SQL endpoint</strong></td><td>You already depend on the SQL analytics endpoint of one lakehouse or warehouse, including views or SQL-based security.</td><td>It falls back to DirectQuery when it cannot read Delta directly. The model property <strong>Direct Lake behavior</strong> controls that, and DirectQuery fallback is a performance cliff you should detect, not rely on.</td></tr>
+      </tbody>
+    </table>
+
+    <h3 id="direct-lake-notes">Direct Lake details that change design</h3>
+    <ul>
+      <li><strong>Refresh means framing.</strong> A Direct Lake refresh re-points the model at the Delta table's current files; it does not copy data. Table maintenance (compaction, V-Order, sensible row group sizes) therefore decides query speed. See <a href="../08-delta-partitioning/index.html">Delta Lake partitioning</a> and the Microsoft guidance on table optimization.</li>
+      <li><strong>Guardrails depend on the capacity SKU</strong> (files, row groups and rows per table, and model size). Queries are evaluated per query; model size on disk is evaluated per model. Right-size Delta tables before you scale the SKU.</li>
+      <li><strong>Calculated tables and columns are restricted.</strong> Calculation groups, what-if parameters and field parameters are supported because they create calculated tables implicitly. Other calculated tables and calculated columns depend on the variant, and the OneLake variant lists some of them as preview. Push derived columns into the Gold layer.</li>
+      <li><strong>Row-level security</strong> defined in the semantic model works, but Microsoft recommends a fixed-identity cloud connection for it. SQL-endpoint row-level security is applied differently by the two variants, so test it explicitly instead of assuming parity.</li>
+      <li><strong>Create purpose-built models.</strong> Auto-created default semantic models on lakehouses and warehouses are no longer generated for new items, and existing ones are independent models. Build and name the model you intend to certify.</li>
+    </ul>
+
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p>
+      <p>Direct Lake capabilities and limits change often (calculated tables, composite modeling, fallback behavior, per-SKU guardrails). Check <a href="https://learn.microsoft.com/fabric/fundamentals/direct-lake-overview">Direct Lake overview</a>, the "Considerations and limitations" table, before locking a design, and prototype with representative data volumes.</p></div>
+
+    <h2 id="settings">Two Desktop settings to change before you load data</h2>
+    <p>Power BI Desktop ships with conveniences that are helpful in a ten-minute demo and harmful in a shared model. Both are options, not model properties, so a new file silently picks them up again unless you change the global default. Change them in <strong>File &gt; Options and settings &gt; Options</strong>, on the <strong>Global</strong> page (affects new files) and on the <strong>Current File</strong> page (affects the open model).</p>
+
+    <h3 id="auto-date-time">Disable auto date/time</h3>
+    <p>With the option on, Desktop creates a hidden calculated date table for every Import date column that is not on the many side of a relationship. Each table is a <code>CALENDAR</code>-based table with Year, Quarter, Month and Day columns, joined to its source column. A model with a dozen date columns carries a dozen hidden calendars, none of which you can see, edit, mark, or reference from non-Power BI tools or Analyze in Excel.</p>
+    <ol class="steps">
+      <li><strong>Change the default for new files</strong><p>Options &gt; <strong>Global</strong> &gt; <strong>Data Load</strong> &gt; <strong>Time intelligence</strong> &gt; clear <strong>Auto date/time for new files</strong>. Both the global and current-file options default to on in a new installation.</p></li>
+      <li><strong>Change the open model</strong><p>Options &gt; <strong>Current File</strong> &gt; <strong>Data Load</strong> &gt; <strong>Time intelligence</strong> &gt; clear <strong>Auto date/time</strong>. Turning it off removes the hidden tables, so any visual or filter that used a date hierarchy breaks and must be rebuilt on your own date table.</p></li>
+      <li><strong>Verify</strong><p>No <code>Date Hierarchy</code> drop-downs appear under date columns in the Data pane. In a PBIP project, no auto-generated date table files (typically named <code>LocalDateTable_&lt;guid&gt;</code>) remain in the semantic model's tables folder.</p></li>
+    </ol>
+
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 290" role="img" aria-label="With auto date/time on, each of three date columns gets its own hidden calendar table; with it off, all three date columns relate to one marked Date table, one active and two inactive">
+        <defs>
+          <marker id="fig-sm-2-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-sm-2-ag" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="zone red" x="20" y="36" width="420" height="240" rx="12"/>
+        <text class="t-h" x="36" y="60">Auto date/time on</text>
+        <text class="t-s" x="36" y="78">one hidden table per date column</text>
+        <rect class="box" x="40" y="104" width="110" height="124" rx="8"/>
+        <text class="t-h" x="95" y="128" text-anchor="middle">Sales</text>
+        <text class="t-s" x="95" y="152" text-anchor="middle">OrderDate</text>
+        <text class="t-s" x="95" y="170" text-anchor="middle">ShipDate</text>
+        <text class="t-s" x="95" y="188" text-anchor="middle">DueDate</text>
+        <rect class="box red dashed" x="260" y="60" width="160" height="56" rx="8"/>
+        <text class="t-b" x="340" y="86" text-anchor="middle">Hidden calendar</text>
+        <text class="t-s" x="340" y="104" text-anchor="middle">for OrderDate</text>
+        <rect class="box red dashed" x="260" y="128" width="160" height="56" rx="8"/>
+        <text class="t-b" x="340" y="154" text-anchor="middle">Hidden calendar</text>
+        <text class="t-s" x="340" y="172" text-anchor="middle">for ShipDate</text>
+        <rect class="box red dashed" x="260" y="196" width="160" height="56" rx="8"/>
+        <text class="t-b" x="340" y="222" text-anchor="middle">Hidden calendar</text>
+        <text class="t-s" x="340" y="240" text-anchor="middle">for DueDate</text>
+        <path class="ln" d="M150 140H200V88H258" marker-end="url(#fig-sm-2-a)"/>
+        <path class="ln" d="M150 158H258" marker-end="url(#fig-sm-2-a)"/>
+        <path class="ln" d="M150 176H200V224H258" marker-end="url(#fig-sm-2-a)"/>
+        <rect class="zone green" x="470" y="36" width="410" height="240" rx="12"/>
+        <text class="t-h" x="486" y="60">One marked Date table</text>
+        <text class="t-s" x="486" y="78">relationships you define yourself</text>
+        <rect class="box" x="490" y="104" width="110" height="124" rx="8"/>
+        <text class="t-h" x="545" y="128" text-anchor="middle">Sales</text>
+        <text class="t-s" x="545" y="152" text-anchor="middle">OrderDate</text>
+        <text class="t-s" x="545" y="170" text-anchor="middle">ShipDate</text>
+        <text class="t-s" x="545" y="188" text-anchor="middle">DueDate</text>
+        <rect class="box green" x="730" y="108" width="130" height="96" rx="8"/>
+        <text class="t-h" x="795" y="140" text-anchor="middle">Date</text>
+        <text class="t-s" x="795" y="160" text-anchor="middle">marked date table</text>
+        <text class="t-s" x="795" y="176" text-anchor="middle">one row per day</text>
+        <path class="ln green" d="M600 140H728" marker-end="url(#fig-sm-2-ag)"/>
+        <path class="ln green dash" d="M600 158H728" marker-end="url(#fig-sm-2-ag)"/>
+        <path class="ln green dash" d="M600 176H728" marker-end="url(#fig-sm-2-ag)"/>
+        <text class="t-s" x="664" y="134" text-anchor="middle">active</text>
+        <text class="t-s" x="664" y="152" text-anchor="middle">inactive</text>
+        <text class="t-s" x="664" y="170" text-anchor="middle">inactive</text>
+      </svg>
+      <figcaption><b>What changes.</b> Left: three hidden calendars that cannot be shared or edited. Right: one date table you control, with one active relationship and the others activated by measures through <code>USERELATIONSHIP</code>. Dashed lines are inactive relationships.</figcaption>
+    </figure>
+
+    <p>Direct Lake on SQL endpoints does not support auto date/time at all; Direct Lake on OneLake does. A marked custom date table, with relationships on the date column, works in both, so it is the portable answer.</p>
+
+    <h3 id="auto-relationships">Disable relationship autodetection</h3>
+    <p>On load, Desktop compares column names and may create relationships on its own. In a narrow tutorial model that is convenient. In a model with surrogate keys, role-playing dimensions and a few similarly named columns, it produces relationships you did not choose, and a wrong relationship returns numbers that look reasonable. Three options govern this under <strong>Options &gt; Data Load &gt; Relationships</strong>:</p>
+    <table>
+      <thead><tr><th>Option</th><th>Default</th><th>Standard</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Import relationships from data sources on first load</strong></td><td>On</td><td>Optional. If the Gold layer declares keys, importing them is a head start, but review every imported relationship.</td></tr>
+        <tr><td><strong>Update or delete relationships when refreshing data</strong></td><td>Off</td><td>Leave off. Learn warns against turning it on when row-level security depends on relationships, because removing one can weaken security.</td></tr>
+        <tr><td><strong>Autodetect new relationships after data is loaded</strong></td><td>On</td><td>Turn off, on both the Global and Current File pages.</td></tr>
+      </tbody>
+    </table>
+    <p>You can still use <strong>Manage relationships &gt; Autodetect</strong> on demand as a suggestion engine. The rule is that a person confirms each relationship and sets cardinality and direction on purpose.</p>
+
+    <h2 id="star-schema">Model as a star</h2>
+    <p>Fact tables hold events or measurements at one grain, narrow and tall, with integer keys and numeric columns. Dimension tables hold descriptive attributes, wide and short. Every dimension relates to the fact with a one-to-many relationship that filters from the dimension. This is the shape VertiPaq compresses best, the shape DAX assumes, and the shape that keeps filter paths unambiguous.</p>
+
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 288" role="img" aria-label="Left: one flat table repeats customer, product and region text on every row. Right: a Sales fact table is filtered by four dimension tables around it">
+        <defs>
+          <marker id="fig-sm-3-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="zone red" x="20" y="36" width="330" height="240" rx="12"/>
+        <text class="t-h" x="36" y="58">Flat table</text>
+        <rect class="box red" x="60" y="82" width="250" height="140" rx="8"/>
+        <text class="t-h" x="185" y="106" text-anchor="middle">Sales (flat, 60 columns)</text>
+        <text class="t-s" x="185" y="130" text-anchor="middle">order_id · order_date</text>
+        <text class="t-s" x="185" y="148" text-anchor="middle">customer_name · customer_city</text>
+        <text class="t-s" x="185" y="166" text-anchor="middle">product_name · product_category</text>
+        <text class="t-s" x="185" y="184" text-anchor="middle">region · salesperson · ...</text>
+        <text class="t-s" x="185" y="202" text-anchor="middle">quantity · amount</text>
+        <text class="t-s" x="185" y="250" text-anchor="middle">Text repeated on every row: large and slow</text>
+        <rect class="zone green" x="380" y="36" width="500" height="240" rx="12"/>
+        <text class="t-h" x="396" y="58">Star schema</text>
+        <rect class="box" x="390" y="72" width="130" height="44" rx="8"/>
+        <text class="t-b" x="455" y="91" text-anchor="middle">Date</text>
+        <text class="t-s" x="455" y="107" text-anchor="middle">one row per day</text>
+        <rect class="box" x="750" y="72" width="130" height="44" rx="8"/>
+        <text class="t-b" x="815" y="91" text-anchor="middle">Customer</text>
+        <text class="t-s" x="815" y="107" text-anchor="middle">one row per customer</text>
+        <rect class="box" x="390" y="222" width="130" height="44" rx="8"/>
+        <text class="t-b" x="455" y="241" text-anchor="middle">Product</text>
+        <text class="t-s" x="455" y="257" text-anchor="middle">one row per product</text>
+        <rect class="box" x="750" y="222" width="130" height="44" rx="8"/>
+        <text class="t-b" x="815" y="241" text-anchor="middle">Store</text>
+        <text class="t-s" x="815" y="257" text-anchor="middle">one row per store</text>
+        <rect class="box green" x="590" y="130" width="120" height="76" rx="8"/>
+        <text class="t-h" x="650" y="158" text-anchor="middle">Sales</text>
+        <text class="t-s" x="650" y="176" text-anchor="middle">keys + measures</text>
+        <text class="t-s" x="650" y="190" text-anchor="middle">one grain</text>
+        <path class="ln green" d="M520 94H620V128" marker-end="url(#fig-sm-3-a)"/>
+        <path class="ln green" d="M750 94H680V128" marker-end="url(#fig-sm-3-a)"/>
+        <path class="ln green" d="M520 244H620V208" marker-end="url(#fig-sm-3-a)"/>
+        <path class="ln green" d="M750 244H680V208" marker-end="url(#fig-sm-3-a)"/>
+        <text class="t-s" x="570" y="88" text-anchor="middle">filters</text>
+      </svg>
+      <figcaption><b>Flat versus star.</b> The star stores each description once and lets one slicer filter the fact table through a single relationship. Snowflaked dimensions (a Product that relates to Category that relates to Department) add hops without adding value; flatten them into the dimension in the Gold layer.</figcaption>
+    </figure>
+
+    <h3 id="relationship-rules">Relationship rules</h3>
+    <ul>
+      <li><strong>One-to-many, single direction, from the dimension.</strong> Bidirectional filtering is the exception. It adds ambiguity, can slow queries, and Microsoft's relationship guidance recommends it only when needed. If you need a filter to flow from a fact back to a dimension, a measure with <code>CROSSFILTER</code> or a purpose-built bridge is usually safer than a model-wide switch.</li>
+      <li><strong>Many-to-many relationships sparingly.</strong> They are limited relationships: no table expansion, and slower than one-to-many. Prefer a bridge table with one-to-many relationships on both sides.</li>
+      <li><strong>Role-playing dimensions.</strong> One active relationship per pair of tables. For Order Date, Ship Date and Due Date, either duplicate the Date table (one per role) when visuals need to filter by different roles at once, or keep one table with inactive relationships and activate them with <code>USERELATIONSHIP</code> in role-specific measures.</li>
+      <li><strong>Integer surrogate keys</strong> on both ends, same data type, and a unique key on the one side. A refresh that loads duplicates into a one-side column fails.</li>
+      <li><strong>Plan for unknown members.</strong> If a fact row has no matching dimension row, a blank member appears. Add an explicit "Unknown" row in the dimension in the Gold layer instead of letting the engine invent a blank.</li>
+      <li><strong>Disconnected tables</strong> are legitimate for parameters and what-if inputs. Name them so nobody tries to relate them.</li>
+    </ul>
+
+    <h2 id="date-table">One date table, marked</h2>
+    <p>Time intelligence functions need a contiguous date table with one row per day and a column of unique dates. Build it once in the Gold layer (or as a single calculated table if the model is Import), mark it with <strong>Table tools &gt; Mark as date table</strong> and choose the date column, hide the technical columns, and give it columns for the periods your organization reports on (fiscal year, fiscal period, week). For a fiscal calendar that differs from the calendar year, include fiscal attributes in the table rather than writing them into each measure.</p>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p>
+      <p>Learn describes calendar-based time intelligence (calendar metadata on a date table, week-based functions, non-Gregorian calendars) as a preview capability behind a Desktop preview feature. If you adopt it, confirm its status and the differences from classic time intelligence in <a href="https://learn.microsoft.com/power-bi/transform-model/desktop-time-intelligence">Implement time-based calculations in Power BI</a>. The classic pattern with a marked date table remains the portable baseline.</p></div>
+
+    <h2 id="expose">Decide what authors see</h2>
+    <p>An author who opens the model sees every field you leave visible and has to guess which is right. The model owner's job is to remove the guesses.</p>
+    <table>
+      <thead><tr><th>Property</th><th>Standard</th><th>Why</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Hidden</strong></td><td>Hide surrogate and foreign keys, sort-order helpers, technical columns, and numeric columns that a measure already aggregates.</td><td>Stops authors from summing a key or building visuals on implicit aggregations. Hiding is a usability control, not security: people with Build permission can reveal hidden fields. Use row-level or object-level security for protection.</td></tr>
+        <tr><td><strong>Description</strong></td><td>Every table, every measure, and every column an author might use. State meaning, grain and how it should be used.</td><td>Descriptions surface as tooltips in the field list, and they are the cheapest documentation that travels with the model.</td></tr>
+        <tr><td><strong>Format</strong></td><td>Set number, percentage and date formats on the field or with a format string; use dynamic format strings when the unit changes with context.</td><td>Reports stay consistent without every author formatting every visual.</td></tr>
+        <tr><td><strong>Sort by column</strong></td><td>Month Name sorts by Month Number; Fiscal Period by its ordinal; status labels by an explicit rank.</td><td>Alphabetical sort on months and ranges is the most common visible defect in a first report.</td></tr>
+        <tr><td><strong>Default summarization</strong></td><td>Set to <em>None</em> on keys, years and codes.</td><td>Prevents a stray sum of Year when a column is dropped on a visual.</td></tr>
+        <tr><td><strong>Data category</strong></td><td>Mark geography, URL and image columns.</td><td>Enables the right visuals and behavior without author effort.</td></tr>
+        <tr><td><strong>Hierarchies and display folders</strong></td><td>Build hierarchies for natural drill paths (Category, Subcategory, Product). Group measures with display folders.</td><td>Navigation and consistent drill behavior across reports.</td></tr>
+        <tr><td><strong>Discourage implicit measures</strong></td><td>Turn on for shared models.</td><td>Forces authors to use your measures. It is also required before you can create a calculation group.</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="model-features">Perspectives, calculation groups and field parameters</h2>
+    <table>
+      <thead><tr><th>Feature</th><th>Use it for</th><th>Limits to know</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Perspectives</strong></td><td>Trimmed views of a large model for a subject area or for personalized visuals.</td><td>They are a viewing convenience, not security. Desktop has no graphical editor for them, so create them in TMDL view or an external tool.</td></tr>
+        <tr><td><strong>Calculation groups</strong></td><td>Reusing one calculation across many measures: time intelligence (current, YTD, prior year), currency conversion, unit switching.</td><td>Create them in Model view. They need discouraged implicit measures, change measure data types in reports to variant, and are not supported on remote sources inside composite models.</td></tr>
+        <tr><td><strong>Field parameters</strong></td><td>Letting report users switch the measure or dimension on a visual.</td><td>Use explicit measures, not implicit aggregations. There is no "none" selection, and a field parameter cannot be the linked field for a drillthrough or tooltip page.</td></tr>
+      </tbody>
+    </table>
+    <p>These features all create or depend on model objects, so they belong in the shared model, not in each report. Direct Lake models accept calculation groups, what-if parameters and field parameters because the calculated tables they create do not reference lake columns.</p>
+
+    <h2 id="projects">Keep the model in a project format</h2>
+    <p>A PBIX file is a single binary that Git cannot diff or merge. A Power BI project (PBIP) saves the semantic model and the report as separate folders of text files. The semantic model is stored as TMDL, one file per table plus files for relationships, expressions and the model; the report definition can be stored in the enhanced report format, PBIR, with one file per page, visual and bookmark.</p>
+
+<pre data-title="PBIP project layout"><code class="language-text">contoso-sales/
+├── SM_SALES_CNSM_Core.SemanticModel/
+│   ├── definition/              # TMDL: model.tmdl, relationships.tmdl, tables/*.tmdl, ...
+│   ├── definition.pbism
+│   └── .platform
+├── RPT_SALES_DLV_Executive.Report/
+│   ├── definition/              # PBIR: pages, visuals, bookmarks as JSON files
+│   ├── definition.pbir          # points at the semantic model (byPath or byConnection)
+│   └── .platform
+├── .gitignore                   # ignores .pbi/localSettings.json and .pbi/cache.abf
+└── contoso-sales.pbip</code></pre>
+
+<pre data-title="tables/Sales.tmdl (excerpt)"><code class="language-text">/// Sales fact table. One row per order line.
+table Sales
+
+	column 'Customer Key'
+		dataType: int64
+		isHidden
+		summarizeBy: none
+		sourceColumn: customer_key
+
+	column 'Net Amount'
+		dataType: decimal
+		isHidden
+		summarizeBy: none
+		sourceColumn: net_amount
+
+	/// Net sales after discounts, before tax.
+	measure 'Sales Amount' = SUM ( Sales[Net Amount] )
+		formatString: #,0
+		displayFolder: Sales</code></pre>
+
+    <p>Three practices make the project format pay off:</p>
+    <ul>
+      <li><strong>Review diffs, not binary files.</strong> A pull request that renames a measure or changes a relationship is visible as a few lines in a <code>.tmdl</code> file. Pair this with the review rules in <a href="../05-github-integration/index.html">GitHub integration and branching</a>.</li>
+      <li><strong>Use TMDL view for bulk edits.</strong> Script a table, find-and-replace with regular expressions, preview the diff, and apply. It is the fastest way to add descriptions, apply a naming prefix, or create a perspective. It changes metadata only; if you change a Power Query expression or a calculated column you must refresh.</li>
+      <li><strong>Edit outside Desktop with care.</strong> Save in Desktop first, edit the TMDL in an editor, then apply the external changes (older builds need a restart). Save files as UTF-8 without BOM, keep a short root path because Windows limits path length to 260 characters by default, and set Git line-ending handling because Desktop writes CRLF.</li>
+    </ul>
+
+    <table>
+      <thead><tr><th>Capability</th><th>Status as documented on Microsoft Learn</th></tr></thead>
+      <tbody>
+        <tr><td>TMDL view in Power BI Desktop</td><td><span class="badge ga">GA</span></td></tr>
+        <tr><td>TMDL view on the web (service)</td><td><span class="badge preview">Preview</span></td></tr>
+        <tr><td>Saving as a Power BI project (PBIP)</td><td><span class="badge preview">Preview</span></td></tr>
+        <tr><td>PBIR report format</td><td><span class="badge preview">Preview</span>, already the default for new reports created in the service</td></tr>
+        <tr><td>Fabric Git integration for semantic models and reports</td><td><span class="badge preview">Preview</span></td></tr>
+      </tbody>
+    </table>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p>
+      <p>These statuses move. Microsoft has stated that when PBIR reaches general availability it becomes the only supported report format and conversion becomes mandatory, so plan for it now. Re-check <a href="https://learn.microsoft.com/power-bi/developer/projects/projects-overview">Power BI Desktop projects</a>, <a href="https://learn.microsoft.com/power-bi/developer/projects/projects-report">the report folder and PBIR format</a>, and the supported-items list in <a href="https://learn.microsoft.com/fabric/cicd/git-integration/intro-to-git-integration">Fabric Git integration</a> before you commit a team process to them. Known project limits include: sensitivity labels are not supported in PBIP, you cannot save a PBIP directly to OneDrive or SharePoint, and row-level security members and incremental-refresh partitions cannot be read or written through the Fabric REST API. Also check the deployment pipeline limitations before you combine PBIR with pipelines; see <a href="collaboration-qa.html#release-flow">From change to production</a>.</p></div>
+
+    <h2 id="checklist">Semantic model checklist</h2>
+    <ul class="checklist">
+      <li>Storage mode chosen on purpose and recorded in the model description.</li>
+      <li>Auto date/time off (global and current file); one date table marked.</li>
+      <li>Relationship autodetection off; every relationship reviewed, one-to-many, single direction unless justified.</li>
+      <li>Star shape: no flat tables, no snowflakes without a reason, Unknown members present in dimensions.</li>
+      <li>Keys and helper columns hidden; summarization set to none where needed.</li>
+      <li>Every table, measure and author-facing column has a description; formats and sort-by columns set.</li>
+      <li>Discourage implicit measures is on; all measures live in a measures table.</li>
+      <li>Security: row-level or object-level security tested for each role, not assumed from the source.</li>
+      <li>Saved as PBIP/TMDL in Git; <code>.gitignore</code> excludes local cache and settings.</li>
+    </ul>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p>
+      <ul>
+        <li>Pick the storage mode first. Direct Lake on OneLake is the default for Gold data in Fabric; Direct Lake on SQL endpoint is for teams that depend on SQL features and accept DirectQuery fallback.</li>
+        <li>Turn off auto date/time and relationship autodetection globally and per file, then define the date table and relationships yourself.</li>
+        <li>Hiding is for usability and security is for security. Use descriptions, formats and sort-by columns so authors stop guessing.</li>
+        <li>Store the model as TMDL in Git so reviews see what changed.</li>
+      </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/power-bi/transform-model/desktop-auto-date-time">Auto date/time in Power BI Desktop</a></li>
+        <li><a href="https://learn.microsoft.com/power-bi/transform-model/desktop-create-and-manage-relationships">Create and manage relationships in Power BI Desktop</a></li>
+        <li><a href="https://learn.microsoft.com/power-bi/transform-model/desktop-relationships-understand">Model relationships in Power BI Desktop</a></li>
+        <li><a href="https://learn.microsoft.com/power-bi/guidance/relationships-bidirectional-filtering">Bi-directional relationship guidance</a></li>
+        <li><a href="https://learn.microsoft.com/power-bi/guidance/model-date-tables">Design guidance for date tables</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/fundamentals/direct-lake-overview">Direct Lake overview</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-warehouse/semantic-models">Power BI semantic models in Fabric Data Warehouse</a></li>
+        <li><a href="https://learn.microsoft.com/power-bi/transform-model/calculation-groups">Create calculation groups in Power BI</a></li>
+        <li><a href="https://learn.microsoft.com/power-bi/create-reports/power-bi-field-parameters">Use field parameters in Power BI reports</a></li>
+        <li><a href="https://learn.microsoft.com/power-bi/transform-model/desktop-tmdl-view">Use TMDL view in Power BI</a></li>
+        <li><a href="https://learn.microsoft.com/analysis-services/tmdl/tmdl-overview">Tabular Model Definition Language (TMDL)</a></li>
+        <li><a href="https://learn.microsoft.com/power-bi/developer/projects/projects-dataset">Power BI Desktop project semantic model folder</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

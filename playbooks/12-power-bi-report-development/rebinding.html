@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rebinding reports to a new model · Report Dev Standards</title>
+<meta name="description" content="Point existing Power BI reports at a different semantic model: choose between REST rebind, semantic-link-labs, PBIP edits and a manual Desktop remap, gate it with a schema diff and verify every dependency.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="12-power-bi-report-development" data-page="rebinding.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+
+    <header class="page-header">
+      <p class="eyebrow">Playbook 12 · Power BI Report Development Standards</p>
+      <h1>Rebinding reports to a new semantic model</h1>
+      <p class="lede">Moving reports onto a new Gold-based model is routine in a Fabric migration. The mechanics are simple (change which model a report points at). The risk is everything inside the report that referred to a field the new model names differently. This page gives you four ways to do it, a gate that finds the gaps first, and a matrix for verifying the result.</p>
+    </header>
+
+    <h2 id="when">When you rebind</h2>
+    <ul>
+      <li>A legacy Import model is replaced by a Direct Lake or consolidated model with the same business meaning.</li>
+      <li>Reports that carry their own embedded model are being converted into thin reports on a shared model.</li>
+      <li>A shared model is split or merged, or moves to a different workspace.</li>
+    </ul>
+    <p>Rebinding is not how you promote a report between Dev, Test and Production. Deployment pipelines handle that by binding a deployed report to the model in the same stage; see <a href="../07-deployment/index.html">Deployment pipelines and promotion</a>. For the wider estate move, see <a href="../01-powerbi-to-fabric-migration/index.html">Power BI to Fabric migration</a>. Paginated reports are rebound differently and are not supported by the API used below; see <a href="../13-paginated-report-migration/index.html">Paginated report migration</a>.</p>
+
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 270" role="img" aria-label="Before rebinding the report points at the legacy model; after rebinding the same report item points at the core model while the legacy model is kept until validation completes">
+        <defs>
+          <marker id="fig-rb-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-rb-1-ag" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="zone" x="20" y="30" width="420" height="220" rx="12"/>
+        <text class="t-h" x="36" y="54">Before</text>
+        <rect class="box" x="40" y="100" width="150" height="70" rx="10"/>
+        <text class="t-b" x="115" y="130" text-anchor="middle">Report</text>
+        <text class="t-s" x="115" y="148" text-anchor="middle">visuals, filters</text>
+        <rect class="box gray" x="270" y="100" width="150" height="70" rx="10"/>
+        <text class="t-b" x="345" y="130" text-anchor="middle">Legacy model</text>
+        <text class="t-s" x="345" y="148" text-anchor="middle">Import, embedded logic</text>
+        <path class="ln" d="M190 135H268" marker-end="url(#fig-rb-1-a)"/>
+        <text class="t-s" x="229" y="127" text-anchor="middle">bound to</text>
+        <rect class="zone green" x="470" y="30" width="410" height="220" rx="12"/>
+        <text class="t-h" x="486" y="54">After the Rebind call</text>
+        <rect class="box" x="490" y="100" width="150" height="70" rx="10"/>
+        <text class="t-b" x="565" y="130" text-anchor="middle">Same report item</text>
+        <text class="t-s" x="565" y="148" text-anchor="middle">same ID and URL</text>
+        <rect class="box green" x="710" y="100" width="150" height="70" rx="10"/>
+        <text class="t-b" x="785" y="130" text-anchor="middle">Core model</text>
+        <text class="t-s" x="785" y="148" text-anchor="middle">Direct Lake, shared</text>
+        <path class="ln green" d="M640 135H708" marker-end="url(#fig-rb-1-ag)"/>
+        <text class="t-s" x="674" y="127" text-anchor="middle">bound to</text>
+        <rect class="box gray dashed" x="710" y="196" width="150" height="40" rx="8"/>
+        <text class="t-s" x="785" y="213" text-anchor="middle">Legacy model, kept</text>
+        <text class="t-s" x="785" y="227" text-anchor="middle">until validated</text>
+      </svg>
+      <figcaption><b>What the call changes.</b> It changes a pointer, not the report. Everything inside the report that referenced a table, column or measure by name still does, and that is what you must check.</figcaption>
+    </figure>
+
+    <h2 id="approaches">Four ways to rebind</h2>
+    <table>
+      <thead><tr><th>Approach</th><th>Use it when</th><th>Strength</th><th>Limit</th></tr></thead>
+      <tbody>
+        <tr><td><strong>REST or semantic-link-labs rebind</strong></td><td>Thin reports whose model changes under them; same or compatible schema; many reports.</td><td>Scriptable and repeatable; keeps the report item, so its ID, URL and dependents stay; supports service principals.</td><td>Needs Write on the report and Build on the target model. Does nothing about mismatched field names. Not supported for paginated reports.</td></tr>
+        <tr><td><strong>Edit the PBIP</strong></td><td>Reports in Git; you want the change reviewed and deployed from source control.</td><td>The pointer is a reviewable line in <code>definition.pbir</code>.</td><td>PBIP is documented as preview; see the status note on the model page.</td></tr>
+        <tr><td><strong>Manual remap in Desktop</strong></td><td>The report has a local model today, or the new model's fields differ and visuals need fixing one by one.</td><td>Full control; you see every broken visual.</td><td>Slow and error-prone at scale; use a copy.</td></tr>
+        <tr><td><strong>Rebuild</strong></td><td>The new model is structurally different and most visuals would need re-binding anyway.</td><td>Clean result and a chance to apply the design standards.</td><td>Highest effort; new report ID unless you republish over the old one.</td></tr>
+      </tbody>
+    </table>
+    <div class="callout warning"><p class="callout-title">Do not plan around "Change source" for live connections</p>
+      <p>Switching a live-connected report to another model through Desktop's data source settings has been reported as unavailable in recent builds. Do not build a plan on it. Use the REST rebind or edit the PBIP.</p></div>
+
+    <h2 id="schema-diff">Gate: compare the schemas first</h2>
+    <p>A rebind to a model with different names produces a report that opens and then shows errors on every affected visual. Find the gaps before you touch the report: list the columns and measures the old model exposes, list what the new model exposes, and decide what to do with every difference. The snippet below runs in a Fabric notebook.</p>
+<pre data-title="Notebook cell: field gap report between two semantic models"><code class="language-python">%pip install semantic-link-labs
+import sempy.fabric as fabric
+
+OLD_MODEL, OLD_WS = "SM_SALES_CNSM_Legacy", "PRD_SALES_CNSM"
+NEW_MODEL, NEW_WS = "SM_SALES_CNSM_Core", "PRD_SALES_CNSM"
+
+def fields(model: str, workspace: str):
+    """Return the set of (table, column) and (table, measure) pairs a model exposes."""
+    cols = fabric.list_columns(dataset=model, workspace=workspace)
+    meas = fabric.list_measures(dataset=model, workspace=workspace)
+    # Print cols.columns / meas.columns first if your sempy version names them differently.
+    return (set(zip(cols["Table Name"], cols["Column Name"])),
+            set(zip(meas["Table Name"], meas["Measure Name"])))
+
+old_cols, old_meas = fields(OLD_MODEL, OLD_WS)
+new_cols, new_meas = fields(NEW_MODEL, NEW_WS)
+
+missing_cols = sorted(old_cols - new_cols)
+missing_meas = sorted(old_meas - new_meas)
+new_measure_names = {m for _, m in new_meas}
+
+print(f"Columns missing in new model: {len(missing_cols)}")
+for t, c in missing_cols:
+    print(f"  {t}[{c}]")
+print(f"Measures missing in new model: {len(missing_meas)}")
+for t, m in missing_meas:
+    note = "   (same name exists under a different table)" if m in new_measure_names else ""
+    print(f"  {t}[{m}]{note}")</code></pre>
+    <p>The output is your work list. For each missing field choose one of three actions: add it to the new model (usually as a measure or a renamed column), change the report to use the replacement, or retire the visual. A measure that exists under a different table also counts as missing, because report visuals reference a measure through its table. Do not proceed until the list is empty or every entry has an owner.</p>
+
+    <h2 id="rest">Rebind with the REST API or semantic-link-labs</h2>
+    <p>The Power BI REST API <strong>Reports - Rebind Report In Group</strong> binds a report to a target semantic model. Learn documents three conditions that matter: you need Write permission on the report and Build permission on the target model, a model in a different workspace is exposed to the report's workspace as a shared model, and a report that had a live connection ends up with a direct binding to the target. The call does not support paginated reports.</p>
+<pre data-title="PowerShell: rebind one report (MicrosoftPowerBIMgmt module)"><code class="language-powershell">Connect-PowerBIServiceAccount
+
+$workspaceId = "&lt;report-workspace-id&gt;"
+$reportId    = "&lt;report-id&gt;"
+$body = @{ datasetId = "&lt;target-model-id&gt;" } | ConvertTo-Json
+
+# POST https://api.powerbi.com/v1.0/myorg/groups/{groupId}/reports/{reportId}/Rebind
+Invoke-PowerBIRestMethod -Method Post `
+    -Url "groups/$workspaceId/reports/$reportId/Rebind" `
+    -Body $body</code></pre>
+    <p>For more than a handful of reports, use the wrappers in semantic-link-labs (<code>sempy_labs.report</code>), which call the same API, resolve names to IDs, and support service principal authentication. <code>report_rebind</code> takes one or more reports; <code>report_rebind_all</code> finds every report bound to a given model and rebinds it, optionally limited to listed workspaces.</p>
+<pre data-title="Notebook cell: rebind reports in bulk"><code class="language-python">from sempy_labs.report import report_rebind, report_rebind_all
+import sempy.fabric as fabric
+
+OLD_MODEL, OLD_WS = "SM_SALES_CNSM_Legacy", "PRD_SALES_CNSM"
+NEW_MODEL, NEW_WS = "SM_SALES_CNSM_Core", "PRD_SALES_CNSM"
+REPORT_WS = "PRD_SALES_DLV"
+
+# 1. Dry run: which reports are bound to the old model today?
+old_id = fabric.resolve_dataset_id(OLD_MODEL, OLD_WS)
+reports = fabric.list_reports(workspace=REPORT_WS)
+affected = reports[reports["Dataset Id"] == old_id]
+print(affected[["Name", "Id"]].to_string(index=False))
+
+# 2. Rebind a named subset first (a pilot)
+report_rebind(
+    report=["RPT_SALES_DLV_Executive"],
+    dataset=NEW_MODEL,
+    report_workspace=REPORT_WS,
+    dataset_workspace=NEW_WS,
+)
+
+# 3. After the pilot is verified, rebind everything still on the old model
+report_rebind_all(
+    dataset=OLD_MODEL,
+    new_dataset=NEW_MODEL,
+    dataset_workspace=OLD_WS,
+    new_dataset_workspace=NEW_WS,
+    report_workspace=[REPORT_WS],
+)</code></pre>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn and the library</p>
+      <p>Confirm the request and permissions in <a href="https://learn.microsoft.com/rest/api/power-bi/reports/rebind-report-in-group">Reports - Rebind Report In Group</a>. semantic-link-labs is an open-source library that moves quickly; pin a version in your notebook environment and check the function signatures in its documentation before you run bulk changes in production. The column names returned by <code>list_reports</code> can differ between versions.</p></div>
+
+    <h2 id="pbip">Rebind in a PBIP project</h2>
+    <p>In a Power BI project the pointer is a property of <code>definition.pbir</code> in the report folder, named <code>datasetReference</code>. It takes one of two forms:</p>
+    <ul>
+      <li><code>byPath</code>: a relative path to a semantic model folder in the same repository. Desktop opens the report and the model together in full edit mode. Fabric Git integration always exports a <code>byPath</code> reference when the model and report share a workspace.</li>
+      <li><code>byConnection</code>: a connection to a model in a Fabric workspace. Desktop opens it as a live connection and does not open the model for editing. Deployment through the Fabric REST API requires this form; there, only the <code>semanticmodelid</code> is needed.</li>
+    </ul>
+<pre data-title="definition.pbir with a byConnection reference"><code class="language-json">{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definitionProperties/2.0.0/schema.json",
+  "version": "4.0",
+  "datasetReference": {
+    "byConnection": {
+      "connectionString": "semanticmodelid=00000000-0000-0000-0000-000000000000"
+    }
+  }
+}</code></pre>
+    <p>Commit the change on a branch and let the pull request show the one-line difference. If you want to open the same report in live-connect mode during development, a repository can hold more than one <code>.pbir</code> file (for example <code>definition-liveConnect.pbir</code>); Fabric Git integration processes only <code>definition.pbir</code> and ignores the rest.</p>
+
+    <h2 id="manual">Remap manually in Desktop</h2>
+    <p>Use this route when a report owns a local model and must become a thin report, or when the new model's fields differ and every affected visual needs a decision. Always work on a copy.</p>
+
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 240" role="img" aria-label="Manual remap sequence: copy the report, keep only a local measures table, disconnect old sources, reconnect to the new model, fix formulas and visuals, then verify; visuals show errors between disconnecting and finishing the fixes">
+        <defs>
+          <marker id="fig-rb-2-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box gray" x="24" y="70" width="122" height="80" rx="10"/>
+        <text class="t-b" x="85" y="102" text-anchor="middle">Copy report</text>
+        <text class="t-s" x="85" y="122" text-anchor="middle">work on a copy</text>
+        <rect class="box blue" x="170" y="70" width="122" height="80" rx="10"/>
+        <text class="t-b" x="231" y="102" text-anchor="middle">Measures table</text>
+        <text class="t-s" x="231" y="122" text-anchor="middle">Local Measures, Rpt</text>
+        <rect class="box orange" x="316" y="70" width="122" height="80" rx="10"/>
+        <text class="t-b" x="377" y="102" text-anchor="middle">Disconnect</text>
+        <text class="t-s" x="377" y="122" text-anchor="middle">drop old sources</text>
+        <rect class="box blue" x="462" y="70" width="122" height="80" rx="10"/>
+        <text class="t-b" x="523" y="102" text-anchor="middle">Reconnect</text>
+        <text class="t-s" x="523" y="122" text-anchor="middle">new semantic model</text>
+        <rect class="box orange" x="608" y="70" width="122" height="80" rx="10"/>
+        <text class="t-b" x="669" y="102" text-anchor="middle">Fix and remap</text>
+        <text class="t-s" x="669" y="122" text-anchor="middle">formulas, visuals</text>
+        <rect class="box green" x="754" y="70" width="122" height="80" rx="10"/>
+        <text class="t-b" x="815" y="102" text-anchor="middle">Verify</text>
+        <text class="t-s" x="815" y="122" text-anchor="middle">filters, bookmarks</text>
+        <path class="ln" d="M146 110H168" marker-end="url(#fig-rb-2-a)"/>
+        <path class="ln" d="M292 110H314" marker-end="url(#fig-rb-2-a)"/>
+        <path class="ln" d="M438 110H460" marker-end="url(#fig-rb-2-a)"/>
+        <path class="ln" d="M584 110H606" marker-end="url(#fig-rb-2-a)"/>
+        <path class="ln" d="M730 110H752" marker-end="url(#fig-rb-2-a)"/>
+        <rect class="box red dashed" x="316" y="172" width="414" height="34" rx="8"/>
+        <text class="t-s" x="523" y="193" text-anchor="middle">Expected: visuals show errors until remapped</text>
+        <rect class="box green dashed" x="754" y="172" width="122" height="34" rx="8"/>
+        <text class="t-s" x="815" y="193" text-anchor="middle">Parity confirmed</text>
+      </svg>
+      <figcaption><b>The broken window is expected.</b> Between disconnecting the old source and finishing the remap, visuals error out. That is why you work on a copy and why you do not publish until the verification step passes.</figcaption>
+    </figure>
+
+    <ol class="steps">
+      <li><strong>Copy the report</strong><p>Save the report as a new file (or branch the PBIP). Keep the original untouched until the new one passes verification.</p></li>
+      <li><strong>Make sure a measures table exists</strong><p>If the report has no table dedicated to measures, create one as described in <a href="naming-dax.html#measures-table">Create a measures table</a> and name it <code>Local Measures</code>. A table with this name separates measures created in the report from measures that come from the shared model.</p></li>
+      <li><strong>Move report measures in and rename them</strong><p>Move every measure created in the report to <code>Local Measures</code> (select the measure, then change <strong>Home table</strong>). Apply the <code>Rpt</code> prefix to any that lack it. Check each for hard-coded years or filters in its name or logic.</p></li>
+      <li><strong>Remove local queries</strong><p>If the report has data queries, open <strong>Transform data</strong>, delete every query except <code>Local Measures</code>, then <strong>Close and apply</strong>.</p></li>
+      <li><strong>Remove the old data sources</strong><p>In <strong>Transform data &gt; Data source settings</strong>, delete the connections to semantic models or databases that the old model used, close the dialog and apply the changes. At this point the visuals are broken, as expected.</p></li>
+      <li><strong>Connect to the new model</strong><p>Select <strong>Get data &gt; Power BI semantic models</strong>, pick the target model from the OneLake catalog, and choose the tables you need. Because the report keeps a local table, this creates a composite model that uses DirectQuery over the shared model; a tenant setting governs that capability, so ask your administrator if the option is unavailable. A report with no local tables stays a pure live connection instead, and its report-level measures are stored with the report.</p></li>
+      <li><strong>Fix formulas</strong><p>Update the local measures that reference columns by their old names. Reference columns as <code>Table[Column]</code> and use the new table names, including any domain prefix.</p></li>
+      <li><strong>Remap the visuals</strong><p>Open each broken visual and select <strong>See details</strong> to see the tables, columns and measures at fault. Remove both the field and any visual-level filter that points to the old column and add the correct field from the Data pane. If a <strong>Fix this</strong> button appears, select it to update the visual. Repeat for every visual and page.</p></li>
+      <li><strong>Verify every dependency</strong><p>Use the matrix below. A visual that renders is not necessarily correct.</p></li>
+    </ol>
+
+    <h2 id="verify">Verify every dependency</h2>
+    <p>Confirm that every remapped element is fixed. This includes fields, filters, hierarchies, specific column settings, bookmarks, URLs, row-level security and any other dependency that broke after the switch.</p>
+    <table>
+      <thead><tr><th>Element</th><th>What can go wrong</th><th>How to check</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Field wells and values</strong></td><td>Column renamed, moved table, different data type or grain.</td><td>Compare totals for each headline visual against the old report using the same filters.</td></tr>
+        <tr><td><strong>Visual, page and report filters</strong></td><td>Filter still points at a missing column and silently does nothing, or filters on a value that no longer exists.</td><td>Open the Filters pane on every page; look for a warning icon or an unexpected "is blank".</td></tr>
+        <tr><td><strong>Slicers and sync groups</strong></td><td>Sync group broken because the slicer field changed.</td><td>Change one slicer and watch every page that should respond.</td></tr>
+        <tr><td><strong>Hierarchies and drill paths</strong></td><td>Hierarchy exists only in the old model.</td><td>Drill down on each visual that used one.</td></tr>
+        <tr><td><strong>Conditional formatting and sort order</strong></td><td>Rules reference old fields; sort-by column is missing.</td><td>Check each formatted visual and each sorted axis.</td></tr>
+        <tr><td><strong>Bookmarks</strong></td><td>A bookmark stores filter state against old fields.</td><td>Apply each bookmark and compare with the old report.</td></tr>
+        <tr><td><strong>Drillthrough and tooltips</strong></td><td>Linked fields no longer match; field parameters cannot be linked fields.</td><td>Drill through from each source visual.</td></tr>
+        <tr><td><strong>Report-level measures</strong></td><td>DAX references columns by old names. In a PBIR project they are stored in the report extensions file.</td><td>Open the file or the measure list and read each formula.</td></tr>
+        <tr><td><strong>Row-level security</strong></td><td>Roles belong to the model. The new model's roles may differ or be absent.</td><td>View as each role and compare row counts with the old report.</td></tr>
+        <tr><td><strong>Subscriptions, alerts, apps, links</strong></td><td>These follow the report item. A rebind keeps the item; republishing as a new file creates a new item.</td><td>Open an app, a subscription link and a pinned tile after the change.</td></tr>
+        <tr><td><strong>Sensitivity label and endorsement</strong></td><td>Can differ from the new model's label, which may change downstream behavior.</td><td>Compare labels on the report and the model.</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="bulk">Rebinding at scale</h2>
+    <p>For dozens of reports, treat the rebind as a release with gates, not as a loop.</p>
+
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 270" role="img" aria-label="Bulk rebind pipeline: inventory bound reports, pass a schema gate, rebind a batch, smoke test, then retire the old model; failing the gate sends work back to fix the model, and a failed smoke test rebinds to the old model">
+        <defs>
+          <marker id="fig-rb-3-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-rb-3-ar" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar red" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-rb-3-ag" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box blue" x="20" y="62" width="140" height="64" rx="10"/>
+        <text class="t-b" x="90" y="90" text-anchor="middle">Inventory</text>
+        <text class="t-s" x="90" y="108" text-anchor="middle">reports on old model</text>
+        <rect class="box purple" x="200" y="62" width="150" height="64" rx="32"/>
+        <text class="t-b" x="275" y="90" text-anchor="middle">Schema gate</text>
+        <text class="t-s" x="275" y="108" text-anchor="middle">gap list empty?</text>
+        <rect class="box teal" x="390" y="62" width="140" height="64" rx="10"/>
+        <text class="t-b" x="460" y="90" text-anchor="middle">Rebind batch</text>
+        <text class="t-s" x="460" y="108" text-anchor="middle">pilot, then rest</text>
+        <rect class="box orange" x="570" y="62" width="130" height="64" rx="10"/>
+        <text class="t-b" x="635" y="90" text-anchor="middle">Smoke test</text>
+        <text class="t-s" x="635" y="108" text-anchor="middle">values, filters</text>
+        <rect class="box green" x="740" y="62" width="140" height="64" rx="10"/>
+        <text class="t-b" x="810" y="90" text-anchor="middle">Retire old model</text>
+        <text class="t-s" x="810" y="108" text-anchor="middle">after sign-off</text>
+        <path class="ln" d="M160 94H198" marker-end="url(#fig-rb-3-a)"/>
+        <path class="ln green" d="M350 94H388" marker-end="url(#fig-rb-3-ag)"/>
+        <path class="ln" d="M530 94H568" marker-end="url(#fig-rb-3-a)"/>
+        <path class="ln green" d="M700 94H738" marker-end="url(#fig-rb-3-ag)"/>
+        <text class="t-s c-green" x="369" y="85" text-anchor="middle">pass</text>
+        <text class="t-s c-green" x="719" y="85" text-anchor="middle">pass</text>
+        <path class="ln red" d="M275 126V184" marker-end="url(#fig-rb-3-ar)"/>
+        <text class="t-s c-red" x="283" y="160">gaps</text>
+        <rect class="box red" x="190" y="186" width="170" height="56" rx="10"/>
+        <text class="t-b" x="275" y="212" text-anchor="middle">Fix model or exclude</text>
+        <text class="t-s" x="275" y="230" text-anchor="middle">add fields, retire visuals</text>
+        <path class="ln red" d="M635 126V184" marker-end="url(#fig-rb-3-ar)"/>
+        <text class="t-s c-red" x="643" y="160">fail</text>
+        <rect class="box red" x="540" y="186" width="190" height="56" rx="10"/>
+        <text class="t-b" x="635" y="212" text-anchor="middle">Rebind back</text>
+        <text class="t-s" x="635" y="230" text-anchor="middle">old model still exists</text>
+      </svg>
+      <figcaption><b>Gates and a way back.</b> The old model stays in place until sign-off, so a failed smoke test is a second rebind call, not a rebuild.</figcaption>
+    </figure>
+
+    <ul>
+      <li><strong>Pilot first.</strong> Rebind two or three representative reports, verify them with the matrix, and only then run the bulk call.</li>
+      <li><strong>Batch by owner.</strong> Group reports by the team that can sign them off and agree a window; people will notice a report that changes numbers.</li>
+      <li><strong>Keep an audit trail.</strong> Save the inventory output (report, workspace, old model, new model, time) so every change is traceable and reversible.</li>
+      <li><strong>Check permissions up front.</strong> The identity that rebinds needs Write on each report and Build on the target model. A service principal needs both as well, and tenant settings must allow it to call the APIs.</li>
+      <li><strong>Do not retire the old model until usage drops to zero.</strong> Use the model's lineage and usage views to confirm nothing still depends on it, including Excel connections and other models built on top.</li>
+    </ul>
+
+    <h2 id="troubleshooting">Troubleshooting</h2>
+    <table>
+      <thead><tr><th>Symptom</th><th>Likely cause</th><th>What to do</th></tr></thead>
+      <tbody>
+        <tr><td>Rebind call returns an authorization error</td><td>Caller lacks Write on the report or Build on the target model</td><td>Grant the missing permission, or run as a service principal that has both.</td></tr>
+        <tr><td>Report opens but visuals show "Something is wrong" or empty fields</td><td>Fields differ in the new model</td><td>Use the schema gap list; rename in the model (hide the old name, add the new) or remap the visual.</td></tr>
+        <tr><td>Numbers differ slightly but no errors</td><td>Different grain, filter context or an extra relationship path in the new model</td><td>Compare a handful of fixed filter combinations against the old report; check the relationship model.</td></tr>
+        <tr><td>Rebind works in one workspace but not another</td><td>Model in a different workspace without Build for the caller</td><td>Grant Build on the model, or place the report workspace and model workspace under the same access group.</td></tr>
+        <tr><td>Report-level measures now error</td><td>They referenced columns by old names</td><td>Edit the DAX. In a PBIR project, edit the extensions file or use the measure editor in Desktop.</td></tr>
+        <tr><td>Report is not Git-clean after switching to <code>byConnection</code></td><td>Git integration exports <code>byPath</code> for models in the same workspace</td><td>Keep a separate <code>.pbir</code> for local live-connect testing; commit only <code>definition.pbir</code>.</td></tr>
+      </tbody>
+    </table>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p>
+      <ul>
+        <li>Rebinding changes a pointer. The danger is in the names inside the report, so run a schema diff before you rebind.</li>
+        <li>REST or semantic-link-labs for thin reports at scale, a one-line PBIP edit for source-controlled reports, a manual remap on a copy when the report owns its model.</li>
+        <li>Verify filters, bookmarks, report-level measures, security and links, not only that visuals render.</li>
+        <li>Keep the old model until sign-off so the rollback is another rebind.</li>
+      </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/rest/api/power-bi/reports/rebind-report-in-group">Reports - Rebind Report In Group</a></li>
+        <li><a href="https://learn.microsoft.com/power-bi/developer/projects/projects-report">Power BI Desktop project report folder (definition.pbir, PBIR)</a></li>
+        <li><a href="https://learn.microsoft.com/power-bi/connect-data/desktop-report-lifecycle-datasets">Connect to semantic models in Power BI</a></li>
+        <li><a href="https://learn.microsoft.com/power-bi/transform-model/desktop-composite-models">Use composite models in Power BI Desktop</a></li>
+        <li><a href="https://learn.microsoft.com/power-bi/connect-data/service-datasets-build-permissions">Build permission for shared semantic models</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/cicd/git-integration/intro-to-git-integration">Overview of Fabric Git integration</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

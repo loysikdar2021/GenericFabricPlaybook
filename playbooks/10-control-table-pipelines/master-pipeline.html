@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Build the master pipeline · Control tables</title>
+<meta name="description" content="Build the control-table master pipeline in Fabric: guard step, stage lookups, ForEach settings, a per-task body with logging, a Switch on task type, failure paths and a reusable notification pipeline.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="10-control-table-pipelines" data-page="master-pipeline.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+
+    <header class="page-header">
+      <p class="eyebrow">Playbook 10 · Half B · Step 4</p>
+      <h1>Build the master pipeline</h1>
+      <p class="lede">The master pipeline is the only pipeline that knows the framework. It validates the configuration, reads the tasks for one stage, loops over them, runs the right activity for each task type, and records every outcome. This page builds it activity by activity, explains the failure semantics that decide whether a stage blocks the next one, and adds a reusable notification pipeline.</p>
+    </header>
+
+    <h2 id="overview">The pipeline at a glance</h2>
+    <p>One pipeline, <code>PL_ORCH_HUB_Master</code>, in the hub workspace. It has a guard, then one Lookup and one ForEach per stage. Every arrow between stages is an <em>On success</em> dependency, so a failed stage stops everything after it.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 290" role="img" aria-label="Pipeline canvas: a guard activity, then for each of three stages a Lookup followed by a ForEach, joined by on-success dependencies; every ForEach contains the same per-task body; a guard failure logs and notifies">
+        <defs>
+          <marker id="mp1-ag" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="mp1-ar" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar red" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="mp1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box blue" x="6" y="34" width="104" height="52" rx="8"/>
+        <text class="t-b" x="58" y="57" text-anchor="middle">Guard</text>
+        <text class="t-s" x="58" y="74" text-anchor="middle">validate config</text>
+        <rect class="box teal" x="134" y="34" width="104" height="52" rx="8"/>
+        <text class="t-b" x="186" y="57" text-anchor="middle">Lookup S1</text>
+        <text class="t-s" x="186" y="74" text-anchor="middle">stage 1 rows</text>
+        <rect class="box teal" x="262" y="34" width="104" height="52" rx="8"/>
+        <text class="t-b" x="314" y="57" text-anchor="middle">ForEach S1</text>
+        <text class="t-s" x="314" y="74" text-anchor="middle">parallel</text>
+        <rect class="box teal" x="390" y="34" width="104" height="52" rx="8"/>
+        <text class="t-b" x="442" y="57" text-anchor="middle">Lookup S2</text>
+        <text class="t-s" x="442" y="74" text-anchor="middle">stage 2 rows</text>
+        <rect class="box teal" x="518" y="34" width="104" height="52" rx="8"/>
+        <text class="t-b" x="570" y="57" text-anchor="middle">ForEach S2</text>
+        <text class="t-s" x="570" y="74" text-anchor="middle">sequential</text>
+        <rect class="box teal" x="646" y="34" width="104" height="52" rx="8"/>
+        <text class="t-b" x="698" y="57" text-anchor="middle">Lookup S3</text>
+        <text class="t-s" x="698" y="74" text-anchor="middle">stage 3 rows</text>
+        <rect class="box teal" x="774" y="34" width="104" height="52" rx="8"/>
+        <text class="t-b" x="826" y="57" text-anchor="middle">ForEach S3</text>
+        <text class="t-s" x="826" y="74" text-anchor="middle">sequential</text>
+        <path class="ln green" d="M110 60H132" marker-end="url(#mp1-ag)"/>
+        <path class="ln green" d="M238 60H260" marker-end="url(#mp1-ag)"/>
+        <path class="ln green" d="M366 60H388" marker-end="url(#mp1-ag)"/>
+        <path class="ln green" d="M494 60H516" marker-end="url(#mp1-ag)"/>
+        <path class="ln green" d="M622 60H644" marker-end="url(#mp1-ag)"/>
+        <path class="ln green" d="M750 60H772" marker-end="url(#mp1-ag)"/>
+        <rect class="box red" x="6" y="140" width="104" height="52" rx="8"/>
+        <text class="t-b" x="58" y="163" text-anchor="middle">Log, notify</text>
+        <text class="t-s" x="58" y="180" text-anchor="middle">run fails</text>
+        <path class="ln red" d="M58 86V138" marker-end="url(#mp1-ar)"/>
+        <rect class="box gray" x="250" y="140" width="632" height="70" rx="10"/>
+        <text class="t-b" x="566" y="166" text-anchor="middle">Per-task body inside every ForEach</text>
+        <text class="t-s" x="566" y="186" text-anchor="middle">Log_Started, Switch on task_type, then Log_Succeeded, or Log_Failed and Notify_Failure</text>
+        <path class="ln dash gray" d="M314 86V138" marker-end="url(#mp1-a)"/>
+        <path class="ln dash gray" d="M570 86V138" marker-end="url(#mp1-a)"/>
+        <path class="ln dash gray" d="M826 86V138" marker-end="url(#mp1-a)"/>
+        <text class="t-s" x="10" y="250">Green arrows are On success dependencies. One failed stage stops every later stage.</text>
+        <text class="t-s" x="10" y="270">Pipeline parameters: restart_run_id (rerun only what did not succeed) and default_notify_to.</text>
+      </svg>
+      <figcaption><b>Canvas layout.</b> Guard, then Lookup and ForEach per stage. Stages 2 and 3 run their tasks one after another; stage 1 runs its ingests in parallel.</figcaption>
+    </figure>
+    <table>
+      <thead><tr><th>Activity</th><th>Type</th><th>Runs after</th><th>Purpose</th></tr></thead>
+      <tbody>
+        <tr><td><code>Guard_Validate</code></td><td>Stored procedure</td><td>Start</td><td>Fail before any work if the configuration is inconsistent.</td></tr>
+        <tr><td><code>Lookup_Stage1</code></td><td>Lookup</td><td>Guard succeeded</td><td>Read the enabled tasks of stage 1.</td></tr>
+        <tr><td><code>ForEach_Stage1</code></td><td>ForEach</td><td>Lookup succeeded</td><td>Run the ingests in parallel.</td></tr>
+        <tr><td><code>Lookup_Stage2</code>, <code>ForEach_Stage2</code></td><td>Lookup, ForEach</td><td>Stage 1 succeeded</td><td>Run the transform.</td></tr>
+        <tr><td><code>Lookup_Stage3</code>, <code>ForEach_Stage3</code></td><td>Lookup, ForEach</td><td>Stage 2 succeeded</td><td>Run the stored procedures in sequence.</td></tr>
+      </tbody>
+    </table>
+    <p>Activity names must be unique inside the pipeline, so the activities inside each ForEach carry a stage suffix (<code>_S1</code>, <code>_S2</code>, <code>_S3</code>). The <a href="#child-pipeline">child-pipeline variant</a> below removes the triplication once the design is stable.</p>
+
+    <h2 id="setup">Before you build</h2>
+    <ul class="checklist">
+      <li>The Warehouse objects exist, the control table is seeded and the guard runs clean (<a href="warehouse-objects.html">previous page</a>).</li>
+      <li>The dispatcher notebook exists, or you have confirmed the native Notebook activity accepts dynamic IDs (<a href="dispatcher.html">dispatcher page</a>).</li>
+      <li>One Warehouse connection to <code>WH_ORCH_HUB_Control</code> for the Lookup, Script and Stored procedure activities.</li>
+      <li>A connection for the Notebook and Invoke pipeline activities, using the identity chosen on the <a href="framework-design.html#prerequisites">design page</a>.</li>
+    </ul>
+    <p>Create the pipeline with two parameters:</p>
+    <table>
+      <thead><tr><th>Parameter</th><th>Type</th><th>Default</th><th>Use</th></tr></thead>
+      <tbody>
+        <tr><td><code>restart_run_id</code></td><td>String</td><td>Empty</td><td>Run ID of a failed run. The stage lookups skip tasks that already succeeded in that run.</td></tr>
+        <tr><td><code>default_notify_to</code></td><td>String</td><td>The team mailbox</td><td>Recipient for guard failures and for tasks with no <code>notify_to</code>.</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="guard">Guard step</h2>
+    <p>Add a <strong>Stored procedure</strong> activity named <code>Guard_Validate</code> that runs <code>dbo.usp_validate_control_table</code>. It has no parameters. Every later activity depends on its success.</p>
+    <p>Give it both outcome paths:</p>
+    <ul>
+      <li><strong>On failure:</strong> <code>Log_Guard_Failed</code> (Stored procedure, <code>dbo.usp_log_event</code>) with <code>task_name</code> set to <code>(pipeline)</code>, event <code>Failed</code> and the guard's error as the message, then <code>Notify_Guard_Failed</code> (Invoke pipeline, <a href="#notifications">the notification pipeline</a>) addressed to <code>default_notify_to</code>.</li>
+      <li><strong>On success:</strong> <code>Lookup_Stage1</code>.</li>
+    </ul>
+    <p>The message expression is <code>@activity('Guard_Validate').error.message</code>.</p>
+    <div class="callout important"><p class="callout-title">Why a guard at all</p>
+      <p>Primary key and unique constraints are metadata-only in Warehouse, so the engine will happily accept two rows with the same task name or a task whose ID is blank. The guard turns those into a clean failure at the top of the run instead of a confusing one halfway through.</p></div>
+
+    <h2 id="stage-lookups">Stage lookups and ForEach settings</h2>
+    <p>Each stage has a <strong>Lookup</strong> and a <strong>ForEach</strong>. The Lookup returns the stage's enabled tasks; the ForEach iterates them.</p>
+    <p>Settings for <code>Lookup_Stage1</code>: connection to the Warehouse, <strong>Use query</strong> set to <em>Query</em>, and <strong>First row only</strong> turned <strong>off</strong>.</p>
+<pre data-title="Lookup_Stage1 query (T-SQL)"><code class="language-sql">SELECT c.task_id, c.task_name, c.task_type, c.stage, c.sequence_no,
+       c.object_name,
+       COALESCE(c.object_id, '')           AS object_id,
+       COALESCE(c.target_workspace_id, '') AS target_workspace_id,
+       COALESCE(c.parameters_json, '{}')   AS parameters_json,
+       COALESCE(c.timeout_minutes, 60)     AS timeout_minutes,
+       COALESCE(c.max_attempts, 1)         AS max_attempts,
+       COALESCE(c.notify_to, '')           AS notify_to
+FROM ctl.control_table AS c
+WHERE c.is_enabled = 1
+  AND c.stage = 1
+  AND c.task_name NOT IN (
+        SELECT s.task_name
+        FROM ctl.vw_task_last_status_per_run AS s
+        WHERE s.run_id = '@{replace(pipeline().parameters.restart_run_id, '''', '''''')}'
+          AND s.last_event = 'Succeeded')
+ORDER BY c.sequence_no, c.task_name;</code></pre>
+    <ul>
+      <li>The <code>COALESCE</code> calls fill defaults once, in SQL, so the expressions inside the loop never meet a missing or null property.</li>
+      <li>The restart clause is empty-safe: with no <code>restart_run_id</code> the subquery returns nothing and every enabled task runs. The <code>replace</code> doubles any single quote, so the parameter cannot break out of the string.</li>
+      <li><code>Lookup_Stage2</code> and <code>Lookup_Stage3</code> are identical except for <code>c.stage = 2</code> and <code>c.stage = 3</code>.</li>
+      <li>A Lookup returns at most 5,000 rows and 4 MB. A stage that large needs splitting into several stages.</li>
+    </ul>
+    <table>
+      <thead><tr><th>ForEach</th><th>Items</th><th>Sequential</th><th>Batch count</th><th>Depends on</th></tr></thead>
+      <tbody>
+        <tr><td><code>ForEach_Stage1</code></td><td><code>@activity('Lookup_Stage1').output.value</code></td><td>Off</td><td>2 to start; raise it while watching capacity</td><td>Lookup_Stage1 succeeded</td></tr>
+        <tr><td><code>ForEach_Stage2</code></td><td><code>@activity('Lookup_Stage2').output.value</code></td><td>On</td><td>Not used</td><td>ForEach_Stage1 succeeded, through Lookup_Stage2</td></tr>
+        <tr><td><code>ForEach_Stage3</code></td><td><code>@activity('Lookup_Stage3').output.value</code></td><td>On, so procedures run in <code>sequence_no</code> order</td><td>Not used</td><td>ForEach_Stage2 succeeded, through Lookup_Stage3</td></tr>
+      </tbody>
+    </table>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p>
+      <p>The <a href="https://learn.microsoft.com/fabric/data-factory/foreach-activity">ForEach activity</a> article does not say what a sequential ForEach does after one iteration fails, and the batch-count maximum is documented for Azure Data Factory. Do not assume that stage 3 stops after the first failure: run a test with a failing first task, and use the <a href="#dependency-gate">dependency gate</a> if a task must never run after its prerequisite failed.</p></div>
+
+    <h2 id="iteration">The per-task body</h2>
+    <p>Everything inside a ForEach is the same, apart from the stage suffix. It has five activities: log the start, run the right activity for the task type, then either log success or log failure and notify.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 346" role="img" aria-label="Per-task body: Log_Started, then a Switch on task type with a notebook case, a procedure case, a pipeline case and a default case that fails; on success Log_Succeeded; on failure Log_Failed then Notify_Failure">
+        <defs>
+          <marker id="mp2-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="mp2-ag" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="mp2-ar" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar red" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box blue" x="10" y="140" width="150" height="60" rx="10"/>
+        <text class="t-b" x="85" y="166" text-anchor="middle">Log_Started</text>
+        <text class="t-s" x="85" y="184" text-anchor="middle">usp_log_event</text>
+        <path class="ln" d="M160 170H198" marker-end="url(#mp2-a)"/>
+        <rect class="zone purple" x="200" y="20" width="390" height="300" rx="12"/>
+        <text class="t-s" x="214" y="38">Run_Task: Switch on task_type</text>
+        <rect class="box blue" x="216" y="52" width="358" height="54" rx="8"/>
+        <text class="t-b" x="395" y="74" text-anchor="middle">Case Notebook</text>
+        <text class="t-s" x="395" y="92" text-anchor="middle">Run_Notebook: dispatcher or native Notebook activity</text>
+        <rect class="box blue" x="216" y="118" width="358" height="54" rx="8"/>
+        <text class="t-b" x="395" y="140" text-anchor="middle">Case StoredProcedure</text>
+        <text class="t-s" x="395" y="158" text-anchor="middle">Run_Procedure: Script activity runs EXEC on the row's name</text>
+        <rect class="box teal" x="216" y="184" width="358" height="54" rx="8"/>
+        <text class="t-b" x="395" y="206" text-anchor="middle">Case Pipeline</text>
+        <text class="t-s" x="395" y="224" text-anchor="middle">Run_Pipeline: Invoke pipeline using the row's IDs</text>
+        <rect class="box red" x="216" y="250" width="358" height="54" rx="8"/>
+        <text class="t-b" x="395" y="272" text-anchor="middle">Default</text>
+        <text class="t-s" x="395" y="290" text-anchor="middle">Fail_UnknownType: Fail activity with a clear message</text>
+        <rect class="box green" x="650" y="40" width="240" height="56" rx="10"/>
+        <text class="t-b" x="770" y="64" text-anchor="middle">Log_Succeeded</text>
+        <text class="t-s" x="770" y="82" text-anchor="middle">event Succeeded</text>
+        <rect class="box red" x="650" y="172" width="240" height="56" rx="10"/>
+        <text class="t-b" x="770" y="196" text-anchor="middle">Log_Failed</text>
+        <text class="t-s" x="770" y="214" text-anchor="middle">event Failed with the error message</text>
+        <rect class="box orange" x="650" y="262" width="240" height="56" rx="10"/>
+        <text class="t-b" x="770" y="286" text-anchor="middle">Notify_Failure</text>
+        <text class="t-s" x="770" y="304" text-anchor="middle">Invoke PL_ORCH_HUB_Notify</text>
+        <path class="ln green" d="M590 100H620V68H648" marker-end="url(#mp2-ag)"/>
+        <path class="ln red" d="M590 220H620V200H648" marker-end="url(#mp2-ar)"/>
+        <path class="ln red" d="M770 228V260" marker-end="url(#mp2-ar)"/>
+        <text class="t-s c-green" x="620" y="58" text-anchor="middle">success</text>
+        <text class="t-s c-red" x="620" y="190" text-anchor="middle">failure</text>
+        <text class="t-s" x="10" y="336">The Switch runs one case per task. A failing case fails the Switch, which takes the failure path.</text>
+      </svg>
+      <figcaption><b>One task, one body.</b> The Switch isolates the three task types. Logging and notification sit outside it, so every type is treated the same way.</figcaption>
+    </figure>
+
+    <h3 id="log-activities">Logging activities</h3>
+    <p>All three logging activities are <strong>Stored procedure</strong> activities that call <code>dbo.usp_log_event</code> through the Warehouse connection, with typed parameters. Typed parameters avoid the quoting problems of building SQL text from an error message. Click <strong>Import</strong> to load the parameter list, then set the values:</p>
+    <table>
+      <thead><tr><th>Parameter</th><th>Type</th><th>Value</th></tr></thead>
+      <tbody>
+        <tr><td><code>run_id</code></td><td>String</td><td><code>@pipeline().RunId</code></td></tr>
+        <tr><td><code>task_name</code></td><td>String</td><td><code>@item().task_name</code></td></tr>
+        <tr><td><code>stage</code></td><td>Int32</td><td><code>@item().stage</code></td></tr>
+        <tr><td><code>activity</code></td><td>String</td><td><code>Task</code></td></tr>
+        <tr><td><code>event</code></td><td>String</td><td><code>Started</code> in <code>Log_Started</code>, <code>Succeeded</code> in <code>Log_Succeeded</code>, <code>Failed</code> in <code>Log_Failed</code></td></tr>
+        <tr><td><code>message</code></td><td>String</td><td>Null, except in <code>Log_Failed</code>: <code>@activity('Run_Task_S1').error.message</code></td></tr>
+        <tr><td><code>external_id</code></td><td>String</td><td>Null. Activities inside a Switch case are not visible from outside it; to record a job instance ID, log from inside the case.</td></tr>
+      </tbody>
+    </table>
+    <p>Wire the dependencies: <code>Log_Started</code> first, then <code>Run_Task_S1</code> on its success. <code>Log_Succeeded_S1</code> runs on the success of <code>Run_Task_S1</code>. <code>Log_Failed_S1</code> runs on its failure, and <code>Notify_Failure_S1</code> on the success of <code>Log_Failed_S1</code>.</p>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p>
+      <p>When a Switch fails, the error message on the Switch activity is expected to carry the inner activity's error, but the Fabric articles do not show its exact form. Run a deliberate failure once and read <code>Run_Task_S1</code>'s error in the Output pane before trusting the expression. If the text is too generic, move the logging into each case (the <a href="#dependency-gate">dependency-gate</a> variant does this).</p></div>
+
+    <h2 id="switch">Switch on task type</h2>
+    <p>Add a <strong>Switch</strong> activity named <code>Run_Task_S1</code>. Set <strong>Expression</strong> to <code>@item().task_type</code>. Cases match the exact text, so they are case-sensitive and must equal the values the guard allows.</p>
+    <table>
+      <thead><tr><th>Case</th><th>Activity inside</th><th>Reads from the row</th></tr></thead>
+      <tbody>
+        <tr><td><code>Notebook</code></td><td><code>Run_Notebook_S1</code></td><td><code>object_id</code>, <code>target_workspace_id</code>, <code>parameters_json</code>, <code>timeout_minutes</code>, <code>max_attempts</code></td></tr>
+        <tr><td><code>StoredProcedure</code></td><td><code>Run_Procedure_S1</code></td><td><code>object_name</code></td></tr>
+        <tr><td><code>Pipeline</code></td><td><code>Run_Pipeline_S1</code></td><td><code>object_id</code>, <code>target_workspace_id</code>, <code>parameters_json</code></td></tr>
+        <tr><td>Default</td><td><code>Fail_UnknownType_S1</code></td><td><code>task_type</code></td></tr>
+      </tbody>
+    </table>
+    <p>Keep each case to one activity. A Switch cannot contain an If, and an If cannot contain a Switch; if a case needs more logic, move it into a child pipeline.</p>
+
+    <h3 id="notebook-case">Case Notebook</h3>
+    <p>Two ways to build <code>Run_Notebook_S1</code>. Choose with the <a href="dispatcher.html#options">decision path</a> on the dispatcher page.</p>
+    <p><strong>Through the dispatcher.</strong> A Notebook activity that runs <code>NB_ORCH_HUB_RunNotebookById</code>. Base parameters:</p>
+    <table>
+      <thead><tr><th>Parameter</th><th>Type</th><th>Value</th></tr></thead>
+      <tbody>
+        <tr><td><code>TASK_NAME</code></td><td>String</td><td><code>@item().task_name</code></td></tr>
+        <tr><td><code>RUN_ID</code></td><td>String</td><td><code>@pipeline().RunId</code></td></tr>
+        <tr><td><code>TARGET_WORKSPACE_ID</code></td><td>String</td><td><code>@item().target_workspace_id</code></td></tr>
+        <tr><td><code>NOTEBOOK_ID</code></td><td>String</td><td><code>@item().object_id</code></td></tr>
+        <tr><td><code>PARAMETERS_JSON</code></td><td>String</td><td><code>@item().parameters_json</code></td></tr>
+        <tr><td><code>TIMEOUT_MINUTES</code></td><td>Int</td><td><code>@item().timeout_minutes</code></td></tr>
+        <tr><td><code>MAX_ATTEMPTS</code></td><td>Int</td><td><code>@item().max_attempts</code></td></tr>
+      </tbody>
+    </table>
+    <p>In the activity's General settings, set the retry count to <strong>0</strong>, because the dispatcher already retries, and set the timeout explicitly above the longest task's timeout multiplied by its attempts, instead of keeping the 12-hour default.</p>
+    <p><strong>Natively.</strong> If the Notebook activity's workspace and notebook fields accept dynamic content, set them to <code>@item().target_workspace_id</code> and <code>@item().object_id</code> and pass <code>task_name</code>, <code>run_id</code> and <code>parameters_json</code> as base parameters. This avoids the extra session and keeps pipeline queueing.</p>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p>
+      <p>The Notebook activity article does not describe the activity's output. Run it once and open the Output pane to see where the notebook's exit value appears (commonly under <code>output.result.exitValue</code>) before writing any expression that reads it, such as <code>@json(activity('Run_Notebook_S1').output.result.exitValue).job_instance_id</code>.</p></div>
+
+    <h3 id="procedure-case">Case StoredProcedure</h3>
+    <p>Use a <strong>Script</strong> activity named <code>Run_Procedure_S1</code> on the Warehouse connection, with <strong>Script type</strong> set to <em>NonQuery</em> and this script:</p>
+<pre data-title="Run_Procedure_S1 script (expression)"><code class="language-text">EXEC @{item().object_name};</code></pre>
+    <p>The Stored procedure activity binds a procedure when you author it, and its parameter list is fixed at that point, so it cannot serve a table of different procedures. The Script activity can. The name comes from a table, which is why the guard insists that every procedure follows <code>dbo.usp_*</code> and exists: a row can only run a procedure, never arbitrary SQL. If a procedure needs arguments, give them defaults and put non-default values in <code>parameters_json</code> for the procedure to read, or extend the script.</p>
+
+    <h3 id="pipeline-case">Case Pipeline</h3>
+    <p>Use an <strong>Invoke pipeline</strong> activity named <code>Run_Pipeline_S1</code>. Set <strong>Type</strong> to <em>Fabric</em>, choose the connection, and point the workspace and pipeline fields at <code>@item().target_workspace_id</code> and <code>@item().object_id</code> if dynamic content is accepted. Pass the same three values every orchestrated pipeline should accept:</p>
+    <table>
+      <thead><tr><th>Parameter</th><th>Value</th></tr></thead>
+      <tbody>
+        <tr><td><code>task_name</code></td><td><code>@item().task_name</code></td></tr>
+        <tr><td><code>run_id</code></td><td><code>@pipeline().RunId</code></td></tr>
+        <tr><td><code>parameters_json</code></td><td><code>@item().parameters_json</code></td></tr>
+      </tbody>
+    </table>
+    <p>Make sure the activity waits for the invoked pipeline to finish, so that a failed child fails the task. Use the new Invoke pipeline activity, because the legacy one only reaches pipelines in the same workspace.</p>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p>
+      <p>The <a href="https://learn.microsoft.com/fabric/data-factory/invoke-pipeline-activity">Invoke pipeline article</a> shows the workspace and pipeline chosen from dropdowns and does not say whether they accept expressions. If they do not, the Pipeline case needs one Invoke activity per known pipeline, or a dispatcher-style notebook that calls the Job Scheduler API for a pipeline.</p></div>
+
+    <h3 id="default-case">Default case</h3>
+    <p>Add a <strong>Fail</strong> activity named <code>Fail_UnknownType_S1</code>. Message: <code>@concat('Unknown task_type ', item().task_type, ' for task ', item().task_name)</code>; error code: <code>UnknownTaskType</code>. The guard should have caught this already. The default case is the backstop for a configuration that bypassed it.</p>
+
+    <h2 id="outcome">Success and failure paths: what decides the stage result</h2>
+    <p>The most important property of this design is not visible on the canvas: whether a failed task stops the next stage. It is decided by how you wire the two outcome paths.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 270" role="img" aria-label="Left: a failure path only makes the pipeline succeed even though the task failed, so the next stage starts. Right: defining both success and failure paths makes the pipeline fail, so the next stage is blocked">
+        <defs>
+          <marker id="mp4-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="mp4-ag" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="mp4-ar" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar red" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <text class="t-h" x="10" y="22">Failure path only (try-catch)</text>
+        <rect class="zone" x="10" y="34" width="430" height="226" rx="12"/>
+        <rect class="box red" x="34" y="70" width="120" height="56" rx="8"/>
+        <text class="t-b" x="94" y="94" text-anchor="middle">Run_Task</text>
+        <text class="t-s" x="94" y="112" text-anchor="middle">Failed</text>
+        <rect class="box green" x="214" y="70" width="120" height="56" rx="8"/>
+        <text class="t-b" x="274" y="94" text-anchor="middle">Log_Failed</text>
+        <text class="t-s" x="274" y="112" text-anchor="middle">Succeeded</text>
+        <path class="ln red" d="M154 98H212" marker-end="url(#mp4-ar)"/>
+        <rect class="box green" x="94" y="160" width="240" height="40" rx="8"/>
+        <text class="t-b" x="214" y="185" text-anchor="middle">Pipeline result: Succeeded</text>
+        <path class="ln" d="M274 126V158" marker-end="url(#mp4-a)"/>
+        <text class="t-s c-red" x="225" y="232" text-anchor="middle">The next stage starts although the task failed</text>
+        <text class="t-h" x="460" y="22">Success and failure paths (do-if-else)</text>
+        <rect class="zone" x="460" y="34" width="430" height="226" rx="12"/>
+        <rect class="box red" x="484" y="84" width="120" height="56" rx="8"/>
+        <text class="t-b" x="544" y="108" text-anchor="middle">Run_Task</text>
+        <text class="t-s" x="544" y="126" text-anchor="middle">Failed</text>
+        <rect class="box gray dashed" x="664" y="50" width="140" height="50" rx="8"/>
+        <text class="t-b" x="734" y="72" text-anchor="middle">Log_Succeeded</text>
+        <text class="t-s" x="734" y="88" text-anchor="middle">Skipped</text>
+        <rect class="box green" x="664" y="130" width="140" height="50" rx="8"/>
+        <text class="t-b" x="734" y="152" text-anchor="middle">Log_Failed</text>
+        <text class="t-s" x="734" y="168" text-anchor="middle">Succeeded</text>
+        <path class="ln green dash" d="M604 100H633V75H662" marker-end="url(#mp4-ag)"/>
+        <path class="ln red" d="M604 124H633V155H662" marker-end="url(#mp4-ar)"/>
+        <rect class="box red" x="640" y="206" width="230" height="40" rx="8"/>
+        <text class="t-b" x="755" y="231" text-anchor="middle">Pipeline result: Failed</text>
+        <path class="ln" d="M734 180V204" marker-end="url(#mp4-a)"/>
+        <text class="t-s c-green" x="476" y="230">Next stage blocked</text>
+      </svg>
+      <figcaption><b>Two wirings, two outcomes.</b> With only a failure path the failure is handled and the stage reports success. With both paths, the skipped success leaf hands the verdict back to the failed task, so the stage fails.</figcaption>
+    </figure>
+    <p>The rule, as documented for Azure Data Factory pipelines: the pipeline evaluates every leaf activity, and if a leaf was skipped it evaluates that leaf's parent instead. The pipeline succeeds only if every evaluated activity succeeded. With a failure path alone, the handler is the leaf and it succeeds, so the failure is swallowed. With both paths, the success-path leaf is skipped, its parent (<code>Run_Task</code>) is evaluated, and the stage fails.</p>
+    <div class="callout warning"><p class="callout-title">Define both paths on Run_Task</p>
+      <p>Attach <code>Log_Succeeded</code> on <em>On success</em> and <code>Log_Failed</code> on <em>On failure</em>. If you leave out the success path, a failed task is logged and notified, but the ForEach still succeeds and the next stage runs on incomplete data.</p></div>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p>
+      <p>The leaf rule is documented in <a href="https://learn.microsoft.com/azure/data-factory/tutorial-pipeline-failure-error-handling">Pipeline failure and error message</a> for Azure Data Factory, and Fabric pipelines use the same dependency model. Confirm it once with a failing test task: the ForEach should show Failed and the next stage's Lookup should show Skipped.</p></div>
+
+    <h2 id="notifications">Notifications</h2>
+    <p>Put every notification in one reusable pipeline, <code>PL_ORCH_HUB_Notify</code>, and invoke it from <code>Notify_Failure_S1</code> (and from the guard). The Fabric documentation recommends exactly this composition for email: a dedicated email pipeline that owns the activity and its connection, called through an Invoke pipeline activity.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 250" role="img" aria-label="The Notify_Failure activity invokes the notification pipeline, which contains an Outlook activity that sends to the recipients and an optional Teams activity that posts to a channel">
+        <defs>
+          <marker id="mp3-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box teal" x="10" y="90" width="170" height="64" rx="10"/>
+        <text class="t-b" x="95" y="116" text-anchor="middle">Notify_Failure</text>
+        <text class="t-s" x="95" y="134" text-anchor="middle">Invoke pipeline</text>
+        <text class="t-s" x="10" y="185">Parameters:</text>
+        <text class="t-s" x="10" y="201">to, task_name, run_id,</text>
+        <text class="t-s" x="10" y="217">error_message</text>
+        <path class="ln" d="M180 122H230" marker-end="url(#mp3-a)"/>
+        <rect class="zone teal" x="232" y="30" width="400" height="190" rx="12"/>
+        <text class="t-s" x="246" y="48">PL_ORCH_HUB_Notify: one pipeline, one connection to maintain</text>
+        <rect class="box orange" x="252" y="66" width="360" height="56" rx="8"/>
+        <text class="t-b" x="432" y="90" text-anchor="middle">Office 365 Outlook activity</text>
+        <text class="t-s" x="432" y="108" text-anchor="middle">To, subject and body built from the parameters</text>
+        <rect class="box gray dashed" x="252" y="140" width="360" height="56" rx="8"/>
+        <text class="t-b" x="432" y="164" text-anchor="middle">Teams activity (optional)</text>
+        <text class="t-s" x="432" y="182" text-anchor="middle">post to a channel or group chat</text>
+        <rect class="box gray" x="690" y="66" width="200" height="56" rx="8"/>
+        <text class="t-b" x="790" y="90" text-anchor="middle">Recipients</text>
+        <text class="t-s" x="790" y="108" text-anchor="middle">notify_to, else the default</text>
+        <rect class="box gray" x="690" y="140" width="200" height="56" rx="8"/>
+        <text class="t-b" x="790" y="164" text-anchor="middle">Teams channel</text>
+        <text class="t-s" x="790" y="182" text-anchor="middle">team alert channel</text>
+        <path class="ln" d="M612 94H688" marker-end="url(#mp3-a)"/>
+        <path class="ln dash" d="M612 168H688" marker-end="url(#mp3-a)"/>
+        <text class="t-s" x="10" y="244">With a user connection the mail is sent from that account; recreate the connection after each deployment.</text>
+      </svg>
+      <figcaption><b>One place to fix.</b> Callers never hold an email or Teams connection. When a connection expires or a deployment deactivates it, there is one pipeline to repair.</figcaption>
+    </figure>
+    <h3 id="notify-pipeline">Build the notification pipeline</h3>
+    <ol class="steps">
+      <li><strong>Create <code>PL_ORCH_HUB_Notify</code> with four string parameters.</strong><p><code>to</code>, <code>task_name</code>, <code>run_id</code> and <code>error_message</code>.</p></li>
+      <li><strong>Add an Office 365 Outlook activity.</strong><p>Choose a connection. <strong>To</strong>: <code>@pipeline().parameters.to</code> (a semicolon-separated list works). <strong>Subject</strong>: <code>@concat('Pipeline failure: ', pipeline().parameters.task_name)</code>.</p></li>
+      <li><strong>Build the body from the parameters.</strong><p>Use line breaks that render in the tenant's mail client. The expression below assumes an HTML body.</p></li>
+      <li><strong>Test it on its own.</strong><p>Run it with sample values before connecting it to anything.</p></li>
+      <li><strong>Share the connection if several people will edit the callers.</strong><p>Create a pipeline connection in <strong>Manage connections and gateways</strong> and grant access to the people who build callers, so the callers use the shared connection to invoke the notification pipeline.</p></li>
+    </ol>
+<pre data-title="Outlook body (expression)"><code class="language-text">@concat('&lt;p&gt;&lt;b&gt;Task:&lt;/b&gt; ', pipeline().parameters.task_name, '&lt;/p&gt;',
+        '&lt;p&gt;&lt;b&gt;Run ID:&lt;/b&gt; ', pipeline().parameters.run_id, '&lt;/p&gt;',
+        '&lt;p&gt;&lt;b&gt;Error:&lt;/b&gt; ', coalesce(pipeline().parameters.error_message, 'Unknown error'), '&lt;/p&gt;')</code></pre>
+    <p>In <code>Notify_Failure_S1</code>, set the Invoke pipeline parameters:</p>
+    <table>
+      <thead><tr><th>Parameter</th><th>Value</th></tr></thead>
+      <tbody>
+        <tr><td><code>to</code></td><td><code>@if(empty(item().notify_to), pipeline().parameters.default_notify_to, item().notify_to)</code></td></tr>
+        <tr><td><code>task_name</code></td><td><code>@item().task_name</code></td></tr>
+        <tr><td><code>run_id</code></td><td><code>@pipeline().RunId</code></td></tr>
+        <tr><td><code>error_message</code></td><td><code>@activity('Run_Task_S1').error.message</code></td></tr>
+      </tbody>
+    </table>
+    <h3 id="notify-identity">Identity and limits</h3>
+    <ul>
+      <li><strong>Who sends the mail.</strong> The Outlook activity supports user (OAuth), workspace identity and service principal connections. With a user connection the content is sent from that user's account, so use a team-owned account. A workspace identity or service principal needs application-level Microsoft Graph permissions with administrator consent, and may need Exchange Online mailbox restrictions. Those permissions can allow sending as other users, so involve the tenant administrator.</li>
+      <li><strong>Deployment.</strong> With user authentication, the activity is inactive in a target workspace until you create a connection there. The Teams activity is documented as inactive under CI/CD. Add a post-deployment step that recreates the connections, and test the notification pipeline after every release.</li>
+      <li><strong>One dependency.</strong> If you connect more than one activity to an Outlook activity, all the connected conditions must be met before it runs. Give <code>Notify_Failure</code> a single upstream dependency.</li>
+      <li><strong>No sensitivity labels.</strong> The activity cannot apply Microsoft Purview sensitivity labels.</li>
+    </ul>
+
+    <h2 id="dependency-gate">Optional: a dependency gate</h2>
+    <p>A stage gate blocks a whole stage when anything before it failed. If independent branches share a stage and one branch's failure should not stall the others, check each task's prerequisites individually. Four changes make the pipeline do that:</p>
+    <ol class="steps">
+      <li><strong>Check prerequisites per task.</strong><p>Add a Lookup before <code>Run_Task_S1</code>, with <strong>First row only</strong> on:</p>
+<pre data-title="Check_Prerequisites_S1 query (T-SQL)"><code class="language-sql">SELECT COUNT(*) AS blocked_by
+FROM ctl.task_dependency AS d
+WHERE d.task_name = '@{item().task_name}'
+  AND NOT EXISTS (
+        SELECT 1
+        FROM ctl.vw_task_last_status_per_run AS s
+        WHERE s.run_id IN ('@{pipeline().RunId}', '@{replace(pipeline().parameters.restart_run_id, '''', '''''')}')
+          AND s.task_name = d.depends_on_task_name
+          AND s.last_event = 'Succeeded');</code></pre></li>
+      <li><strong>Branch on the result.</strong><p>Because Switch and If cannot nest, change the Switch expression so that a blocked task selects its own case:</p>
+<pre data-title="Run_Task_S1 expression"><code class="language-text">@if(greater(activity('Check_Prerequisites_S1').output.firstRow.blocked_by, 0), 'Blocked', item().task_type)</code></pre>
+      <p>The <code>Blocked</code> case is a Stored procedure activity that logs a <code>Skipped</code> event with the message <em>A prerequisite did not succeed</em>.</p></li>
+      <li><strong>Log success inside the cases.</strong><p>Move <code>Log_Succeeded</code> into each real case, after its activity, so a blocked task logs <code>Skipped</code> and not <code>Succeeded</code>.</p></li>
+      <li><strong>Let the next stage start after a failure, then fail the run at the end.</strong><p>Make <code>Lookup_Stage2</code> run on the <em>completion</em> of <code>ForEach_Stage1</code>. Because the failure is then no longer a leaf, add a final verdict step: a Lookup that counts <code>Failed</code> events for this run, followed by an If Condition that runs a Fail activity when the count is above zero.</p></li>
+    </ol>
+    <p>Use the gate only when you need it. It adds a Lookup per task, and the final verdict step is easy to forget.</p>
+
+    <h2 id="overlap">Optional: guard against overlapping runs</h2>
+    <p>Two runs of the master pipeline writing to the same tables will conflict. A schedule that overlaps with a manual run is the usual cause. Add a Lookup after the guard and an If Condition that fails the run:</p>
+<pre data-title="Check_Overlap query (T-SQL)"><code class="language-sql">SELECT COUNT(*) AS running_runs
+FROM ctl.vw_run_summary
+WHERE run_status = 'Running'
+  AND run_id &lt;&gt; '@{pipeline().RunId}'
+  AND started_utc &gt; DATEADD(HOUR, -12, SYSUTCDATETIME());</code></pre>
+    <p>The condition is <code>@greater(activity('Check_Overlap').output.firstRow.running_runs, 0)</code>. This is a heuristic. A cancelled run leaves a <code>Started</code> row with no end row, which looks like a run in progress until the time window passes, and a run between stages briefly shows no running task. For an exact answer, query the pipeline run history through the Fabric REST API instead.</p>
+
+    <h2 id="child-pipeline">Variant: extract the per-task body into a child pipeline</h2>
+    <p>Building the body three times, once per stage, works and is easy to follow, but the copies drift. Once the design is stable, move the body into a child pipeline.</p>
+    <ul>
+      <li><strong>Create <code>PL_ORCH_HUB_RunTask</code></strong> with parameters <code>run_id</code>, <code>stage</code>, <code>task_name</code>, <code>task_type</code>, <code>object_name</code>, <code>object_id</code>, <code>target_workspace_id</code>, <code>parameters_json</code>, <code>timeout_minutes</code>, <code>max_attempts</code>, <code>notify_to</code> and <code>default_notify_to</code>. Move the body into it, replacing <code>@item().x</code> with <code>@pipeline().parameters.x</code> and <code>@pipeline().RunId</code> with <code>@pipeline().parameters.run_id</code>.</li>
+      <li><strong>Replace each ForEach body with one Invoke pipeline activity</strong> that passes the row's values and waits for completion. The master shrinks to the guard, three Lookups, three ForEach activities and three Invoke activities.</li>
+      <li><strong>Trade-offs.</strong> There is one more pipeline run per task in the Monitor hub, the nesting is Master, RunTask, Notify, and an Invoke activity must wait for its child so failures propagate. In return the body exists once, and the 120-activity limit stops being a concern.</li>
+      <li><strong>More than three stages.</strong> Add a <code>PL_ORCH_HUB_RunStage</code> child with a <code>stage</code> parameter that holds the Lookup and ForEach for one stage. The master then needs only a sequential ForEach over the distinct stages. You need a place to say which stages run in parallel, such as a small <code>ctl.stage</code> table.</li>
+    </ul>
+
+    <h2 id="first-run">Validate, run and inspect</h2>
+    <ol class="steps">
+      <li><strong>Validate and save.</strong><p>Use the editor's <strong>Validate</strong> button and fix any missing connection or dependency.</p></li>
+      <li><strong>Run it.</strong><p>Run the pipeline with the default parameters. In the Monitor hub the stage ForEach activities run in order and the ingests overlap.</p></li>
+      <li><strong>Read the log.</strong><p>Replace the run ID in the queries below with the pipeline run ID shown in the Monitor hub.</p>
+<pre data-title="inspect a run (T-SQL)"><code class="language-sql">SELECT task_name, stage, started_utc, ended_utc, duration_seconds, status, message
+FROM ctl.vw_task_run_timeline
+WHERE run_id = '&lt;pipeline run ID&gt;'
+ORDER BY started_utc;
+
+SELECT * FROM ctl.vw_run_summary ORDER BY started_utc DESC;</code></pre></li>
+      <li><strong>Run a failure drill.</strong><p>Point one notebook at an ID that does not exist, run again and confirm four things: that task logs <code>Failed</code> with a message, an email arrives, the ForEach shows Failed, and the next stage's activities are skipped. Then repair the row and rerun with <code>restart_run_id</code> set to the failed run, and confirm that only the failed task and later stages run.</p>
+<pre data-title="failure drill (T-SQL)"><code class="language-sql">UPDATE ctl.control_table
+SET object_id = '00000000-0000-0000-0000-000000000009', modified_at_utc = SYSUTCDATETIME()
+WHERE task_name = 'ingest_products';
+
+-- repair afterwards
+EXEC dbo.usp_sync_object_ids;</code></pre></li>
+    </ol>
+    <div class="callout note"><p class="callout-title">Limits that shape this design</p>
+      <p>A pipeline can hold up to 120 activities including those inside containers, a ForEach cannot contain another ForEach, and a Switch and an If cannot contain each other. These limits are documented for Azure Data Factory; the three-stage inline build uses about 40 activities, so only larger variants need to care.</p></div>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p><ul>
+      <li>One guard, one Lookup and ForEach per stage, and one per-task body: log started, Switch on task type, then log the outcome.</li>
+      <li>Define both the success and failure path on the Switch. A failure path on its own swallows the failure and lets the next stage run.</li>
+      <li>Use the Script activity for the procedure case and the Stored procedure activity, with typed parameters, for logging.</li>
+      <li>Keep notification in one pipeline. Mail identity, consent and deployment behavior then need fixing in one place.</li>
+      <li>Test the failure drill and the restart path before trusting the pipeline with production work.</li>
+    </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/lookup-activity">Lookup activity</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/foreach-activity">ForEach activity</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/switch-activity">Switch activity</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/script-activity">Script activity</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/stored-procedure-activity">Stored procedure activity</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/notebook-activity">Notebook activity</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/invoke-pipeline-activity">Invoke pipeline activity</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/fail-activity">Fail activity</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/outlook-activity">Office 365 Outlook activity</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/teams-activity">Teams activity</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/expression-language">Expressions and functions in pipelines</a></li>
+        <li><a href="https://learn.microsoft.com/azure/data-factory/tutorial-pipeline-failure-error-handling">Pipeline failure and error message (Azure Data Factory)</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

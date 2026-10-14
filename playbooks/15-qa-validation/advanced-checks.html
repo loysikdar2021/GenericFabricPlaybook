@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Complex and extended checks · QA Validation</title>
+<meta name="description" content="Complex metric reconciliation with rolling fiscal windows, enrichment-join coverage, sentinel rows and derived columns, plus duplicate, null, referential, drift, layer reconciliation and late-arriving data checks.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="15-qa-validation" data-page="advanced-checks.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 15 · QA Validation</p>
+      <h1>Complex and extended checks</h1>
+      <p class="lede">The first half covers the checks that make framework A heavier than the standard suite: recalculating a windowed, aggregated metric independently, validating enrichment joins, sentinel rows and derived calendar columns. The second half adds the checks that every framework should have and the source frameworks lacked: uniqueness, completeness, referential integrity, drift, layer reconciliation and late-arriving data.</p>
+    </header>
+
+    <div class="callout note"><p class="callout-title">How the code on this page fits</p><p>Every cell registers a check with the harness from <a href="core-checks.html#harness">Harness and core checks</a>. Run cells 1 to 3 of that page first. The checks reuse <code>quote_name</code>, <code>col</code>, <code>temp_views</code>, <code>one_row</code>, <code>new_result</code>, <code>evaluate</code>, <code>run_check</code>, and the globals <code>env</code>, <code>AS_OF</code> and <code>results_schema</code>. Add the configuration rows to the <code>CONFIG</code> list and set <code>suite</code> to the suite name.</p></div>
+
+    <h2 id="complex">Complex metric validation (framework A)</h2>
+    <p>The running example is a workforce fact table in the HR domain. Silver holds timesheet entries (<code>timesheet_entries</code>: employee, department, period, hours). Gold holds <code>fact_workforce_fte</code>, where full-time equivalent (FTE) is the hours worked in a fiscal period divided by the standard hours in a period, restricted to a rolling window of fiscal years. The validation recomputes that table from Silver and compares it key by key.</p>
+
+    <h3 id="fiscal-window">Dynamic fiscal-year filtering</h3>
+    <p>Gold tables for planning and workforce reporting are usually windowed: current fiscal year, a year or two back for comparison, sometimes a year ahead for budget. The validation has to apply the same window to the Silver recalculation. Typing the year range into the check (for example a literal range of three fiscal years) makes the check correct on the day it is written and wrong when the fiscal year rolls over, and it is wrong silently: the new year's rows simply fall outside the checked range. Derive the window from the run's <code>as_of_date</code> instead.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 250" role="img" aria-label="A derived window covers the current fiscal year, one year back and one year ahead and moves with the as-of date; a typed-in range stops covering the newest year after the year rolls over">
+        <rect class="box" x="75" y="100" width="150" height="50" rx="0"/>
+        <text class="t-b" x="150" y="130" text-anchor="middle">FY n-2</text>
+        <rect class="box" x="225" y="100" width="150" height="50" rx="0"/>
+        <text class="t-b" x="300" y="130" text-anchor="middle">FY n-1</text>
+        <rect class="box accent" x="375" y="100" width="150" height="50" rx="0"/>
+        <text class="t-h t-w" x="450" y="123" text-anchor="middle">FY n</text>
+        <text class="t-s t-w" x="450" y="140" text-anchor="middle">contains as_of_date</text>
+        <rect class="box" x="525" y="100" width="150" height="50" rx="0"/>
+        <text class="t-b" x="600" y="130" text-anchor="middle">FY n+1</text>
+        <rect class="box" x="675" y="100" width="150" height="50" rx="0"/>
+        <text class="t-b" x="750" y="130" text-anchor="middle">FY n+2</text>
+        <path class="ln green thick" d="M225 90V78H675V90"/>
+        <rect class="pill-bg" x="254" y="68" width="392" height="16"/>
+        <text class="t-s c-green" x="450" y="80" text-anchor="middle">derived window: years_back = 1, years_ahead = 1 from as_of_date</text>
+        <path class="ln red thick" d="M75 160V172H525V160"/>
+        <rect class="pill-bg" x="165" y="164" width="270" height="16"/>
+        <text class="t-s c-red" x="300" y="176" text-anchor="middle">typed-in range from the previous year</text>
+        <text class="t-s" x="450" y="212" text-anchor="middle">After the year rolls over, the typed-in range no longer covers FY n+1;</text>
+        <text class="t-s" x="450" y="228" text-anchor="middle">the derived window moves with as_of_date and needs no edit</text>
+      </svg>
+      <figcaption><b>A window that moves.</b> The check computes the current fiscal year from <code>as_of_date</code> and adds the configured offsets. Passing <code>as_of_date</code> explicitly also lets you re-run a check for a past date.</figcaption>
+    </figure>
+    <p>A fiscal year is named for the calendar year in which it ends, and starts in a configurable month. For a fiscal year that starts in month <em>S</em>, a date belongs to fiscal year <code>year(d)</code> when <em>S</em> is 1 or the month is before <em>S</em>, and to <code>year(d) + 1</code> otherwise. The helper below produces that as a SQL expression, so the engine evaluates it for the current date and for each row.</p>
+<pre data-title="Cell 7 (PySpark): fiscal-year helpers"><code class="language-python">FISCAL_START_MONTH = 7              # month the fiscal year starts; the year is named for the year it ends in
+HOURS_PER_PERIOD = "173.3333333"    # policy parameter: standard hours in one period (annual hours / 12)
+
+def fiscal_year_sql(date_expr: str, start_month: int = FISCAL_START_MONTH) -&gt; str:
+    m = int(start_month)
+    if not 1 &lt;= m &lt;= 12:
+        raise ValueError("start_month must be between 1 and 12")
+    return f"(year({date_expr}) + CASE WHEN {m} &gt; 1 AND month({date_expr}) &gt;= {m} THEN 1 ELSE 0 END)"
+
+CURRENT_FY = fiscal_year_sql(AS_OF)   # evaluated by Spark for the run's as_of_date
+
+def in_window(fiscal_year_expr: str, years_back: int, years_ahead: int) -&gt; str:
+    return (f"{fiscal_year_expr} BETWEEN {CURRENT_FY} - {int(years_back)} "
+            f"AND {CURRENT_FY} + {int(years_ahead)}")
+
+def scalar(sql: str):
+    return spark.sql(sql).first()[0]</code></pre>
+    <div class="callout important"><p class="callout-title">Parameters are part of the definition</p><p>The fiscal start month and the standard hours per period are business policy, not implementation details. The check must use the same values as the pipeline that builds Gold. Keep them in one place (a variable library, see <a href="../09-variable-libraries/index.html">Variable Libraries</a>) and read them in both notebooks. If you copy the divisor into the check, you will eventually change one and not the other, and the check will fail for the right reason and look like a bug in the check.</p></div>
+
+    <h3 id="metric">Aggregation logic and the metric check</h3>
+    <p>The check applies the Gold table's aggregation to Silver at a stated <em>grain</em> (the set of keys that identifies one Gold row), applies the same window to both sides, aggregates Gold at the same grain (so extra detail columns in Gold cannot cause false differences), and joins the two on the grain with a full outer join. It reports three things for each measure: grain rows present on only one side, grain rows whose measure differs by more than a cell tolerance, and the difference between the grand totals.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 285" role="img" aria-label="Expected side: Silver table, filter to window, group by grain, apply measure expression. Actual side: Gold table, filter to window, group by grain, sum the measure column. Both feed a full outer join on the grain that reports grain coverage, cell differences and total difference">
+        <defs>
+          <marker id="fig-adv-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="lane" x="10" y="15" width="660" height="100" rx="10"/>
+        <text class="t-s" x="24" y="34">Expected: recalculated from Silver</text>
+        <rect class="box silver" x="20" y="48" width="140" height="48" rx="8"/><text class="t-b" x="90" y="77" text-anchor="middle">Silver table</text>
+        <rect class="box" x="180" y="48" width="140" height="48" rx="8"/><text class="t-b" x="250" y="77" text-anchor="middle">Filter to window</text>
+        <rect class="box" x="340" y="48" width="140" height="48" rx="8"/><text class="t-b" x="410" y="77" text-anchor="middle">Group by grain</text>
+        <rect class="box blue" x="500" y="48" width="160" height="48" rx="8"/><text class="t-b" x="580" y="77" text-anchor="middle">Measure expression</text>
+        <path class="ln" d="M160 72H178" marker-end="url(#fig-adv-1-a)"/>
+        <path class="ln" d="M320 72H338" marker-end="url(#fig-adv-1-a)"/>
+        <path class="ln" d="M480 72H498" marker-end="url(#fig-adv-1-a)"/>
+        <rect class="lane" x="10" y="165" width="660" height="100" rx="10"/>
+        <text class="t-s" x="24" y="184">Actual: read from Gold</text>
+        <rect class="box gold" x="20" y="198" width="140" height="48" rx="8"/><text class="t-b" x="90" y="227" text-anchor="middle">Gold table</text>
+        <rect class="box" x="180" y="198" width="140" height="48" rx="8"/><text class="t-b" x="250" y="227" text-anchor="middle">Filter to window</text>
+        <rect class="box" x="340" y="198" width="140" height="48" rx="8"/><text class="t-b" x="410" y="227" text-anchor="middle">Group by grain</text>
+        <rect class="box blue" x="500" y="198" width="160" height="48" rx="8"/><text class="t-b" x="580" y="227" text-anchor="middle">SUM(measure col)</text>
+        <path class="ln" d="M160 222H178" marker-end="url(#fig-adv-1-a)"/>
+        <path class="ln" d="M320 222H338" marker-end="url(#fig-adv-1-a)"/>
+        <path class="ln" d="M480 222H498" marker-end="url(#fig-adv-1-a)"/>
+        <rect class="box accent" x="700" y="85" width="185" height="115" rx="12"/>
+        <text class="t-h t-w" x="792" y="112" text-anchor="middle">Full outer join</text>
+        <text class="t-s t-w" x="792" y="130" text-anchor="middle">on grain, null-safe</text>
+        <text class="t-s t-w" x="792" y="154" text-anchor="middle">1 grain coverage</text>
+        <text class="t-s t-w" x="792" y="170" text-anchor="middle">2 cell differences</text>
+        <text class="t-s t-w" x="792" y="186" text-anchor="middle">3 total difference</text>
+        <path class="ln" d="M660 72H680V118H698" marker-end="url(#fig-adv-1-a)"/>
+        <path class="ln" d="M660 222H680V168H698" marker-end="url(#fig-adv-1-a)"/>
+      </svg>
+      <figcaption><b>Independent recalculation.</b> The expected side applies the documented measure definition to Silver; the actual side reads what Gold stored. Aggregating both at the same grain makes the comparison robust to Gold's extra columns and row order.</figcaption>
+    </figure>
+<pre data-title="Cell 8 (PySpark): metric reconciliation check"><code class="language-python">@check("metric")
+def metric(cfg):
+    grain = [col(k) for k in cfg["grain"]]
+    grain_list = ", ".join(grain)
+    on = " AND ".join(f"s.{g} &lt;=&gt; t.{g}" for g in grain)
+    key_select = ", ".join(f"coalesce(s.{g}, t.{g}) AS {g}" for g in grain)
+    src_where, tgt_where = cfg.get("source_filter", "TRUE"), cfg.get("target_filter", "TRUE")
+    if cfg.get("window"):
+        w = cfg["window"]
+        src_where += " AND " + in_window(w["source_fiscal_year_expr"], w["years_back"], w["years_ahead"])
+        tgt_where += " AND " + in_window(w["target_fiscal_year_expr"], w["years_back"], w["years_ahead"])
+    src_rel = cfg.get("source_sql") or f"SELECT * FROM {quote_name(cfg['source'])}"   # may contain joins
+    ms = cfg["measures"]
+    differs = {m["name"]: (f"abs(coalesce(s.{col(m['name'])}, 0) - coalesce(t.{col(m['name'])}, 0)) "
+                           f"&gt; {float(m.get('cell_tolerance', 0.0))!r}") for m in ms}
+    with temp_views(
+        src=(f"SELECT {grain_list}, 1 AS _present, "
+             + ", ".join(f"{m['source_expr']} AS {col(m['name'])}" for m in ms)
+             + f" FROM ({src_rel}) x WHERE {src_where} GROUP BY {grain_list}"),
+        tgt=(f"SELECT {grain_list}, 1 AS _present, "
+             + ", ".join(f"SUM({col(m['target_column'])}) AS {col(m['name'])}" for m in ms)
+             + f" FROM {quote_name(cfg['target'])} WHERE {tgt_where} GROUP BY {grain_list}"),
+    ) as v:
+        join = f"FROM {v['src']} s FULL OUTER JOIN {v['tgt']} t ON {on}"
+        both = "s._present IS NOT NULL AND t._present IS NOT NULL"
+        select = ["count_if(s._present IS NOT NULL) AS src_rows", "count_if(t._present IS NOT NULL) AS tgt_rows",
+                  "count_if(t._present IS NULL) AS missing_in_target",
+                  "count_if(s._present IS NULL) AS missing_in_source"]
+        for n, pred in differs.items():
+            select += [f"count_if({both} AND {pred}) AS {col(n + '__cells')}",
+                       f"coalesce(sum(s.{col(n)}), 0) AS {col(n + '__src')}",
+                       f"coalesce(sum(t.{col(n)}), 0) AS {col(n + '__tgt')}"]
+        c = one_row("SELECT " + ", ".join(select) + " " + join)
+        sample = []
+        if c["missing_in_target"] or c["missing_in_source"] or any(c[n + "__cells"] for n in differs):
+            sample_cols = ", ".join(f"s.{col(n)} AS {col(n + '__src')}, t.{col(n)} AS {col(n + '__tgt')}"
+                                    for n in differs)
+            bad = " OR ".join(["t._present IS NULL", "s._present IS NULL"] + list(differs.values()))
+            sample = [r.asDict() for r in spark.sql(
+                f"SELECT {key_select}, {sample_cols} {join} WHERE {bad} LIMIT 5").collect()]
+    name = cfg["test_name"]
+    out = [evaluate(new_result(
+        cfg, test_name=f"{name}.grain", expected=0.0,
+        actual=float(c["missing_in_target"] + c["missing_in_source"]),
+        message=(f"grain rows source={c['src_rows']:,} target={c['tgt_rows']:,} "
+                 f"missing_in_target={c['missing_in_target']:,} missing_in_source={c['missing_in_source']:,}"),
+        detail=json.dumps({"sample": sample}, default=str)))]
+    for m in ms:
+        n = m["name"]
+        out.append(evaluate(new_result(
+            cfg, test_name=f"{name}.{n}.cells", expected=0.0, actual=float(c[n + "__cells"]),
+            message=f"{c[n + '__cells']:,} of {c['src_rows']:,} grain rows differ by more than {m.get('cell_tolerance', 0.0)}")))
+        out.append(evaluate(new_result(
+            cfg, test_name=f"{name}.{n}.total", expected=num(c[n + "__src"]), actual=num(c[n + "__tgt"]),
+            tolerance=float(m.get("total_tolerance", m.get("cell_tolerance", 0.0))),
+            message=f"total source={c[n + '__src']} target={c[n + '__tgt']}")))
+    return out</code></pre>
+<pre data-title="Cell 9 (PySpark): configuration row for the workforce metric"><code class="language-python">HRS = f"{env}_HR_SLV.LH_HR_SLV.dbo"
+HRG = f"{env}_HR_GLD.LH_HR_GLD.dbo"
+
+CONFIG += [
+    {"suite": "workforce", "test_name": "fact_workforce_fte.fte", "check_type": "metric",
+     "source": f"{HRS}.timesheet_entries", "target": f"{HRG}.fact_workforce_fte",
+     "grain": ["fiscal_year", "fiscal_period", "department_id", "employee_id", "pay_category"],
+     "window": {"source_fiscal_year_expr": "fiscal_year", "target_fiscal_year_expr": "fiscal_year",
+                "years_back": 1, "years_ahead": 1},
+     "measures": [
+         {"name": "fte_actual", "target_column": "fte_actual", "cell_tolerance": 0.0000001,
+          "source_expr": f"ROUND(COALESCE(SUM(hours_worked), 0) / {HOURS_PER_PERIOD}, 7)"},
+         {"name": "fte_budget", "target_column": "fte_budget", "cell_tolerance": 0.0000001,
+          "source_expr": f"ROUND(COALESCE(SUM(hours_budget), 0) / {HOURS_PER_PERIOD}, 7)"},
+     ]},
+]</code></pre>
+    <p>The measure expressions restate the definition as a business rule would: <code>FTE = hours / standard hours per period</code>, rounded to the scale Gold stores. Keep the divisor a decimal literal. Mixing doubles into the arithmetic makes equality brittle; compare at the stored scale with a tolerance of half a unit in the last digit (<code>cell_tolerance</code>), and apply a separate, small <code>total_tolerance</code> to the sums if rounding accumulates across many rows.</p>
+    <p>When the Gold row is built from joins (for example timesheets joined to an earnings-type table and filtered to productive and non-productive categories), put the same joins in <code>source_sql</code> instead of <code>source</code>. The query is wrapped as a subquery, so it can use joins, filters and derived columns, and the check stays the same.</p>
+<pre data-title="PySpark: a source that applies joins and a category filter"><code class="language-python">FTE_SOURCE_SQL = f"""
+    SELECT t.*, e.pay_category
+    FROM {quote_name(f'{HRS}.timesheet_entries')} t
+    LEFT JOIN {quote_name(f'{HRS}.earning_types')} e ON t.earning_code = e.earning_code
+    WHERE e.pay_category IN ('PRODUCTIVE', 'NON_PRODUCTIVE')"""
+
+# in the configuration row, use:  "source_sql": FTE_SOURCE_SQL,  (instead of relying on "source" alone)</code></pre>
+    <h4 id="metric-criteria">Success criteria</h4>
+    <ul class="checklist">
+      <li>Grain coverage: no grain row exists on one side only, within the window.</li>
+      <li>Every measure matches within its cell tolerance on every grain row.</li>
+      <li>Grand totals match within the total tolerance.</li>
+      <li>The window is derived from <code>as_of_date</code>; no year is typed into the check.</li>
+    </ul>
+    <h4 id="metric-output">Example output</h4>
+<pre data-title="results rows"><code class="language-text">test_name                           status  expected   actual     message
+fact_workforce_fte.fte.grain        PASS    0          0          grain rows source=482,113 target=482,113 missing_in_target=0 missing_in_source=0
+fact_workforce_fte.fte_actual.cells PASS    0          0          0 of 482,113 grain rows differ by more than 1e-07
+fact_workforce_fte.fte_actual.total PASS    41873.255  41873.255  total source=41873.2550000 target=41873.2550000</code></pre>
+
+    <h3 id="enrichment">Enrichment-join coverage</h3>
+    <p>A fact is often enriched by a left join to an attribute table, for example employee tenure bands taken from the latest headcount snapshot. Two things can go wrong without changing any single-table count in an obvious way: the lookup has duplicate keys and the join multiplies rows (fan-out), or the join silently stops matching (a changed key format, an empty snapshot) and the attribute becomes NULL for most rows. A check that only asks &quot;is the column populated for more than zero rows&quot; accepts both.</p>
+    <p>Derive the expectation instead. Run the same left join in Silver, compute what share of base rows match, and require Gold's populated share to equal it. Compare row counts before and after the join to catch fan-out.</p>
+<pre data-title="Cell 10 (PySpark): join coverage check"><code class="language-python">@check("join_coverage")
+def join_coverage(cfg):
+    bk, lk, tc = col(cfg["base_key"]), col(cfg["lookup_key"]), col(cfg["target_column"])
+    with temp_views(
+        base=f"SELECT * FROM {quote_name(cfg['source'])}",
+        lookup=cfg["lookup_sql"],                      # e.g. the latest snapshot of the attribute table
+        tgt=f"SELECT * FROM {quote_name(cfg['target'])}",
+    ) as v:
+        row = one_row(f"""
+            SELECT (SELECT COUNT(*) FROM {v['base']})                                     AS base_rows,
+                   (SELECT COUNT(*) FROM {v['base']} b
+                      LEFT JOIN {v['lookup']} l ON b.{bk} = l.{lk})                        AS joined_rows,
+                   (SELECT try_divide(100.0 * count_if(l.{lk} IS NOT NULL), COUNT(*))
+                      FROM {v['base']} b LEFT JOIN {v['lookup']} l ON b.{bk} = l.{lk})     AS expected_pct,
+                   (SELECT try_divide(100.0 * count_if({tc} IS NOT NULL), COUNT(*))
+                      FROM {v['tgt']})                                                     AS actual_pct""")
+    name = cfg["test_name"]
+    return [
+        evaluate(new_result(cfg, test_name=f"{name}.fanout", expected=num(row["base_rows"]),
+                            actual=num(row["joined_rows"]),
+                            message=f"base={row['base_rows']:,} after join={row['joined_rows']:,}")),
+        evaluate(new_result(cfg, test_name=f"{name}.coverage", rule="ge",
+                            expected=num(row["expected_pct"]), actual=num(row["actual_pct"]),
+                            tolerance=float(cfg.get("tolerance", 0.0)), tolerance_type="absolute",
+                            message=f"{cfg['target_column']} populated: expected {row['expected_pct']}% "
+                                    f"actual {row['actual_pct']}%")),
+    ]</code></pre>
+    <p>Success criteria: the join does not change the row count; the populated share in Gold is at least the share the join implies. Use <code>rule: ge</code> when extra matches are harmless and <code>eq</code> when Gold must reproduce the coverage exactly.</p>
+
+    <h3 id="sentinel">Sentinel-row (unknown member) union</h3>
+    <p>Dimensions commonly union one synthetic row (key 0, description &quot;Unknown&quot;) to the real rows so that facts with missing references still join. The expected row count is the source count plus one, and exactly one sentinel must exist. Two failure modes matter: the sentinel is missing (facts drop out of reports) and it is duplicated (every join against it doubles).</p>
+<pre data-title="Cell 11 (PySpark): sentinel row check"><code class="language-python">@check("sentinel_row")
+def sentinel_row(cfg):
+    with temp_views(
+        src=f"SELECT * FROM {quote_name(cfg['source'])} WHERE {cfg.get('source_filter', 'TRUE')}",
+        tgt=f"SELECT * FROM {quote_name(cfg['target'])}",
+    ) as v:
+        row = one_row(f"""
+            SELECT (SELECT COUNT(*) FROM {v['src']}) + 1                                AS expected_rows,
+                   (SELECT COUNT(*) FROM {v['tgt']})                                    AS actual_rows,
+                   (SELECT COUNT(*) FROM {v['tgt']} WHERE {cfg['sentinel_predicate']})  AS sentinel_rows""")
+    name = cfg["test_name"]
+    return [
+        evaluate(new_result(cfg, test_name=f"{name}.rows", expected=num(row["expected_rows"]),
+                            actual=num(row["actual_rows"]),
+                            message=f"source rows + 1 = {row['expected_rows']:,}, target = {row['actual_rows']:,}")),
+        evaluate(new_result(cfg, test_name=f"{name}.sentinel", expected=1.0, actual=num(row["sentinel_rows"]),
+                            message=f"{row['sentinel_rows']} sentinel row(s) matching {cfg['sentinel_predicate']}")),
+    ]</code></pre>
+    <p>Configure it with <code>"sentinel_predicate": "project_key = 0"</code> (or whatever identifies the unknown member). If the main data is filtered before the union (for example only one hierarchy of a project tree is kept), put the same filter in <code>source_filter</code> so the expected count follows the pipeline's intent.</p>
+
+    <h3 id="derived">Derived calendar columns</h3>
+    <p>Labels and flags that were authored in a dataflow or in Power Query M (a period label, a &quot;past period&quot; flag, a default sort order, current-year flags) are easy to get subtly wrong when they are re-implemented, and they are easy to validate: restate each as a SQL expression and run the keyed transformation check on it. The wrapper below expands one configuration row into one transformation check per column.</p>
+<pre data-title="Cell 12 (PySpark): derived columns check and configuration"><code class="language-python">@check("derived_columns")
+def derived_columns(cfg):
+    results = []
+    for target_column, expr in cfg["columns"].items():
+        sub = {**cfg, "check_type": "transformation", "test_name": f"{cfg['test_name']}.{target_column}",
+               "expected_expr": expr, "target_column": target_column}
+        results.extend(run_check(sub))          # an error in one column does not stop the others
+    return results
+
+CONFIG += [
+    {"suite": "calendar", "test_name": "dim_calendar.derived", "check_type": "derived_columns",
+     "source": f"{HRS}.calendar_periods", "target": f"{HRG}.dim_calendar", "key": ["period_id"],
+     "columns": {
+         "fiscal_period_label": "concat(CAST(fiscal_year AS STRING), '-', lpad(CAST(period_number AS STRING), 2, '0'))",
+         "is_past_period":      f"CASE WHEN {AS_OF} &gt;= period_end_date THEN 1 ELSE 0 END",
+         "default_sort":        f"CASE WHEN fiscal_year = {CURRENT_FY} THEN 1 ELSE 2 END",
+         "current_year_flag":   f"CASE WHEN fiscal_year = {CURRENT_FY} THEN 1 ELSE NULL END",
+         "current_or_prior_flag": f"CASE WHEN fiscal_year &gt;= {CURRENT_FY} - 1 THEN 1 ELSE 0 END",
+     }},
+]</code></pre>
+    <div class="callout warning"><p class="callout-title">Time-dependent columns drift between refreshes</p><p>A flag computed from the current date is correct only on the day Gold was refreshed. If the refresh ran yesterday and validation runs after midnight, <code>is_past_period</code> legitimately differs on the boundary day. Validate shortly after the refresh and pass the refresh date as <code>as_of_date</code>. Both sides then use the same &quot;today&quot;, and the check still catches wrong logic.</p></div>
+
+    <h2 id="extended">Extended checks for every framework</h2>
+    <p>These checks apply to all three frameworks. They are cheap, catch defects that count comparisons miss, and share the same result shape. The table summarizes them; code follows.</p>
+    <table>
+      <thead><tr><th>Check</th><th>Catches</th><th>Cost</th><th>Default severity</th></tr></thead>
+      <tbody>
+        <tr><td><a href="#keys">Key uniqueness</a></td><td>Duplicate business keys, failed deduplication, join fan-out</td><td>One group-by scan</td><td>blocker</td></tr>
+        <tr><td><a href="#completeness">Completeness</a></td><td>NULLs in columns that must be populated, broken joins</td><td>One scan for many columns</td><td>blocker for keys, warning for attributes</td></tr>
+        <tr><td><a href="#integrity">Format and domain rules</a></td><td>Malformed labels, out-of-domain flags, wrong NULL semantics</td><td>One scan per rule set</td><td>blocker</td></tr>
+        <tr><td><a href="#ri">Referential integrity</a></td><td>Facts whose keys are absent from the dimension</td><td>One join</td><td>blocker, or warning with a documented ceiling</td></tr>
+        <tr><td><a href="#drift">Distribution drift</a></td><td>Values that move outside their historical range with no row-count change</td><td>One scan plus a small history query</td><td>warning</td></tr>
+        <tr><td><a href="#reconcile">Layer reconciliation</a></td><td>Rows that vanish or appear between layers without an explanation</td><td>Several counts</td><td>blocker</td></tr>
+        <tr><td><a href="#late">Late-arriving data</a></td><td>Rows that land after their period closed, or an abnormal share of late rows</td><td>One filtered scan</td><td>warning</td></tr>
+      </tbody>
+    </table>
+
+    <h3 id="keys">Key uniqueness</h3>
+    <p>Expected is zero surplus rows: the number of rows beyond the first for each key value. Run this before any keyed comparison and declare the keyed checks as <code>depends_on</code> it, so duplicates produce one red result instead of many confusing ones.</p>
+<pre data-title="Cell 13 (PySpark): key uniqueness"><code class="language-python">@check("unique")
+def unique_key(cfg):
+    keys = ", ".join(col(k) for k in cfg["key"])
+    with temp_views(tgt=f"SELECT * FROM {quote_name(cfg['target'])} WHERE {cfg.get('target_filter', 'TRUE')}") as v:
+        grouped = f"SELECT {keys}, COUNT(*) AS cnt FROM {v['tgt']} GROUP BY {keys}"
+        row = one_row(f"""
+            SELECT COALESCE(SUM(cnt), 0) AS total_rows, COALESCE(SUM(cnt - 1), 0) AS surplus_rows,
+                   count_if(cnt &gt; 1) AS duplicated_keys
+            FROM ({grouped}) g""")
+        sample = []
+        if row["surplus_rows"]:
+            sample = [r.asDict() for r in spark.sql(
+                f"SELECT * FROM ({grouped}) g WHERE cnt &gt; 1 ORDER BY cnt DESC LIMIT 5").collect()]
+    return evaluate(new_result(
+        cfg, expected=0.0, actual=num(row["surplus_rows"]),
+        message=f"{row['duplicated_keys']:,} duplicated key value(s) in {row['total_rows']:,} rows",
+        detail=json.dumps({"sample": sample}, default=str)))</code></pre>
+    <p>NULL key values are grouped together by <code>GROUP BY</code>, so a table with many NULL keys reports them as one large duplicate. That is the right signal, and the completeness check below reports the cause.</p>
+
+    <h3 id="completeness">Null and completeness</h3>
+    <p>One scan computes the NULL count of every listed column. Each column becomes its own result, so a dashboard can show which column regressed. The rule is <code>ge</code>: expected is the minimum percent populated (100 for keys, lower for optional attributes), derived from the source rather than guessed.</p>
+<pre data-title="Cell 14 (PySpark): completeness"><code class="language-python">@check("completeness")
+def completeness(cfg):
+    cols = cfg["columns"]
+    floors = cfg.get("min_pct_by_column", {})
+    aggs = ", ".join(f"count_if({col(c)} IS NULL) AS {col('n_' + c)}" for c in cols)
+    with temp_views(tgt=f"SELECT * FROM {quote_name(cfg['target'])} WHERE {cfg.get('target_filter', 'TRUE')}") as v:
+        row = one_row(f"SELECT COUNT(*) AS total, {aggs} FROM {v['tgt']}")
+    results = []
+    for c in cols:
+        nulls, total = row["n_" + c], row["total"]
+        pct = 100.0 * (total - nulls) / total if total else 0.0
+        results.append(evaluate(new_result(
+            cfg, test_name=f"{cfg['test_name']}.{c}", rule="ge",
+            expected=float(floors.get(c, cfg.get("min_pct", 100.0))), actual=pct,
+            message=f"{c}: {pct:.2f}% populated ({nulls:,} NULL of {total:,})")))
+    return results</code></pre>
+
+    <h3 id="integrity">Format and domain integrity rules</h3>
+    <p>A rule is a SQL predicate that is true for valid rows. The check counts rows for which the predicate is not true. NULL evaluates to &quot;not true&quot;, so write <code>col IS NULL OR ...</code> when NULL is allowed; that makes nullability an explicit part of the rule rather than an accident of three-valued logic.</p>
+<pre data-title="Cell 15 (PySpark): rule check and configuration"><code class="language-python">@check("rule")
+def rule_check(cfg):
+    with temp_views(tgt=f"SELECT * FROM {quote_name(cfg['target'])} WHERE {cfg.get('target_filter', 'TRUE')}") as v:
+        row = one_row(f"""
+            SELECT COUNT(*) AS total,
+                   count_if(NOT coalesce(({cfg['valid_when']}), false)) AS violations
+            FROM {v['tgt']}""")
+        sample = []
+        if row["violations"]:
+            sample = [r.asDict() for r in spark.sql(
+                f"SELECT * FROM {v['tgt']} WHERE NOT coalesce(({cfg['valid_when']}), false) LIMIT 5").collect()]
+    return evaluate(new_result(
+        cfg, expected=0.0, actual=num(row["violations"]),
+        message=f"{row['violations']:,} of {row['total']:,} rows violate: {cfg['valid_when']}",
+        detail=json.dumps({"sample": sample}, default=str)))
+
+CONFIG += [
+    {"suite": "calendar", "test_name": "dim_calendar.label_format", "check_type": "rule",
+     "target": f"{HRG}.dim_calendar", "valid_when": "fiscal_period_label RLIKE '^[0-9]{4}-[0-9]{2}$'"},
+    {"suite": "calendar", "test_name": "dim_calendar.past_flag_domain", "check_type": "rule",
+     "target": f"{HRG}.dim_calendar", "valid_when": "is_past_period IN (0, 1)"},
+    {"suite": "calendar", "test_name": "dim_calendar.current_year_flag", "check_type": "rule",
+     "target": f"{HRG}.dim_calendar", "valid_when": "current_year_flag IS NULL OR current_year_flag = 1"},
+]</code></pre>
+
+    <h3 id="ri">Referential integrity</h3>
+    <p>Spark does not enforce foreign keys, so a fact can reference a dimension row that does not exist. The check counts fact rows whose key is missing from the dimension. The dimension side is de-duplicated first so a duplicate dimension key cannot multiply fact rows. NULL foreign keys are reported separately because whether they are acceptable is a modeling decision (often they should point at the sentinel row instead).</p>
+<pre data-title="Cell 16 (PySpark): referential integrity"><code class="language-python">@check("referential")
+def referential(cfg):
+    fk, pk = col(cfg["fk"]), col(cfg["pk"])
+    with temp_views(
+        fact=f"SELECT {fk} FROM {quote_name(cfg['target'])} WHERE {cfg.get('target_filter', 'TRUE')}",
+        dim=f"SELECT DISTINCT {pk} FROM {quote_name(cfg['dimension'])}",
+    ) as v:
+        row = one_row(f"""
+            SELECT COUNT(*)                                          AS fact_rows,
+                   count_if(f.{fk} IS NULL)                          AS null_fks,
+                   count_if(f.{fk} IS NOT NULL AND d.{pk} IS NULL)   AS orphans
+            FROM {v['fact']} f LEFT JOIN {v['dim']} d ON f.{fk} = d.{pk}""")
+        sample = []
+        if row["orphans"]:
+            sample = [r.asDict() for r in spark.sql(f"""
+                SELECT f.{fk}, COUNT(*) AS fact_rows FROM {v['fact']} f LEFT JOIN {v['dim']} d ON f.{fk} = d.{pk}
+                WHERE f.{fk} IS NOT NULL AND d.{pk} IS NULL GROUP BY f.{fk} ORDER BY 2 DESC LIMIT 5""").collect()]
+    violations = row["orphans"] + (0 if cfg.get("allow_null_fk", True) else row["null_fks"])
+    return evaluate(new_result(
+        cfg, rule="le", expected=float(cfg.get("max_orphans", 0)), actual=float(violations),
+        message=f"{row['orphans']:,} orphaned and {row['null_fks']:,} NULL foreign key(s) in {row['fact_rows']:,} rows",
+        detail=json.dumps({"sample": sample}, default=str)))</code></pre>
+    <p>A documented ceiling (<code>max_orphans</code>) with severity <code>warning</code> is the honest way to handle a known legacy exception. It catches a regression without pretending the exception is not there.</p>
+
+    <h3 id="drift">Distribution drift</h3>
+    <p>Some defects keep every count intact and change what the data means: a unit conversion applied twice, a currency column loaded in the wrong scale, an upstream system that starts sending zeros. The drift check compares a statistic (an average, a NULL percentage, a distinct count) with the mean and spread of the same statistic in recent runs, read from the results table itself. There is no separate baseline store to maintain, and runs that failed are excluded from the baseline.</p>
+<pre data-title="Cell 17 (PySpark): drift against recent history"><code class="language-python">@check("drift")
+def drift(cfg):
+    stat = one_row(f"""SELECT CAST({cfg['expr']} AS DOUBLE) AS value
+                       FROM {quote_name(cfg['target'])} WHERE {cfg.get('target_filter', 'TRUE')}""")["value"]
+    if stat is None:
+        return new_result(cfg, status="ERROR", message="statistic is NULL")
+    hist = spark.sql(f"""
+        SELECT COUNT(*) AS n, AVG(actual) AS mean, STDDEV_SAMP(actual) AS sd
+        FROM (SELECT actual FROM {quote_name(results_schema + '.validation_results')}
+              WHERE test_name = :t AND environment = :e
+                AND status IN ('PASS', 'WARN') AND actual IS NOT NULL
+              ORDER BY run_ts DESC LIMIT {int(cfg.get('history_runs', 14))}) h""",
+        args={"t": cfg["test_name"], "e": env}).first()      # parameter markers: Spark 3.4 and later
+    value, severity = float(stat), cfg.get("severity", "warning")
+    needed = int(cfg.get("min_history", 5))
+    if hist["n"] &lt; needed:                                    # still building the baseline
+        return evaluate(new_result(cfg, severity=severity, expected=value, actual=value,
+                                   message=f"building baseline: {hist['n']} of {needed} runs"))
+    tolerance = max(float(cfg.get("sigmas", 3.0)) * float(hist["sd"] or 0.0), float(cfg.get("min_tolerance", 0.0)))
+    return evaluate(new_result(
+        cfg, severity=severity, expected=float(hist["mean"]), actual=value, tolerance=tolerance,
+        tolerance_type="absolute", message=f"value={value:.4g} baseline={float(hist['mean']):.4g} "
+                                           f"tolerance={tolerance:.4g} from {hist['n']} runs"))
+
+CONFIG += [
+    {"suite": "standard", "test_name": "fact_orders.avg_unit_price.drift", "check_type": "drift",
+     "target": f"{GLD}.fact_orders", "expr": "AVG(unit_price)", "sigmas": 3.0, "min_tolerance": 0.01},
+]</code></pre>
+    <div class="callout tip"><p class="callout-title">Parameter markers for values, validation for names</p><p>Spark 3.4 and later (so Runtime 1.3 and Runtime 2.0) accept named parameter markers (<code>:name</code>) with an <code>args</code> dictionary, which is the right way to pass values such as a test name into SQL. Identifiers (table and column names) cannot be parameterized that way, which is why the harness validates and quotes them in <code>quote_name</code> and <code>col</code>.</p></div>
+
+    <h3 id="reconcile">Reconciliation between layers</h3>
+    <p>A row-count comparison between Bronze and Silver is rarely meaningful on its own, because the Silver pipeline deduplicates and quarantines rows. Reconciliation states the equation: Bronze rows minus duplicates minus rejected rows equals Silver rows. Each term is a scalar query, and the check compares the two sides with the same tolerance logic as every other check. Because each term is explicit, a failure tells you which term is unexplained.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 270" role="img" aria-label="Bronze rows minus duplicates dropped minus rejected rows equals the expected Silver rows, which are compared with the actual Silver row count">
+        <defs>
+          <marker id="fig-adv-2-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box bronze" x="20" y="50" width="150" height="70" rx="10"/>
+        <text class="t-h" x="95" y="80" text-anchor="middle">Bronze rows</text>
+        <text class="t-s" x="95" y="100" text-anchor="middle">COUNT(*)</text>
+        <text class="t-lg" x="190" y="92" text-anchor="middle">-</text>
+        <rect class="box orange" x="210" y="50" width="210" height="70" rx="10"/>
+        <text class="t-h" x="315" y="80" text-anchor="middle">Duplicates dropped</text>
+        <text class="t-s" x="315" y="100" text-anchor="middle">COUNT(*) - COUNT(DISTINCT key)</text>
+        <text class="t-lg" x="440" y="92" text-anchor="middle">-</text>
+        <rect class="box orange" x="460" y="50" width="170" height="70" rx="10"/>
+        <text class="t-h" x="545" y="80" text-anchor="middle">Rejected rows</text>
+        <text class="t-s" x="545" y="100" text-anchor="middle">quarantine table</text>
+        <text class="t-lg" x="650" y="92" text-anchor="middle">=</text>
+        <rect class="box accent" x="670" y="50" width="210" height="70" rx="10"/>
+        <text class="t-h t-w" x="775" y="80" text-anchor="middle">Expected Silver rows</text>
+        <text class="t-s t-w" x="775" y="100" text-anchor="middle">sum of the terms</text>
+        <rect class="box silver" x="670" y="180" width="210" height="60" rx="10"/>
+        <text class="t-h" x="775" y="205" text-anchor="middle">Actual Silver rows</text>
+        <text class="t-s" x="775" y="223" text-anchor="middle">COUNT(*)</text>
+        <path class="ln thick" d="M775 120V178" marker-end="url(#fig-adv-2-a)"/>
+        <text class="t-s" x="765" y="154" text-anchor="end">compare: eq, tolerance 0</text>
+        <text class="t-s" x="20" y="205">Every term is counted from one snapshot of its table.</text>
+        <text class="t-s" x="20" y="223">An unexplained difference is the defect.</text>
+      </svg>
+      <figcaption><b>Reconciliation as arithmetic.</b> Legitimate drops are terms in the equation, not slack in a tolerance. The same pattern reconciles balances: opening balance plus movements equals closing balance.</figcaption>
+    </figure>
+<pre data-title="Cell 18 (PySpark): reconciliation check and configuration"><code class="language-python">@check("reconcile")
+def reconcile(cfg):
+    terms = [(float(sign), float(scalar(sql))) for sign, sql in cfg["expected_terms"]]
+    expected = sum(sign * value for sign, value in terms)
+    actual = float(scalar(cfg["actual_sql"]))
+    return evaluate(new_result(
+        cfg, expected=expected, actual=actual,
+        message="expected = " + " ".join(f"{'+' if s &gt; 0 else '-'} {v:,.0f}" for s, v in terms)
+                + f" = {expected:,.0f}; actual = {actual:,.0f}",
+        detail=json.dumps({"terms": terms})))
+
+BRZ = f"{env}_SALES_BRZ.LH_SALES_BRZ.dbo"
+t_bronze, t_silver = quote_name(f"{BRZ}.orders_raw"), quote_name(f"{SLV}.orders")
+t_rejects = quote_name(f"{SLV}.orders_rejected")
+
+CONFIG += [
+    {"suite": "reconcile", "test_name": "orders.bronze_to_silver", "check_type": "reconcile",
+     "source": f"{BRZ}.orders_raw", "target": f"{SLV}.orders",
+     "expected_terms": [
+         [1,  f"SELECT COUNT(*) FROM {t_bronze}"],
+         [-1, f"SELECT COUNT(*) - COUNT(DISTINCT order_id) FROM {t_bronze}"],
+         [-1, f"SELECT COUNT(*) FROM {t_rejects}"],
+     ],
+     "actual_sql": f"SELECT COUNT(*) FROM {t_silver}"},
+]</code></pre>
+    <p>The same check type covers cross-layer balance reconciliation: use <code>SELECT SUM(amount)</code> terms for each side. When a layer is incremental, constrain every term to the same load window (a batch identifier or a date range), otherwise a late arrival in Bronze shows up as a difference that is not a defect.</p>
+
+    <h3 id="late">Late-arriving data</h3>
+    <p>Late-arriving rows are normal in event and transaction feeds. They become a defect when they arrive after the period they belong to was closed and published, because reports already issued no longer match the table. The check measures two things over a recent ingest window: the share of rows that arrived later than an allowed lag, and, optionally, how many arrived for a period that is already closed.</p>
+<pre data-title="Cell 19 (PySpark): late-arriving data"><code class="language-python">@check("late_arrival")
+def late_arrival(cfg):
+    ev, ing = col(cfg["event_column"]), col(cfg["ingest_column"])
+    lag_h, window_h = float(cfg["max_lag_hours"]), int(cfg["window_hours"])
+    closed = cfg.get("closed_before_sql")             # e.g. "date_trunc('month', current_date())"
+    closed_expr = f"count_if({ev} &lt; {closed})" if closed else "CAST(0 AS BIGINT)"
+    row = one_row(f"""
+        SELECT COUNT(*) AS rows_in_window,
+               count_if(timestampdiff(MINUTE, {ev}, {ing}) / 60.0 &gt; {lag_h}) AS late_rows,
+               {closed_expr} AS into_closed
+        FROM {quote_name(cfg['target'])}
+        WHERE {ing} &gt;= current_timestamp() - INTERVAL {window_h} HOURS""")
+    total = row["rows_in_window"]
+    late_pct = 100.0 * row["late_rows"] / total if total else 0.0
+    name, severity = cfg["test_name"], cfg.get("severity", "warning")
+    out = [evaluate(new_result(
+        cfg, test_name=f"{name}.late_share", severity=severity, rule="le",
+        expected=float(cfg.get("max_late_pct", 1.0)), actual=late_pct,
+        message=f"{row['late_rows']:,} of {total:,} rows ({late_pct:.2f}%) arrived more than {lag_h:g} h after the event"))]
+    if closed:
+        out.append(evaluate(new_result(
+            cfg, test_name=f"{name}.closed_periods", severity=cfg.get("closed_severity", "blocker"),
+            expected=0.0, actual=float(row["into_closed"]),
+            message=f"{row['into_closed']:,} row(s) arrived for an already closed period")))
+    return out</code></pre>
+    <p>What to do about late data is a design decision, not a validation one: reprocess a lookback window on every load, route late rows to a correction table, or accept restatement. The check's job is to make the volume visible and to stop a release when closed periods change without anyone deciding that they should.</p>
+
+    <h3 id="bi-parity">Semantic model parity</h3>
+    <p>A correct Gold table can still produce a wrong report: a measure with a filter nobody remembers, a relationship that fans out, a model that was never refreshed. A parity check evaluates a measure in the semantic model and compares it with an aggregate computed straight from the lakehouse. Semantic link runs the DAX query from the notebook, so the comparison fits the same harness and the same results table.</p>
+<pre data-title="Cell 19a (PySpark): measure in a semantic model against the lakehouse"><code class="language-python">import sempy.fabric as fabric
+
+@check("model_measure")
+def model_measure(cfg):
+    dax = f'EVALUATE ROW("value", {cfg["measure"]})'          # the measure, with no filters applied
+    value = fabric.evaluate_dax(cfg["model"], dax, workspace=cfg.get("model_workspace")).iloc[0, 0]
+    actual = None if value is None or value != value else float(value)       # BLANK or NaN becomes None
+    expected = float(scalar(cfg["expected_sql"]))
+    return evaluate(new_result(cfg, expected=expected, actual=actual,
+                               message=f"model {cfg['model']} {cfg['measure']} = {actual}; lakehouse = {expected}"))
+
+t_fact_orders = quote_name(f"{GLD}.fact_orders")
+CONFIG += [
+    {"suite": "model", "test_name": "SM_SALES_GLD_Orders.order_count", "check_type": "model_measure",
+     "model": "SM_SALES_GLD_Orders", "measure": "[Order Count]", "target": "SM_SALES_GLD_Orders",
+     "expected_sql": f"SELECT COUNT(*) FROM {t_fact_orders}"},
+]</code></pre>
+    <p>Run it after the model refresh in the pipeline, not before, or it compares the lakehouse with the previous model state. A missing value (a BLANK measure) becomes an <code>ERROR</code> result, which is the right outcome: the model returned nothing to compare.</p>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>Confirm that the <code>sempy</code> package is available in the runtime you use, which identity the notebook runs as, and what access that identity needs on the semantic model. The function signature and its options are listed in the <a href="https://learn.microsoft.com/python/api/semantic-link-sempy/sempy.fabric">semantic link API reference</a>.</p></div>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p><ul>
+      <li>Derive time windows from <code>as_of_date</code>; a typed-in fiscal range is a check that expires.</li>
+      <li>Recalculate metrics independently at a stated grain, apply the same window to both sides, and report grain coverage, cell differences and totals as separate results.</li>
+      <li>Derive expectations (join coverage, row equations) from the source instead of choosing round numbers or loosening tolerances.</li>
+      <li>Add uniqueness, completeness, referential and rule checks to every framework; they are cheap and catch what counts cannot.</li>
+      <li>Use drift and late-arrival checks as warnings that inform owners, and make uniqueness a dependency of keyed comparisons.</li>
+    </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://spark.apache.org/docs/latest/sql-ref.html">Spark SQL reference</a> (<code>EXCEPT ALL</code>, <code>count_if</code>, <code>timestampdiff</code>, parameter markers)</li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/lakehouse-schemas">What are lakehouse schemas?</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/notebook-utilities">NotebookUtils for Fabric</a> (variable library utilities)</li>
+        <li><a href="https://docs.delta.io/delta-constraints/">Delta Lake constraints</a> (per-row alternatives to rule checks)</li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/materialized-lake-views/data-quality">Data quality in materialized lake views</a></li>
+        <li><a href="https://learn.microsoft.com/python/api/semantic-link-sempy/sempy.fabric">Semantic link (sempy.fabric) API reference</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Overview and how it works · PR Notifications</title>
+<meta name="description" content="How a CODEOWNERS file routes pull requests to the right reviewers, what GitHub notifies and what it does not, and who controls each step from the file to the inbox.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="17-pr-notifications-codeowners" data-page="index.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+
+    <header class="page-header">
+      <p class="eyebrow">Playbook 17 · PR Notifications</p>
+      <h1>Pull-Request Notifications with CODEOWNERS</h1>
+      <p class="lede">You cannot make GitHub send an email. What you can do is guarantee that the right people are asked to review every change to the files they own, and that nothing merges until they say yes. Whether that request then reaches an inbox, a mailbox or a phone is decided by settings that belong to the team and to each person.</p>
+      <ul class="chips"><li><b>Audience</b> repository admins, platform leads, reviewers</li><li><b>Level</b> Intermediate</li><li><b>Reading time</b> 35 min</li></ul>
+    </header>
+
+    <h2 id="problem">What this playbook solves</h2>
+    <p>In a Fabric repository, a pull request can change a notebook, a pipeline, a semantic model and a deployment parameter file in one go. Each of those has a different owner, and the owner is rarely the person who opened the pull request. Relying on authors to remember whom to tag fails in predictable ways: the reviewer is a friend rather than the owner, the owner learns about the change after it has merged, or nobody is asked at all.</p>
+    <p>GitHub has a native answer, the <strong>CODEOWNERS</strong> file. It links file paths to people or teams. When a pull request touches a path, the owners of that path are requested as reviewers automatically, and with one ruleset option their approval becomes mandatory. This playbook shows how to set that up for a repository laid out as in the <a href="../05-github-integration/repository-design.html#layout">GitHub integration playbook</a>, and how to reason about the notifications that follow.</p>
+    <div class="callout important"><p class="callout-title">The request is yours; the email is theirs</p><p>As a repository admin you can trigger a review request. You cannot force an email. Whether the request becomes an email, an inbox entry or a mobile alert depends on the team's code review settings and on each owner's own notification settings. Everything on the <a href="notifications.html">notifications page</a> follows from this.</p></div>
+
+    <h2 id="flow">From pull request to notification</h2>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 880 330" role="img" aria-label="Eight steps in three lanes: a ready pull request makes GitHub read the CODEOWNERS file from the base branch, match the changed paths with the last matching line winning, and request the owners; team settings and personal settings then decide how they are notified; an owner approves and the ruleset decides whether the merge is allowed">
+        <defs>
+          <marker id="fig-ix-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="lane" x="10" y="36" width="860" height="76" rx="10"/>
+        <text class="t-h" x="24" y="68">Repository</text>
+        <text class="t-s" x="24" y="86">CODEOWNERS</text>
+        <rect class="lane" x="10" y="138" width="860" height="76" rx="10"/>
+        <text class="t-h" x="24" y="170">Routing</text>
+        <text class="t-s" x="24" y="188">who is told</text>
+        <rect class="lane" x="10" y="240" width="860" height="76" rx="10"/>
+        <text class="t-h" x="24" y="272">Merge gate</text>
+        <text class="t-s" x="24" y="290">ruleset</text>
+        <rect class="box blue" x="148" y="48" width="104" height="52" rx="8"/>
+        <text class="t-b" x="200" y="70" text-anchor="middle">1 PR opened</text>
+        <text class="t-s" x="200" y="87" text-anchor="middle">not a draft</text>
+        <rect class="box purple" x="268" y="48" width="104" height="52" rx="8"/>
+        <text class="t-b" x="320" y="70" text-anchor="middle">2 Read file</text>
+        <text class="t-s" x="320" y="87" text-anchor="middle">base branch</text>
+        <rect class="box purple" x="388" y="48" width="104" height="52" rx="8"/>
+        <text class="t-b" x="440" y="70" text-anchor="middle">3 Match paths</text>
+        <text class="t-s" x="440" y="87" text-anchor="middle">last line wins</text>
+        <rect class="box purple" x="508" y="48" width="104" height="52" rx="8"/>
+        <text class="t-b" x="560" y="70" text-anchor="middle">4 Request</text>
+        <text class="t-s" x="560" y="87" text-anchor="middle">owners review</text>
+        <rect class="box gray dashed" x="148" y="150" width="340" height="52" rx="8"/>
+        <text class="t-s" x="318" y="172" text-anchor="middle">The admin triggers the review request.</text>
+        <text class="t-s" x="318" y="190" text-anchor="middle">Team and personal settings decide delivery.</text>
+        <rect class="box teal" x="508" y="150" width="104" height="52" rx="8"/>
+        <text class="t-b" x="560" y="172" text-anchor="middle">5 Team rules</text>
+        <text class="t-s" x="560" y="189" text-anchor="middle">who is pinged</text>
+        <rect class="box orange" x="628" y="150" width="104" height="52" rx="8"/>
+        <text class="t-b" x="680" y="172" text-anchor="middle">6 Personal</text>
+        <text class="t-s" x="680" y="189" text-anchor="middle">inbox or email</text>
+        <rect class="box gray dashed" x="148" y="252" width="340" height="52" rx="8"/>
+        <text class="t-s" x="318" y="274" text-anchor="middle">An approval only blocks the merge when the</text>
+        <text class="t-s" x="318" y="292" text-anchor="middle">ruleset requires review from code owners.</text>
+        <rect class="box green" x="628" y="252" width="104" height="52" rx="8"/>
+        <text class="t-b" x="680" y="274" text-anchor="middle">7 Approval</text>
+        <text class="t-s" x="680" y="291" text-anchor="middle">by an owner</text>
+        <rect class="box green" x="748" y="252" width="104" height="52" rx="8"/>
+        <text class="t-b" x="800" y="274" text-anchor="middle">8 Merge gate</text>
+        <text class="t-s" x="800" y="291" text-anchor="middle">ruleset checks</text>
+        <path class="ln" d="M254 74H266" marker-end="url(#fig-ix-1-a)"/>
+        <path class="ln" d="M374 74H386" marker-end="url(#fig-ix-1-a)"/>
+        <path class="ln" d="M494 74H506" marker-end="url(#fig-ix-1-a)"/>
+        <path class="ln" d="M560 102V148" marker-end="url(#fig-ix-1-a)"/>
+        <path class="ln" d="M614 176H626" marker-end="url(#fig-ix-1-a)"/>
+        <path class="ln" d="M680 204V250" marker-end="url(#fig-ix-1-a)"/>
+        <path class="ln" d="M734 278H746" marker-end="url(#fig-ix-1-a)"/>
+      </svg>
+      <figcaption><b>Three layers, three owners.</b> The repository decides who is asked, the team and the person decide how they are told, and the ruleset decides whether the answer matters for the merge.</figcaption>
+    </figure>
+
+    <h2 id="who-controls">Who controls what</h2>
+    <p>Most confusion about CODEOWNERS notifications comes from expecting one person to control everything. Three different people control three different layers, and each layer can silently stop the chain.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 880 310" role="img" aria-label="Three columns: the repository admin controls the CODEOWNERS file and ruleset, the team maintainer controls the team's code review settings, and each person controls their own notification settings; a banner states you can trigger the review request but cannot force an email">
+        <defs>
+          <marker id="fig-ix-2-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box purple" x="20" y="24" width="260" height="42" rx="10"/>
+        <text class="t-b" x="150" y="50" text-anchor="middle">Repository admin</text>
+        <rect class="box plain" x="20" y="72" width="260" height="154" rx="10"/>
+        <text class="t-s" x="150" y="102" text-anchor="middle">Writes the CODEOWNERS file</text>
+        <text class="t-s" x="150" y="132" text-anchor="middle">Sets the ruleset on main</text>
+        <text class="t-s" x="150" y="162" text-anchor="middle">Grants each team Write access</text>
+        <text class="t-s" x="150" y="192" text-anchor="middle">Decides which paths need review</text>
+        <rect class="box teal" x="310" y="24" width="260" height="42" rx="10"/>
+        <text class="t-b" x="440" y="50" text-anchor="middle">Team maintainer</text>
+        <rect class="box plain" x="310" y="72" width="260" height="154" rx="10"/>
+        <text class="t-s" x="440" y="102" text-anchor="middle">Notify all members, or only</text>
+        <text class="t-s" x="440" y="120" text-anchor="middle">the members named on the PR</text>
+        <text class="t-s" x="440" y="150" text-anchor="middle">Auto-assign a few members</text>
+        <text class="t-s" x="440" y="180" text-anchor="middle">Round robin or load balance</text>
+        <text class="t-s" x="440" y="210" text-anchor="middle">Skip members who are busy</text>
+        <rect class="box orange" x="600" y="24" width="260" height="42" rx="10"/>
+        <text class="t-b" x="730" y="50" text-anchor="middle">Each person</text>
+        <rect class="box plain" x="600" y="72" width="260" height="154" rx="10"/>
+        <text class="t-s" x="730" y="102" text-anchor="middle">Email and On GitHub, per category</text>
+        <text class="t-s" x="730" y="132" text-anchor="middle">Watching and participating rules</text>
+        <text class="t-s" x="730" y="162" text-anchor="middle">A verified email address</text>
+        <text class="t-s" x="730" y="192" text-anchor="middle">GitHub Mobile push alerts</text>
+        <path class="ln" d="M282 45H308" marker-end="url(#fig-ix-2-a)"/>
+        <path class="ln" d="M572 45H598" marker-end="url(#fig-ix-2-a)"/>
+        <rect class="box gray dashed" x="20" y="250" width="840" height="40" rx="10"/>
+        <text class="t-b" x="440" y="275" text-anchor="middle">You can trigger the review request. You cannot force an email.</text>
+      </svg>
+      <figcaption><b>The chain is only as strong as its weakest layer.</b> A perfect CODEOWNERS file does nothing for an owner who has turned off both email and On GitHub notifications.</figcaption>
+    </figure>
+
+    <h2 id="mechanisms">Two native mechanisms, two different jobs</h2>
+    <p>GitHub has two built-in ways to ask a named person or team for a decision. They are often confused, and the second is not a notification feature at all.</p>
+    <table>
+      <thead><tr><th></th><th>CODEOWNERS review requests</th><th>Environment required reviewers</th></tr></thead>
+      <tbody>
+        <tr><td><strong>What is asked</strong></td><td>"Please review this change to files you own."</td><td>"Please approve this deployment to an environment."</td></tr>
+        <tr><td><strong>When</strong></td><td>When a pull request that touches owned paths is opened or marked ready.</td><td>When a workflow job that targets the environment is waiting to start.</td></tr>
+        <tr><td><strong>Defined in</strong></td><td>The <code>CODEOWNERS</code> file, enforced by a ruleset.</td><td>The environment's protection rules.</td></tr>
+        <tr><td><strong>Gates</strong></td><td>The merge of the pull request.</td><td>The deployment job.</td></tr>
+        <tr><td><strong>This playbook</strong></td><td>Covered in full.</td><td>Mentioned for contrast. See <a href="../05-github-integration/service-principals-automation.html#environments">environments with required reviewers</a>.</td></tr>
+      </tbody>
+    </table>
+    <p>Environment reviewers are asked only when a deployment is actually waiting for approval. They are not told about every merge to <code>main</code>. If you want people to hear about merges, use repository watch settings or a workflow that posts to a chat channel.</p>
+
+    <h2 id="concepts">Vocabulary</h2>
+    <table>
+      <thead><tr><th>Term</th><th>Meaning</th></tr></thead>
+      <tbody>
+        <tr><td><strong>CODEOWNERS file</strong></td><td>A text file that maps path patterns to owners. One file applies to one branch.</td></tr>
+        <tr><td><strong>Code owner</strong></td><td>A user or team named in that file. It must have Write access to the repository.</td></tr>
+        <tr><td><strong>Review request</strong></td><td>GitHub adds the owner to the pull request's Reviewers list. This is the event that generates a notification.</td></tr>
+        <tr><td><strong>Require review from code owners</strong></td><td>A ruleset option on the pull-request rule that makes an owner's approval mandatory for the merge.</td></tr>
+        <tr><td><strong>Team code review settings</strong></td><td>Team-level options that limit who is notified when the team is requested, and optionally pick individual reviewers.</td></tr>
+        <tr><td><strong>Notification settings</strong></td><td>A person's own choices for how GitHub reaches them: inbox, email, mobile.</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="prerequisites">Before you start</h2>
+    <ul class="checklist">
+      <li>A GitHub organization with teams that mirror ownership, ideally synced from Entra ID groups, as described in the <a href="../05-github-integration/security-hardening.html#identity">identity section</a> of the GitHub integration playbook.</li>
+      <li>Every owner team has Write access to the repository, and is visible to the people who will open pull requests.</li>
+      <li>A ruleset on <code>main</code> that requires pull requests, so that a pull request is the only way a change lands. See <a href="../05-github-integration/security-hardening.html#rulesets">rulesets</a>.</li>
+      <li>A repository layout where ownership follows folders, such as one folder per workspace. See the <a href="../05-github-integration/repository-design.html#layout">recommended layout</a>.</li>
+      <li>A GitHub plan that supports code owners and, for team settings, organization-owned repositories. Confirm the current plan rules in the GitHub documentation.</li>
+    </ul>
+
+    <h2 id="page-map">How the pages fit together</h2>
+    <div class="cards">
+      <a class="card purple" href="codeowners-file.html"><span class="card-num">02</span><h3>Creating the CODEOWNERS file</h3><p>Locations, syntax, why order matters, owners and teams, protecting and validating the file.</p><div class="card-meta"><span>Procedure</span><span>10 min</span></div></a>
+      <a class="card green" href="fabric-example.html"><span class="card-num">03</span><h3>Fabric folders and enforcement</h3><p>A worked file for a Fabric repository and enforcing approval with a ruleset.</p><div class="card-meta"><span>Worked example</span><span>12 min</span></div></a>
+      <a class="card orange" href="notifications.html"><span class="card-num">04</span><h3>Notifications and troubleshooting</h3><p>Team and personal settings, the pull request UI, and what to check when nobody is notified.</p><div class="card-meta"><span>Operations</span><span>12 min</span></div></a>
+    </div>
+
+    <h2 id="related">How this fits with the other playbooks</h2>
+    <table>
+      <thead><tr><th>Playbook</th><th>Relationship</th></tr></thead>
+      <tbody>
+        <tr><td><a href="../05-github-integration/index.html">05 · GitHub Integration and Branching</a></td><td>Defines the repository layout, the ruleset on <code>main</code> and the pull-request workflow that this playbook plugs into.</td></tr>
+        <tr><td><a href="../05-github-integration/branching-workflow.html#pull-request">05 · The pull-request process</a></td><td>Shows what reviewers look for in a Fabric diff, which is what the owners you define here will be doing.</td></tr>
+        <tr><td><a href="../07-deployment/index.html">07 · Deployment Pipelines and Promotion</a></td><td>Takes over after the merge. Owners of deployment files in this playbook decide what reaches that stage.</td></tr>
+      </tbody>
+    </table>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p><ul>
+      <li>CODEOWNERS assigns reviewers; it does not send mail. Delivery is decided by team settings and by each person's notification settings.</li>
+      <li>Owners must have Write access, and teams must be visible. Prefer teams to individuals.</li>
+      <li>Make approval mandatory with <em>Require review from code owners</em> in the ruleset, or the request is only a suggestion.</li>
+      <li>Environment reviewers are a different mechanism: they approve deployments, not pull requests, and are not notified of every merge.</li>
+    </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://docs.github.com/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners">About code owners</a></li>
+        <li><a href="https://docs.github.com/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/available-rules-for-rulesets">Available rules for rulesets</a></li>
+        <li><a href="https://docs.github.com/organizations/organizing-members-into-teams/managing-code-review-settings-for-your-team">Managing code review settings for your team</a></li>
+        <li><a href="https://docs.github.com/subscriptions-and-notifications/get-started/configuring-notifications">Configuring notifications</a></li>
+        <li><a href="https://docs.github.com/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments">Managing environments for deployment</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

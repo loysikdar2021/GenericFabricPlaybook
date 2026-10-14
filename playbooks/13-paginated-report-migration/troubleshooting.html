@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Risks, troubleshooting, checklist · Paginated Migration</title>
+<meta name="description" content="Risk register, a triage path and symptom-to-fix table for migrated paginated reports, and a readiness checklist to run before each migration wave and before retiring the old capacity.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="13-paginated-report-migration" data-page="troubleshooting.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+
+    <header class="page-header">
+      <p class="eyebrow">Playbook 13 · Paginated Report Migration</p>
+      <h1>Risks, troubleshooting and checklist</h1>
+      <p class="lede">Most paginated report migrations fail in the same handful of places: a feature the service does not support, a credential nobody recreated, a rule applied to the wrong stage, or a license assumption about viewers. This page lists the risks to manage up front, a fast way to localise a failure, and the checklist to run before each wave.</p>
+    </header>
+
+    <h2 id="risk-register">Risk register</h2>
+    <table>
+      <thead><tr><th>Risk</th><th>Early signal</th><th>Mitigation</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Viewers lose access because the target capacity is below F64</strong></td><td>Free-license users report that reports will not open after the move</td><td>Size at F64 or larger, or confirm that every viewer holds a Pro or Premium Per User license. Test with a free-license user in the pilot.</td></tr>
+        <tr><td><strong>Unsupported features block publishing</strong></td><td>Publish fails with a list of reasons; the inventory flags assemblies, shared sources, fonts</td><td>Resolve in the assessment phase; decide modify or redesign per report.</td></tr>
+        <tr><td><strong>Credentials and gateway bindings are missing</strong></td><td>Reports open and then show a data source error</td><td>Include credentials and binding in the per-report runbook; verify with the data sources API.</td></tr>
+        <tr><td><strong>An environment reads the wrong data</strong></td><td>Numbers in Test match Production, or Production shows test values</td><td>Add and verify a rule on each target stage; compare the data source on each stage after every deployment.</td></tr>
+        <tr><td><strong>No hot-fix route in Production</strong></td><td>Urgent change requested and the report cannot be opened in Report Builder from Production</td><td>Agree the change path in advance: fix in development, promote through the pipeline.</td></tr>
+        <tr><td><strong>Ownership drift</strong></td><td>Deployments fail or reports lose data access after someone leaves</td><td>Use one named deployment identity, and run take-over when a service principal imports.</td></tr>
+        <tr><td><strong>Capacity contention</strong></td><td>HTTP 429 errors, slow reports, slow items next to them</td><td>Measure peak concurrency; spread schedules; size with headroom; check the Capacity Metrics app after each wave.</td></tr>
+        <tr><td><strong>Broken links</strong></td><td>Users report old bookmarks, app links or embedded views failing</td><td>List every entry point in the inventory and update it in the cutover step.</td></tr>
+        <tr><td><strong>Subscriptions silently dropped</strong></td><td>Recipients stop receiving scheduled reports</td><td>Recreate and test every subscription; keep a list of recipients and formats.</td></tr>
+        <tr><td><strong>Data exposure through a stored credential</strong></td><td>All viewers see the same rows regardless of role</td><td>Prefer single sign-on where source security applies; use a dedicated service identity otherwise.</td></tr>
+        <tr><td><strong>Locale and time differences</strong></td><td>Dates off by a day, footers at an unexpected time, user filters returning nothing</td><td>Review the user ID, execution time and date parameter expressions found by the RDL scan.</td></tr>
+        <tr><td><strong>Premium subscription lapses mid-migration</strong></td><td>The end date of the subscription is closer than the last wave</td><td>Plan waves to finish early, and check the behavior of an ended subscription in the migration how-to.</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="triage">Localise the failure</h2>
+    <p>When a migrated report misbehaves, first decide at which step it fails. The step points at the cause far faster than the error text.</p>
+
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 330" role="img" aria-label="Triage by the step that fails: publishing points to unsupported features, opening points to credentials, gateway and ownership, wrong data points to rules and sources, slow or failing under load points to queries and capacity, and wrong output points to locale, fonts and built-in fields">
+        <defs>
+          <marker id="fig-tr-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box purple accent" x="20" y="124" width="170" height="82" rx="10"/>
+        <text class="t-b" x="105" y="158" text-anchor="middle">Where does it</text>
+        <text class="t-b" x="105" y="178" text-anchor="middle">fail?</text>
+        <path class="ln" d="M190 150H230V40H258" marker-end="url(#fig-tr-1-a)"/>
+        <path class="ln" d="M190 158H230V102H258" marker-end="url(#fig-tr-1-a)"/>
+        <path class="ln" d="M190 165H258" marker-end="url(#fig-tr-1-a)"/>
+        <path class="ln" d="M190 172H230V228H258" marker-end="url(#fig-tr-1-a)"/>
+        <path class="ln" d="M190 180H230V290H258" marker-end="url(#fig-tr-1-a)"/>
+        <rect class="box orange" x="260" y="14" width="170" height="52" rx="10"/>
+        <text class="t-b" x="345" y="38" text-anchor="middle">Publishing</text>
+        <text class="t-s" x="345" y="56" text-anchor="middle">save is refused</text>
+        <rect class="box blue" x="260" y="76" width="170" height="52" rx="10"/>
+        <text class="t-b" x="345" y="100" text-anchor="middle">Opening</text>
+        <text class="t-s" x="345" y="118" text-anchor="middle">data source error</text>
+        <rect class="box teal" x="260" y="139" width="170" height="52" rx="10"/>
+        <text class="t-b" x="345" y="163" text-anchor="middle">Data</text>
+        <text class="t-s" x="345" y="181" text-anchor="middle">wrong or empty</text>
+        <rect class="box red" x="260" y="202" width="170" height="52" rx="10"/>
+        <text class="t-b" x="345" y="226" text-anchor="middle">Speed</text>
+        <text class="t-s" x="345" y="244" text-anchor="middle">slow, timeout, 429</text>
+        <rect class="box gray" x="260" y="264" width="170" height="52" rx="10"/>
+        <text class="t-b" x="345" y="288" text-anchor="middle">Output</text>
+        <text class="t-s" x="345" y="306" text-anchor="middle">format or time differs</text>
+        <path class="ln" d="M430 40H478" marker-end="url(#fig-tr-1-a)"/>
+        <path class="ln" d="M430 102H478" marker-end="url(#fig-tr-1-a)"/>
+        <path class="ln" d="M430 165H478" marker-end="url(#fig-tr-1-a)"/>
+        <path class="ln" d="M430 228H478" marker-end="url(#fig-tr-1-a)"/>
+        <path class="ln" d="M430 290H478" marker-end="url(#fig-tr-1-a)"/>
+        <rect class="box" x="480" y="14" width="400" height="52" rx="10"/>
+        <text class="t-s" x="680" y="36" text-anchor="middle">Custom assembly, shared source, font, source count,</text>
+        <text class="t-s" x="680" y="52" text-anchor="middle">unsupported source type, file size</text>
+        <rect class="box" x="480" y="76" width="400" height="52" rx="10"/>
+        <text class="t-s" x="680" y="98" text-anchor="middle">Credentials, gateway binding, data source ownership,</text>
+        <text class="t-s" x="680" y="114" text-anchor="middle">source permissions for the viewing identity</text>
+        <rect class="box" x="480" y="139" width="400" height="52" rx="10"/>
+        <text class="t-s" x="680" y="161" text-anchor="middle">Rule missing or not yet applied, wrong stage,</text>
+        <text class="t-s" x="680" y="177" text-anchor="middle">stored credential identity, user ID expression</text>
+        <rect class="box" x="480" y="202" width="400" height="52" rx="10"/>
+        <text class="t-s" x="680" y="224" text-anchor="middle">Dataset query, cascading parameters, query timeout,</text>
+        <text class="t-s" x="680" y="240" text-anchor="middle">capacity concurrency and sizing</text>
+        <rect class="box" x="480" y="264" width="400" height="52" rx="10"/>
+        <text class="t-s" x="680" y="286" text-anchor="middle">UTC execution time, US date parameters, fonts,</text>
+        <text class="t-s" x="680" y="302" text-anchor="middle">export format settings</text>
+      </svg>
+      <figcaption><b>The failing step is the clue.</b> Five steps, five families of cause. Start with the family, then use the table below to find the fix.</figcaption>
+    </figure>
+
+    <h2 id="symptoms">Symptom to fix</h2>
+    <table>
+      <thead><tr><th>Symptom</th><th>Likely cause</th><th>Fix</th></tr></thead>
+      <tbody>
+        <tr><td>Publish from Report Builder is refused with a list of reasons</td><td>The report uses a feature the service does not support: a custom assembly reference, shared data source or dataset, custom font, or too many data sources</td><td>Revise the RDL: move logic into a code block, embed the sources, change the font, then publish again.</td></tr>
+        <tr><td>Report opens and shows a data source or credential error</td><td>Credentials not set, or the data source is not bound to a gateway or connection</td><td>Use Edit credentials and Manage connections and gateways. Call Get Datasources In Group and check that the gateway ID is filled in.</td></tr>
+        <tr><td>Binding to the gateway is not offered</td><td>The server or database name does not match any gateway data source, or you lack rights on the gateway data source</td><td>Match the names exactly; ask a gateway admin to grant access.</td></tr>
+        <tr><td>Report renders for the author but not for viewers</td><td>Viewers lack permission at the source under single sign-on, or lack a license on a capacity below F64</td><td>Test with a typical viewer; grant source access or a license.</td></tr>
+        <tr><td>Report imported by a service principal fails to render</td><td>Data sources are owned by an identity that cannot run them</td><td>Call Take Over In Group, then set credentials.</td></tr>
+        <tr><td>Rule exists but the report still reads the old source</td><td>Rules apply during the next deployment, or the rule was created in the wrong stage</td><td>Redeploy into the stage that holds the rule; confirm the rule is on the target stage.</td></tr>
+        <tr><td>Deployment fails after a source change</td><td>The data source changed in the source stage, so the rule is invalid; or a subreport or other dependency was not included</td><td>Recreate the rule; select related items when deploying.</td></tr>
+        <tr><td>The report cannot be opened in Report Builder from Test or Production</td><td>A data source rule was applied there</td><td>Edit the development version and promote it; do not download from later stages.</td></tr>
+        <tr><td>Connection to a Fabric Warehouse fails</td><td>SQL authentication used; database not named so the connection lands on a system database; port 1433 blocked; MARS requested</td><td>Use Microsoft Entra authentication; name the Warehouse as the database; open the port; remove MARS from the connection settings.</td></tr>
+        <tr><td>Stored procedure dataset fails on a Lakehouse SQL endpoint</td><td>The stored procedure query type is not offered for that endpoint</td><td>Set the query type to Text and call the procedure with EXEC.</td></tr>
+        <tr><td>User-specific filters return nothing</td><td>The user ID built-in field returns a user principal name, not an account name</td><td>Change the filter table or expression to use the principal name.</td></tr>
+        <tr><td>Dates or footer times are off</td><td>The execution time field returns UTC; date parameters arrive in US format</td><td>Convert in the expression; test with non-US settings.</td></tr>
+        <tr><td>Map visual is blank through a gateway</td><td>SQL Server spatial types are not supported through the gateway</td><td>Convert the spatial data or redesign the visual.</td></tr>
+        <tr><td>HTTP 429 at busy times</td><td>Concurrent renders exceed the workload limit</td><td>Spread subscriptions and exports; reduce parallelism; size the capacity up.</td></tr>
+        <tr><td>Query timeout</td><td>The stored timeout (600 seconds by default) is shorter than the query</td><td>Tune the query; raise the timeout in the dataset properties for known long runs.</td></tr>
+        <tr><td>Scheduled email never arrives</td><td>The subscription was not recreated, or the attachment is too large</td><td>Recreate it; deliver large outputs to OneDrive or SharePoint instead.</td></tr>
+        <tr><td>Reassigning the workspace is refused</td><td>Missing workspace admin or capacity rights, or a region or tenant condition</td><td>Check the roles required by the assignment and the conditions in the migration how-to.</td></tr>
+        <tr><td>Reports slowed or refreshes were cancelled during a reassignment</td><td>Active queries and jobs are interrupted when a workspace moves</td><td>Rerun after the move; schedule the next wave outside busy hours.</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="checklist">Migration readiness checklist</h2>
+    <h3 id="check-before">Before a wave</h3>
+    <ul class="checklist">
+      <li>Inventory complete, with owner, sources, features, usage and disposition for each report.</li>
+      <li>Target capacity bought, sized and administered; sized at F64 or larger if free-license users view reports.</li>
+      <li>Pilot workspace migrated, validated and rolled back once as a rehearsal.</li>
+      <li>Gateway data sources exist per environment; the people who bind them have rights.</li>
+      <li>A deployment identity is chosen, licensed and able to read every source.</li>
+      <li>Owners know the freeze window and the rollback triggers.</li>
+    </ul>
+    <h3 id="check-report">For each report</h3>
+    <ul class="checklist">
+      <li>Unsupported features resolved; the RDL publishes without errors.</li>
+      <li>Data sources are embedded, supported and named so that each can have its own rule.</li>
+      <li>Credentials set; gateway or connection bound; data source IDs confirmed through the API.</li>
+      <li>Parity tests pass for layout, data, parameters and every export format in use.</li>
+      <li>Subscriptions recreated and tested; links, apps and embedded views updated.</li>
+    </ul>
+    <h3 id="check-env">For each environment</h3>
+    <ul class="checklist">
+      <li>Pipeline <code>DPLY_SALES_DLV</code> deploys development to test to production with the data source rules in place.</li>
+      <li>Each stage reads its own source, verified by opening a report and checking the data source.</li>
+      <li>Workspace roles match the plan; a typical viewer and a free-license viewer have been tested.</li>
+    </ul>
+    <h3 id="check-cutover">Cutover and retirement</h3>
+    <ul class="checklist">
+      <li>Final validation passed and signed off by each owner.</li>
+      <li>Rollback route documented: assign back, or repoint links to the legacy workspace.</li>
+      <li>Hypercare period set, with a named person watching errors and capacity.</li>
+      <li>Legacy RDL files, inventory and test results archived in source control.</li>
+      <li>No workspace remains on the Premium capacity; its subscription is cancelled by a named person after the last wave.</li>
+    </ul>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p>
+      <ul>
+        <li>Most failures sit in four places: unsupported features, credentials and bindings, rules, and viewer licensing.</li>
+        <li>Localise by the failing step first; the step names the family of cause.</li>
+        <li>Rehearse the rollback in the pilot, not during the incident.</li>
+        <li>Treat the checklist as a gate for each wave, not a record written afterwards.</li>
+      </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/power-bi/guidance/migrate-ssrs-reports-to-power-bi">Plan to migrate .rdl reports to Power BI</a></li>
+        <li><a href="https://learn.microsoft.com/power-bi/paginated-reports/paginated-reports-faq">Paginated reports in Power BI: FAQ</a></li>
+        <li><a href="https://learn.microsoft.com/power-bi/paginated-reports/paginated-reports-data-sources">Supported data sources for Power BI paginated reports</a></li>
+        <li><a href="https://learn.microsoft.com/power-bi/paginated-reports/paginated-capacity-planning">Capacity planning for paginated reports</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/cicd/deployment-pipelines/create-rules">Create deployment rules</a></li>
+        <li><a href="https://learn.microsoft.com/power-bi/support/premium-migration-faq">Power BI Premium to Microsoft Fabric migration FAQ</a></li>
+        <li><a href="https://learn.microsoft.com/power-bi/support/premium-migration-how-to">Migrate workspaces from Power BI Premium to Microsoft Fabric</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

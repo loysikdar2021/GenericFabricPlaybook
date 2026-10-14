@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Architecture and design principles · QA Validation</title>
+<meta name="description" content="The three validation frameworks, the validation type matrix, design principles, workspace layout, data flow and naming rules, including four-part names and T-SQL versus Spark SQL.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="15-qa-validation" data-page="architecture.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 15 · QA Validation</p>
+      <h1>Architecture and design principles</h1>
+      <p class="lede">The three framework variants, what each can check, the four principles that keep the notebooks simple and safe to run in parallel, how the workspaces fit together, and the naming rules that decide whether a table reference resolves. The naming section includes the Fabric specifics that cause most first-run failures.</p>
+    </header>
+
+    <h2 id="frameworks">The three frameworks</h2>
+    <p>All three frameworks share the same plumbing (parameters, helpers, configuration list, runner, results writer, exit value). What differs is the kind of statement each check has to make about the data, and therefore how much domain logic you restate in SQL. Pick by the hardest thing you need to prove, not by table count.</p>
+
+    <h3 id="framework-a">Framework A: complex metric validation (workforce headcount and FTE)</h3>
+    <p><strong>Purpose.</strong> Prove that a Gold measure that is the product of windowing, joins and aggregation equals what an independent calculation from Silver produces. The running example is a workforce fact table where full-time-equivalent (FTE) is hours worked divided by a standard number of hours per period.</p>
+    <ul>
+      <li><strong>Rolling fiscal-year window.</strong> The window is derived from an as-of date and the fiscal calendar, not typed in. See <a href="advanced-checks.html#fiscal-window">dynamic fiscal-year filtering</a>.</li>
+      <li><strong>Aggregation at a stated grain.</strong> Group by the keys that define one Gold row, compute the measure with an explicit divisor and rounding rule, then compare key by key.</li>
+      <li><strong>Enrichment joins.</strong> A left join from a fact to an attribute table (for example employee tenure bands) must neither multiply rows nor lose coverage.</li>
+      <li><strong>Sentinel rows.</strong> Dimensions that union an &quot;unknown member&quot; row to the real data must contain exactly one such row.</li>
+      <li><strong>Derived calendar columns.</strong> Labels and flags that were authored in a dataflow or Power Query are re-expressed in SQL and compared.</li>
+    </ul>
+    <p><strong>Typical objects:</strong> <code>dim_calendar</code>, <code>dim_department</code>, <code>dim_employee</code>, <code>dim_project</code>, <code>fact_workforce_fte</code>, <code>fact_workforce_fte_detail</code>, <code>fact_employee_tenure</code>.</p>
+
+    <h3 id="framework-b">Framework B: standard validation suite</h3>
+    <p><strong>Purpose.</strong> Broad, cheap coverage for tables that are copied or lightly transformed between layers. Three or four check types applied consistently beat one clever check applied to one table.</p>
+    <ul>
+      <li><strong>Row count</strong> between source and target, with a stated filter when the pipeline legitimately drops rows.</li>
+      <li><strong>Transformation</strong> checks for derived columns such as <code>customer_label = customer_code || ' - ' || customer_name</code>.</li>
+      <li><strong>Schema contract</strong> for tables that downstream models depend on, including derived columns.</li>
+      <li><strong>Freshness</strong> so that a green count on stale data does not pass.</li>
+    </ul>
+    <p><strong>Typical objects:</strong> <code>dim_customer</code>, <code>dim_product</code>, <code>dim_region</code>, <code>fact_orders</code>.</p>
+
+    <h3 id="framework-c">Framework C: financial statement reconciliation</h3>
+    <p><strong>Purpose.</strong> Validate fact and dimension tables behind a financial statement where totals have to tie out and the data has to be recent and well-formed.</p>
+    <ul>
+      <li><strong>Row count and transformation</strong> as in framework B, with null checks on the transformed column.</li>
+      <li><strong>Freshness</strong> against a load timestamp with an explicit service level.</li>
+      <li><strong>Integrity rules</strong>: period labels match a format (<code>YYYY-MM</code>), flags only hold allowed values (0 or 1), optional flag columns follow their nullability rules.</li>
+      <li><strong>Balance reconciliation</strong>: sums of amounts by period and account tie out between layers within a tolerance.</li>
+    </ul>
+    <p><strong>Typical objects:</strong> <code>fact_income_statement</code>, <code>dim_account</code>, <code>dim_business_unit</code>, <code>dim_fund</code>.</p>
+
+    <table>
+      <thead><tr><th>Framework</th><th>Hardest thing it proves</th><th>Logic restated in SQL</th><th>Typical runtime cost</th><th>Complexity</th></tr></thead>
+      <tbody>
+        <tr><td><strong>A. Complex metric</strong></td><td>A measure equals an independent recalculation</td><td>Window, grain, divisor, joins, sentinel rows</td><td>High: scans the largest fact tables and aggregates both sides</td><td>High</td></tr>
+        <tr><td><strong>B. Standard suite</strong></td><td>Nothing was lost, derived columns are right, the contract holds</td><td>Small expressions</td><td>Low to medium</td><td>Medium</td></tr>
+        <tr><td><strong>C. Statement reconciliation</strong></td><td>Totals tie out, data is fresh and well-formed</td><td>Group-by totals and format rules</td><td>Medium</td><td>Medium to high</td></tr>
+      </tbody>
+    </table>
+
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 340" role="img" aria-label="Decision path: if a Gold measure is built by aggregation use complex metric validation; otherwise if totals must tie out use financial statement reconciliation; otherwise use the standard validation suite">
+        <defs>
+          <marker id="fig-arch-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box purple" x="20" y="50" width="250" height="56" rx="28"/>
+        <text class="t-b" x="145" y="83" text-anchor="middle">Measure built by aggregation?</text>
+        <rect class="box blue" x="340" y="44" width="290" height="68" rx="10"/>
+        <text class="t-h" x="485" y="74" text-anchor="middle">A. Complex metric validation</text>
+        <text class="t-s" x="485" y="94" text-anchor="middle">window · grain · tolerance</text>
+        <rect class="box purple" x="20" y="160" width="250" height="56" rx="28"/>
+        <text class="t-b" x="145" y="193" text-anchor="middle">Must totals tie out?</text>
+        <rect class="box blue" x="340" y="154" width="290" height="68" rx="10"/>
+        <text class="t-h" x="485" y="184" text-anchor="middle">C. Statement reconciliation</text>
+        <text class="t-s" x="485" y="204" text-anchor="middle">balances · freshness · integrity</text>
+        <rect class="box blue" x="20" y="262" width="250" height="56" rx="10"/>
+        <text class="t-h" x="145" y="295" text-anchor="middle">B. Standard validation suite</text>
+        <rect class="box gray" x="680" y="100" width="200" height="110" rx="10"/>
+        <text class="t-h" x="780" y="128" text-anchor="middle">Frameworks combine</text>
+        <text class="t-s" x="780" y="150" text-anchor="middle">One configuration list</text>
+        <text class="t-s" x="780" y="166" text-anchor="middle">per suite; a table can</text>
+        <text class="t-s" x="780" y="182" text-anchor="middle">appear in several suites</text>
+        <path class="ln" d="M270 78H338" marker-end="url(#fig-arch-1-a)"/>
+        <path class="ln" d="M145 106V158" marker-end="url(#fig-arch-1-a)"/>
+        <path class="ln" d="M270 188H338" marker-end="url(#fig-arch-1-a)"/>
+        <path class="ln" d="M145 216V260" marker-end="url(#fig-arch-1-a)"/>
+        <text class="t-s c-green" x="304" y="70" text-anchor="middle">yes</text>
+        <text class="t-s c-red" x="157" y="136">no</text>
+        <text class="t-s c-green" x="304" y="180" text-anchor="middle">yes</text>
+        <text class="t-s c-red" x="157" y="242">no</text>
+      </svg>
+      <figcaption><b>Choosing a framework.</b> Start from the hardest claim you need to defend. Most estates run the standard suite everywhere and add the metric or reconciliation frameworks only for the measures the business signs off on.</figcaption>
+    </figure>
+
+    <h2 id="type-matrix">Validation type matrix</h2>
+    <p>The first six rows are the types each framework implements. The remaining rows are common additions that apply to all three; <a href="advanced-checks.html">Complex and extended checks</a> gives their implementation.</p>
+    <table>
+      <thead><tr><th>Validation type</th><th>A. Complex metric</th><th>B. Standard suite</th><th>C. Statement reconciliation</th><th>Page</th></tr></thead>
+      <tbody>
+        <tr><td>Row count</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="yes">Yes</td><td><a href="core-checks.html#rowcount">Core checks</a></td></tr>
+        <tr><td>Transformation</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="yes">Yes</td><td><a href="core-checks.html#transformation">Core checks</a></td></tr>
+        <tr><td>Schema contract</td><td class="maybe">Calendar tables</td><td class="yes">Yes</td><td class="yes">Yes</td><td><a href="core-checks.html#schema">Core checks</a></td></tr>
+        <tr><td>Freshness</td><td class="no">No</td><td class="no">No</td><td class="yes">Yes</td><td><a href="core-checks.html#freshness">Core checks</a></td></tr>
+        <tr><td>Metric reconciliation (windowed aggregate)</td><td class="yes">Yes</td><td class="no">No</td><td class="maybe">Balance totals</td><td><a href="advanced-checks.html#metric">Complex checks</a></td></tr>
+        <tr><td>Enrichment-join coverage</td><td class="yes">Yes</td><td class="no">No</td><td class="no">No</td><td><a href="advanced-checks.html#enrichment">Complex checks</a></td></tr>
+        <tr><td>Sentinel-row (unknown member) union</td><td class="yes">Yes</td><td class="no">No</td><td class="no">No</td><td><a href="advanced-checks.html#sentinel">Complex checks</a></td></tr>
+        <tr><td>Derived calendar column logic</td><td class="yes">Yes</td><td class="no">No</td><td class="yes">Yes</td><td><a href="advanced-checks.html#derived">Complex checks</a></td></tr>
+        <tr><td>Format and domain integrity rules</td><td class="no">No</td><td class="maybe">Optional</td><td class="yes">Yes</td><td><a href="advanced-checks.html#integrity">Extended checks</a></td></tr>
+        <tr><td>Key uniqueness and completeness</td><td class="maybe">Recommended</td><td class="maybe">Recommended</td><td class="maybe">Recommended</td><td><a href="advanced-checks.html#keys">Extended checks</a></td></tr>
+        <tr><td>Referential integrity, drift, layer reconciliation, late-arriving data</td><td class="maybe">Recommended</td><td class="maybe">Recommended</td><td class="maybe">Recommended</td><td><a href="advanced-checks.html#extended">Extended checks</a></td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="principles">Design principles</h2>
+
+    <h3 id="p-self-contained">1. Self-contained notebooks</h3>
+    <p>Each framework is one notebook that carries its own helpers, configuration and writer. It imports only what the Fabric runtime already provides (<code>pyspark</code>, the standard library, <code>notebookutils</code>). The reasons are operational: deployment is a single item, a review shows the whole behavior in one diff, and a notebook can be run from a pipeline or interactively without checking that a package or configuration file is present in the environment.</p>
+    <div class="callout tip"><p class="callout-title">Self-contained is a starting point, not a dogma</p><p>The cost is duplicated helpers. When more than three notebooks carry the same <code>quote_name</code>, <code>temp_views</code> and <code>evaluate</code> code, move it to a versioned library in a Fabric environment (see <a href="../06-shared-libraries/index.html">Shared Python Libraries</a>) and keep the checks themselves in the notebooks.</p></div>
+
+    <h3 id="p-sql-first">2. SQL first</h3>
+    <p>State the comparison in Spark SQL and let the engine execute it. Python receives a handful of numbers (counts, sums, violation totals) and a small sample of offending rows; it never receives the data.</p>
+<pre data-title="notebook cell (PySpark)"><code class="language-python"># Good: the engine counts, the driver receives two numbers
+row = spark.sql(f"""
+    SELECT (SELECT COUNT(*) FROM {v['src']}) AS expected,
+           (SELECT COUNT(*) FROM {v['tgt']}) AS actual
+""").first()
+
+# Bad: moves every row to the driver and compares in Python
+# silver_values = {r[0] for r in silver_df.collect()}</code></pre>
+    <div class="callout warning"><p class="callout-title">A common misconception about speed</p><p>Calling <code>DataFrame.count()</code> and running <code>SELECT COUNT(*)</code> compile to the same Spark plan, so switching between them does not make a check faster. What makes checks fast is scanning each table once, filtering early, avoiding <code>collect()</code> on large results and not running the same expensive query twice. <a href="operations.html#performance">Performance guidance</a> covers the real levers.</p></div>
+    <p>SQL-first also keeps the logic portable: the statements can be pasted into a SQL cell or the lakehouse SQL editor for debugging, and many translate to T-SQL for warehouse checks (see <a href="#sql-dialects">T-SQL versus Spark SQL</a>).</p>
+
+    <h3 id="p-temp-views">3. The temporary-view pattern</h3>
+    <p>A check names the relations it compares as session-scoped temporary views whose names carry a random suffix, runs its SQL against those names, and drops them in a <code>finally</code> block. A view is just a named query, so creating one reads no data; the point is to define the filtered or projected relation once, keep the comparison SQL short, and make the statements easy to run by hand.</p>
+    <p>Unique names matter whenever more than one check can run in a session. Notebooks launched through <code>notebookutils.notebook.run</code> or <code>runMultiple</code> execute on the Spark session of the caller, and a thread pool inside one notebook shares one session by definition. Treat temp view names as shared in all of those cases; a static name such as <code>tmp_src</code> lets one check replace another's view mid-flight and produces results that are wrong but plausible.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 300" role="img" aria-label="Before: two checks create a view with the same static name and one replaces the other. After: each check creates a view with a unique suffix and drops it in a finally block">
+        <defs>
+          <marker id="fig-arch-2-ar" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar red" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-arch-2-ag" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <text class="t-h" x="20" y="24">Before: static view name</text>
+        <rect class="zone red" x="20" y="36" width="410" height="250" rx="12"/>
+        <rect class="box" x="44" y="70" width="110" height="44" rx="8"/><text class="t-b" x="99" y="97" text-anchor="middle">Check A</text>
+        <rect class="box" x="44" y="210" width="110" height="44" rx="8"/><text class="t-b" x="99" y="237" text-anchor="middle">Check B</text>
+        <rect class="box red" x="250" y="136" width="150" height="50" rx="8"/><text class="t-m" x="325" y="166" text-anchor="middle">tmp_src</text>
+        <path class="ln red" d="M154 92H200V150H248" marker-end="url(#fig-arch-2-ar)"/>
+        <path class="ln red" d="M154 232H200V172H248" marker-end="url(#fig-arch-2-ar)"/>
+        <rect class="pill-bg" x="158" y="74" width="58" height="14"/><text class="t-s" x="187" y="85" text-anchor="middle">replace</text>
+        <rect class="pill-bg" x="158" y="214" width="58" height="14"/><text class="t-s" x="187" y="225" text-anchor="middle">replace</text>
+        <text class="t-s" x="325" y="212" text-anchor="middle">B replaces A's view;</text>
+        <text class="t-s" x="325" y="228" text-anchor="middle">A silently reads B's data</text>
+        <text class="t-h" x="470" y="24">After: unique name, always dropped</text>
+        <rect class="zone green" x="470" y="36" width="410" height="250" rx="12"/>
+        <rect class="box" x="494" y="70" width="110" height="44" rx="8"/><text class="t-b" x="549" y="97" text-anchor="middle">Check A</text>
+        <rect class="box" x="494" y="210" width="110" height="44" rx="8"/><text class="t-b" x="549" y="237" text-anchor="middle">Check B</text>
+        <rect class="box green" x="700" y="70" width="160" height="44" rx="8"/><text class="t-m" x="780" y="97" text-anchor="middle">qa_src_3f9a1c</text>
+        <rect class="box green" x="700" y="210" width="160" height="44" rx="8"/><text class="t-m" x="780" y="237" text-anchor="middle">qa_src_b07d42</text>
+        <path class="ln green" d="M604 92H698" marker-end="url(#fig-arch-2-ag)"/>
+        <path class="ln green" d="M604 232H698" marker-end="url(#fig-arch-2-ag)"/>
+        <rect class="pill-bg" x="624" y="76" width="56" height="14"/><text class="t-s" x="652" y="87" text-anchor="middle">creates</text>
+        <rect class="pill-bg" x="624" y="216" width="56" height="14"/><text class="t-s" x="652" y="227" text-anchor="middle">creates</text>
+        <text class="t-s" x="780" y="136" text-anchor="middle">dropped in finally</text>
+        <text class="t-s" x="780" y="276" text-anchor="middle">dropped in finally</text>
+      </svg>
+      <figcaption><b>Why the suffix matters.</b> Parallel checks in one Spark session share a namespace of temporary views. A random suffix and a guaranteed drop make each check's relations private.</figcaption>
+    </figure>
+<pre data-title="notebook cell (PySpark): the pattern in six lines"><code class="language-python">import uuid
+
+suffix = uuid.uuid4().hex[:10]            # not a timestamp: two threads can share a millisecond
+src_view, tgt_view = f"qa_src_{suffix}", f"qa_tgt_{suffix}"
+try:
+    spark.sql(f"CREATE OR REPLACE TEMPORARY VIEW {src_view} AS SELECT * FROM `DEV_HR_SLV`.`LH_HR_SLV`.`dbo`.`employees`")
+    spark.sql(f"CREATE OR REPLACE TEMPORARY VIEW {tgt_view} AS SELECT * FROM `DEV_HR_GLD`.`LH_HR_GLD`.`dbo`.`dim_employee`")
+    # ... run the comparison SQL against src_view and tgt_view ...
+finally:
+    spark.catalog.dropTempView(src_view)
+    spark.catalog.dropTempView(tgt_view)</code></pre>
+    <div class="callout note"><p class="callout-title">Temp views are not a cache</p><p>A temporary view is re-planned and re-executed by every query that uses it. If a check needs to read the same large relation several times, cache the result (<code>CACHE TABLE</code> or <code>DataFrame.cache()</code>) or compute all the aggregates in one statement. Do not expect the view alone to give you a single read.</p></div>
+
+    <h3 id="p-results">4. Structured results</h3>
+    <p>Every check returns one or more <code>Result</code> objects with the same fields, and the notebook writes them in a single append to a Delta table. The fields are designed so that a failure can be understood from the row alone: what was compared, expected versus actual, the variance, the tolerance applied and the rule that decided the status. <a href="results-model.html">Results model and tolerances</a> defines the schema.</p>
+    <div class="callout important"><p class="callout-title">Fail closed</p><p>A check that cannot run (missing table, permission error, syntax error) is recorded as <code>ERROR</code> and counts against the gate exactly like a failure. A validation framework that treats exceptions as &quot;nothing to report&quot; reports green on a broken pipeline.</p></div>
+
+    <h2 id="stack">Technology stack and workspace configuration</h2>
+    <table>
+      <thead><tr><th>Component</th><th>Technology</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Platform</strong></td><td>Microsoft Fabric</td><td>Lakehouses for data, a Spark notebook for checks, a Data Factory pipeline for orchestration, a semantic model for reporting.</td></tr>
+        <tr><td><strong>Compute</strong></td><td>Fabric Spark runtime</td><td>Runtime 2.0 is Spark 4.1 with Delta 4.2 <span class="badge ga">GA</span> and is the runtime to prefer for new work. Runtime 1.3 is Spark 3.5 with Delta 3.2, and its release stage on the runtime page is end of support announced. Write checks that behave the same on both while you migrate (see the ANSI-mode note below).</td></tr>
+        <tr><td><strong>Language</strong></td><td>Python 3 with PySpark</td><td>Orchestration only; the checks are SQL strings.</td></tr>
+        <tr><td><strong>Query</strong></td><td>Spark SQL</td><td>T-SQL for checks that run inside a Warehouse.</td></tr>
+        <tr><td><strong>Results</strong></td><td>Delta tables in a lakehouse</td><td>Append-only; readable from Spark, the SQL analytics endpoint and Direct Lake.</td></tr>
+        <tr><td><strong>Orchestration</strong></td><td>Data Factory pipeline, Notebook activity</td><td>Parameters in, exit value out.</td></tr>
+      </tbody>
+    </table>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>Runtime versions, release stages and defaults change. Check <a href="https://learn.microsoft.com/fabric/data-engineering/runtime">Apache Spark runtimes in Fabric</a> and <a href="https://learn.microsoft.com/fabric/data-engineering/runtime-2-0">Runtime 2.0</a> before you pin a runtime. Open-source Spark 4 turns <code>spark.sql.ansi.enabled</code> on by default (see the <a href="https://spark.apache.org/docs/latest/sql-migration-guide.html">Spark SQL migration guide</a>), which makes invalid casts and division by zero raise errors instead of returning NULL. This playbook's SQL uses <code>try_cast</code>, <code>try_divide</code> and <code>NULLIF</code> so results do not depend on that setting.</p></div>
+
+    <h3 id="workspaces">Workspace configuration</h3>
+    <p>Keep validation in its own workspace (or at least its own lakehouse) so that checks never write into the layers they read and so that read-only access to the data layers is enough. The names below follow the house convention; replace <code>HR</code> with your domain and the environment prefix with <code>TST</code> or <code>PRD</code>.</p>
+    <table>
+      <thead><tr><th>Workspace</th><th>Item</th><th>Role</th><th>Access for the run identity</th></tr></thead>
+      <tbody>
+        <tr><td><code>DEV_HR_SLV</code></td><td><code>LH_HR_SLV</code></td><td>Source: Silver tables</td><td>Read</td></tr>
+        <tr><td><code>DEV_HR_GLD</code></td><td><code>LH_HR_GLD</code></td><td>Target: Gold tables</td><td>Read</td></tr>
+        <tr><td><code>DEV_HR_GLD_QA</code></td><td><code>LH_HR_GLD_QaResults</code></td><td>Results and run tables, optional control table. Default lakehouse of the notebook.</td><td>Read and write</td></tr>
+        <tr><td><code>DEV_HR_GLD_QA</code></td><td><code>NB_HR_GLD_QaComplexMetrics</code>, <code>PL_HR_GLD_RunQa</code>, <code>SM_HR_GLD_QaResults</code></td><td>Notebook, pipeline, semantic model</td><td>Contributor for maintainers</td></tr>
+      </tbody>
+    </table>
+    <p>Environment promotion works by parameter: the notebook builds workspace names from an <code>env</code> parameter (<code>f"{env}_HR_SLV"</code>), so the same notebook moves from DEV to TST to PRD through a deployment pipeline unchanged (see <a href="../07-deployment/index.html">Deployment Pipelines and Promotion</a> and <a href="../09-variable-libraries/index.html">Variable Libraries</a> for the alternative of keeping the names in a variable library).</p>
+
+    <h2 id="data-flow">Data flow</h2>
+    <p>One notebook run is one pass through six stages. Nothing is written to the data layers; the only writes are the results and run tables.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 290" role="img" aria-label="Six notebook stages from parameters to exit value; helpers, configuration and the runner live in the Spark session; the runner reads source and target tables, the writer appends to results tables and the exit value goes to the pipeline">
+        <defs>
+          <marker id="fig-arch-3-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-arch-3-ab" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar blue" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-arch-3-at" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar teal" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="zone" x="157" y="40" width="440" height="128" rx="12"/>
+        <text class="t-s" x="169" y="58">Spark session: temp views live and die here</text>
+        <rect class="box" x="21" y="70" width="118" height="80" rx="10"/>
+        <text class="t-h" x="80" y="96" text-anchor="middle">1 Parameters</text>
+        <text class="t-s" x="80" y="116" text-anchor="middle">env · run_id</text>
+        <text class="t-s" x="80" y="132" text-anchor="middle">suite · as_of</text>
+        <rect class="box" x="169" y="70" width="118" height="80" rx="10"/>
+        <text class="t-h" x="228" y="96" text-anchor="middle">2 Helpers</text>
+        <text class="t-s" x="228" y="116" text-anchor="middle">quote_name</text>
+        <text class="t-s" x="228" y="132" text-anchor="middle">temp_views</text>
+        <rect class="box" x="317" y="70" width="118" height="80" rx="10"/>
+        <text class="t-h" x="376" y="96" text-anchor="middle">3 Config</text>
+        <text class="t-s" x="376" y="116" text-anchor="middle">list of checks</text>
+        <text class="t-s" x="376" y="132" text-anchor="middle">or control table</text>
+        <rect class="box accent" x="465" y="70" width="118" height="80" rx="10"/>
+        <text class="t-h t-w" x="524" y="96" text-anchor="middle">4 Runner</text>
+        <text class="t-s t-w" x="524" y="116" text-anchor="middle">thread pool</text>
+        <text class="t-s t-w" x="524" y="132" text-anchor="middle">try / except</text>
+        <rect class="box" x="613" y="70" width="118" height="80" rx="10"/>
+        <text class="t-h" x="672" y="96" text-anchor="middle">5 Writer</text>
+        <text class="t-s" x="672" y="116" text-anchor="middle">append to Delta</text>
+        <text class="t-s" x="672" y="132" text-anchor="middle">run summary</text>
+        <rect class="box" x="761" y="70" width="118" height="80" rx="10"/>
+        <text class="t-h" x="820" y="96" text-anchor="middle">6 Exit</text>
+        <text class="t-s" x="820" y="116" text-anchor="middle">JSON summary</text>
+        <text class="t-s" x="820" y="132" text-anchor="middle">to the pipeline</text>
+        <path class="ln" d="M139 110H167" marker-end="url(#fig-arch-3-a)"/>
+        <path class="ln" d="M287 110H315" marker-end="url(#fig-arch-3-a)"/>
+        <path class="ln" d="M435 110H463" marker-end="url(#fig-arch-3-a)"/>
+        <path class="ln" d="M583 110H611" marker-end="url(#fig-arch-3-a)"/>
+        <path class="ln" d="M731 110H759" marker-end="url(#fig-arch-3-a)"/>
+        <rect class="box gray" x="430" y="215" width="160" height="56" rx="10"/>
+        <text class="t-h" x="510" y="240" text-anchor="middle">Silver and Gold</text>
+        <text class="t-s" x="510" y="258" text-anchor="middle">four-part names</text>
+        <rect class="box blue" x="625" y="215" width="120" height="56" rx="10"/>
+        <text class="t-h" x="685" y="240" text-anchor="middle">Results</text>
+        <text class="t-s" x="685" y="258" text-anchor="middle">Delta tables</text>
+        <rect class="box teal" x="770" y="215" width="110" height="56" rx="10"/>
+        <text class="t-h" x="825" y="240" text-anchor="middle">Pipeline</text>
+        <text class="t-s" x="825" y="258" text-anchor="middle">gate</text>
+        <path class="ln" d="M510 213V152" marker-end="url(#fig-arch-3-a)"/>
+        <path class="ln blue" d="M672 152V213" marker-end="url(#fig-arch-3-ab)"/>
+        <path class="ln teal" d="M820 152V213" marker-end="url(#fig-arch-3-at)"/>
+        <text class="t-s" x="518" y="190">reads</text>
+        <text class="t-s" x="680" y="190">appends</text>
+        <text class="t-s" x="814" y="190" text-anchor="end">exit value</text>
+      </svg>
+      <figcaption><b>Anatomy of a run.</b> Only the runner touches the data layers, and it only reads. The writer and the exit value are the two outputs everything downstream depends on.</figcaption>
+    </figure>
+
+    <h2 id="naming">Naming conventions and fully qualified names</h2>
+    <h3 id="object-names">Object names</h3>
+    <p>Workspaces follow <code>&lt;ENV&gt;_&lt;DOMAIN&gt;_&lt;LAYER&gt;[_&lt;Qualifier&gt;]</code> and items follow <code>&lt;ARTIFACT&gt;_&lt;DOMAIN&gt;_&lt;LAYER&gt;_&lt;Function&gt;</code>, as in the rest of this site (<code>DEV_HR_SLV</code>, <code>LH_HR_GLD</code>, <code>NB_HR_GLD_QaComplexMetrics</code>). For the tables themselves, avoid encoding the layer, the source system or the pipeline in the table name: the layer is already in the workspace and lakehouse name. Using the same logical table name in Silver and Gold where it makes sense, and <code>dim_</code> and <code>fact_</code> prefixes in Gold, keeps the configuration for a check to two short strings. If your existing tables carry layer prefixes, put the mapping in the configuration rather than renaming tables for the sake of the framework.</p>
+
+    <h3 id="four-part">Four-part names and cross-workspace queries</h3>
+    <p>A table in a schema-enabled lakehouse is addressed as <code>workspace.lakehouse.schema.table</code>. Omitted parts are resolved from the notebook's defaults, so a bare table name means the <code>dbo</code> schema of the default lakehouse. Because validation reads two lakehouses that usually live in two other workspaces, always write all four parts in check configuration.</p>
+    <table>
+      <thead><tr><th>Target</th><th>Spark SQL name</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td>Schema-enabled lakehouse, any workspace you can read</td><td><code>workspace.lakehouse.schema.table</code></td><td>Cross-workspace joins in one statement are supported. Schemas are enabled by default for lakehouses created in the portal; lakehouses created through the REST API must opt in.</td></tr>
+        <tr><td>Lakehouse without schemas</td><td><code>lakehouse.table</code> or <code>workspace.lakehouse.table</code></td><td>Spark also accepts <code>workspace.lakehouse.dbo.table</code> for such lakehouses, so you can write four-part names today and keep them valid after enabling schemas.</td></tr>
+        <tr><td>Notebook default lakehouse</td><td>bare <code>table</code> or <code>schema.table</code></td><td>To use schemas in code, the default lakehouse must itself be schema-enabled, or the notebook must have no default lakehouse.</td></tr>
+        <tr><td>Warehouse or SQL analytics endpoint from Spark</td><td><code>spark.read.synapsesql("warehouse.schema.table")</code></td><td>Spark connector, not a catalog name. Cross-workspace reads pass a workspace ID option. Check the connector's authentication limits before scheduling it under a service principal.</td></tr>
+      </tbody>
+    </table>
+
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 330" role="img" aria-label="Spark SQL addresses tables with workspace, lakehouse, schema and table across workspaces; T-SQL uses database, schema and table within one workspace and reaches other workspaces through a OneLake shortcut">
+        <defs>
+          <marker id="fig-arch-4-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar orange" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="lane" x="10" y="20" width="880" height="125" rx="10"/>
+        <text class="t-h" x="24" y="46">Spark SQL</text>
+        <text class="t-s" x="24" y="64">notebook</text>
+        <rect class="box blue" x="150" y="45" width="140" height="52" rx="8"/>
+        <text class="t-b" x="220" y="68" text-anchor="middle">workspace</text><text class="t-m" x="220" y="86" text-anchor="middle">DEV_HR_SLV</text>
+        <rect class="box blue" x="320" y="45" width="140" height="52" rx="8"/>
+        <text class="t-b" x="390" y="68" text-anchor="middle">lakehouse</text><text class="t-m" x="390" y="86" text-anchor="middle">LH_HR_SLV</text>
+        <rect class="box blue" x="490" y="45" width="140" height="52" rx="8"/>
+        <text class="t-b" x="560" y="68" text-anchor="middle">schema</text><text class="t-m" x="560" y="86" text-anchor="middle">dbo</text>
+        <rect class="box blue" x="660" y="45" width="140" height="52" rx="8"/>
+        <text class="t-b" x="730" y="68" text-anchor="middle">table</text><text class="t-m" x="730" y="86" text-anchor="middle">employees</text>
+        <text class="t-h" x="305" y="76" text-anchor="middle">.</text>
+        <text class="t-h" x="475" y="76" text-anchor="middle">.</text>
+        <text class="t-h" x="645" y="76" text-anchor="middle">.</text>
+        <text class="t-s c-green" x="220" y="118" text-anchor="middle">any workspace you can read</text>
+        <rect class="lane" x="10" y="170" width="880" height="150" rx="10"/>
+        <text class="t-h" x="24" y="196">T-SQL</text>
+        <text class="t-s" x="24" y="214">warehouse, SQL endpoint</text>
+        <rect class="box orange dashed" x="150" y="195" width="140" height="52" rx="8"/>
+        <text class="t-b" x="220" y="218" text-anchor="middle">other workspace</text><text class="t-s" x="220" y="236" text-anchor="middle">not in the name</text>
+        <rect class="box blue" x="320" y="195" width="140" height="52" rx="8"/>
+        <text class="t-b" x="390" y="218" text-anchor="middle">database</text><text class="t-m" x="390" y="236" text-anchor="middle">LH_HR_SLV</text>
+        <rect class="box blue" x="490" y="195" width="140" height="52" rx="8"/>
+        <text class="t-b" x="560" y="218" text-anchor="middle">schema</text><text class="t-m" x="560" y="236" text-anchor="middle">dbo</text>
+        <rect class="box blue" x="660" y="195" width="140" height="52" rx="8"/>
+        <text class="t-b" x="730" y="218" text-anchor="middle">table</text><text class="t-m" x="730" y="236" text-anchor="middle">employees</text>
+        <text class="t-h" x="475" y="226" text-anchor="middle">.</text>
+        <text class="t-h" x="645" y="226" text-anchor="middle">.</text>
+        <path class="ln orange dash" d="M290 221H318" marker-end="url(#fig-arch-4-a)"/>
+        <text class="t-s c-orange" x="304" y="268" text-anchor="middle">OneLake shortcut makes the table local</text>
+        <text class="t-s c-orange" x="560" y="296" text-anchor="middle">same workspace only: three-part names</text>
+      </svg>
+      <figcaption><b>Two engines, two naming rules.</b> Spark SQL reaches across workspaces by name. T-SQL addresses items in the current workspace; to read another workspace's lakehouse table, create a shortcut and query the shortcut.</figcaption>
+    </figure>
+
+    <h3 id="sql-dialects">T-SQL versus Spark SQL</h3>
+    <p>Validation SQL is mostly portable, but the dialect differences below decide whether a statement written for a lakehouse runs unchanged against a warehouse. When the same check must run on both, keep the check configuration engine-neutral (object names, columns, expressions) and generate the statement per engine.</p>
+    <table>
+      <thead><tr><th>Task</th><th>Spark SQL (notebook)</th><th>T-SQL (Warehouse, SQL analytics endpoint)</th></tr></thead>
+      <tbody>
+        <tr><td>Quote an identifier</td><td><code>`name`</code></td><td><code>[name]</code></td></tr>
+        <tr><td>Name a table</td><td>Four-part across workspaces (schema-enabled)</td><td>Three-part, same workspace only</td></tr>
+        <tr><td>Limit rows</td><td><code>LIMIT 10</code></td><td><code>SELECT TOP (10) ...</code></td></tr>
+        <tr><td>Cast to text</td><td><code>CAST(x AS STRING)</code></td><td><code>CAST(x AS VARCHAR(n))</code></td></tr>
+        <tr><td>Null-safe equality</td><td><code>a &lt;=&gt; b</code></td><td><code>(a = b OR (a IS NULL AND b IS NULL))</code></td></tr>
+        <tr><td>Rows in A not in B, keeping duplicates</td><td><code>EXCEPT ALL</code></td><td><code>EXCEPT</code> returns distinct rows only; use <code>NOT EXISTS</code> or counts for multiset checks</td></tr>
+        <tr><td>Current UTC time</td><td><code>current_timestamp()</code></td><td><code>SYSUTCDATETIME()</code></td></tr>
+        <tr><td>Hours between two timestamps</td><td><code>timestampdiff(HOUR, a, b)</code></td><td><code>DATEDIFF(HOUR, a, b)</code></td></tr>
+        <tr><td>Safe cast, safe divide</td><td><code>try_cast(x AS INT)</code>, <code>try_divide(a, b)</code></td><td><code>TRY_CAST(x AS INT)</code>, <code>a / NULLIF(b, 0)</code></td></tr>
+        <tr><td>Conditional count</td><td><code>count_if(cond)</code></td><td><code>SUM(CASE WHEN cond THEN 1 ELSE 0 END)</code></td></tr>
+        <tr><td>Left-pad a number</td><td><code>lpad(CAST(n AS STRING), 2, '0')</code></td><td><code>RIGHT(CONCAT('00', n), 2)</code></td></tr>
+        <tr><td>Scratch objects</td><td>Session-scoped temporary views</td><td>Session-scoped <code>#temp</code> tables</td></tr>
+        <tr><td>Where results can be written</td><td>Delta tables in a lakehouse</td><td>Warehouse tables; the SQL analytics endpoint of a lakehouse is read-only</td></tr>
+        <tr><td>String comparison case</td><td>Case-sensitive by default</td><td>Depends on the item collation; the default for a new warehouse is case-sensitive</td></tr>
+      </tbody>
+    </table>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>The Warehouse T-SQL surface differs from SQL Server and changes as features are added; confirm any construct you rely on on <a href="https://learn.microsoft.com/fabric/data-warehouse/tsql-surface-area">T-SQL surface area in Fabric Data Warehouse</a>. Cross-database three-part names are documented on <a href="https://learn.microsoft.com/fabric/data-warehouse/query-warehouse">Query the warehouse or SQL analytics endpoint</a>, and collation on <a href="https://learn.microsoft.com/fabric/data-warehouse/collation">Data Warehouse collation</a>.</p></div>
+
+    <h2 id="learnings">Key learnings</h2>
+    <ul>
+      <li><strong>The name depends on the lakehouse type.</strong> Four parts for a schema-enabled lakehouse (<code>workspace.lakehouse.schema.table</code>), two or three for one without schemas. Writing <code>dbo</code> explicitly is harmless in both cases and future-proofs the code; leaving it out is only safe for bare names resolved through the default lakehouse.</li>
+      <li><strong>Always include the workspace for cross-lakehouse queries.</strong> Without it Spark resolves against the notebook's own context and you get &quot;table not found&quot; for a table you can see in the portal.</li>
+      <li><strong>Spark resolves identifiers case-insensitively by default,</strong> but OneLake paths and T-SQL collations may not. Copy names exactly as the lakehouse shows them and never rely on case to tell two tables apart.</li>
+      <li><strong>The default lakehouse constrains what you can write.</strong> Attach the results lakehouse as the default (schema-enabled) and read everything else by four-part name.</li>
+      <li><strong>Permissions are per user or identity.</strong> A four-part reference works only for tables the running identity can read. A scheduled run uses the identity of the pipeline's connection, which is not necessarily yours.</li>
+      <li><strong>Keep names boring.</strong> Letters, digits and underscores in workspace, lakehouse, schema and table names avoid quoting problems entirely. Schema names in particular may contain only letters, numbers and underscores.</li>
+      <li><strong>Consistency beats cleverness.</strong> One naming convention applied everywhere makes a configuration row readable by someone who has never seen the table.</li>
+    </ul>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p><ul>
+      <li>Choose the framework by the hardest claim you must defend; run the standard suite everywhere and add heavier frameworks for signed-off measures.</li>
+      <li>Keep logic in SQL, return numbers to Python, never collect data, and never treat a failed check as a skipped one.</li>
+      <li>Give every temp view a random suffix and drop it in <code>finally</code>; assume views are shared by every check in the session.</li>
+      <li>Always write four-part names in configuration, and run validation from a dedicated QA workspace with read-only access to the layers.</li>
+      <li>Write SQL that is independent of ANSI mode (<code>try_cast</code>, <code>try_divide</code>, <code>NULLIF</code>) so the same notebook behaves on Spark 3.5 and Spark 4 runtimes.</li>
+    </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/lakehouse-schemas">What are lakehouse schemas?</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-warehouse/query-warehouse">Query the warehouse or SQL analytics endpoint</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-warehouse/tsql-surface-area">T-SQL surface area in Fabric Data Warehouse</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-warehouse/collation">Data Warehouse collation</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/spark-data-warehouse-connector">Spark connector for Microsoft Fabric Data Warehouse</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/runtime">Apache Spark runtimes in Fabric</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/runtime-2-0">Runtime 2.0 in Fabric</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/notebook-utilities">NotebookUtils for Fabric</a></li>
+        <li><a href="https://spark.apache.org/docs/latest/sql-migration-guide.html">Spark SQL migration guide</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

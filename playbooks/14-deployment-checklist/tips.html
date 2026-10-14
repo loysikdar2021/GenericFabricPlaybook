@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tips and watch-outs · Deployment Checklist</title>
+<meta name="description" content="Five practices that prevent most deployment failures, each with the mechanism behind it: connection ownership, deployment order inside a layer, deletions, comparison behaviour and hydration checks.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="14-deployment-checklist" data-page="tips.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 14 · Deployment Checklist</p>
+      <h1>Tips and watch-outs</h1>
+      <p class="lede">Each tip follows the same shape: the rule, why it exists, what to do, and what to do if you already broke it. Four are documented platform behaviour; one (do not click during comparison) is operational experience that Microsoft does not document, and it is labelled as such.</p>
+    </header>
+<h2 id="connections">Tip 1: own connections with a service principal</h2>
+<p><strong>The rule.</strong> Every team member who deploys or supports the platform must have access to the connections, models and items it uses. Prefer connections owned by a service principal. If that is impossible, make sure everyone involved has been granted access to the connections that others created.</p>
+<figure class="diagram">
+<svg class="dg" viewBox="0 0 900 300" role="img" aria-label="Left: a connection owned by one developer fails for other deployers and becomes orphaned when the owner leaves. Right: a connection owned by a service principal and shared with the deployment group works for every deployer and survives staff changes">
+<defs>
+<marker id="fig-ck-4-a-gray" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar gray" d="M0 0L10 5L0 10z"/></marker>
+<marker id="fig-ck-4-a-red" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar red" d="M0 0L10 5L0 10z"/></marker>
+<marker id="fig-ck-4-a-green" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+</defs>
+<rect class="zone red" x="10" y="12" width="430" height="276" rx="12"/>
+<text class="t-b" x="24" y="31">Personal connection</text>
+<rect class="zone green" x="460" y="12" width="430" height="276" rx="12"/>
+<text class="t-b" x="474" y="31">Service principal owned and shared</text>
+<rect class="box" x="30" y="60" width="150" height="46" rx="10"/>
+<text class="t-b" x="105" y="78.5" text-anchor="middle">Developer A</text>
+<text class="t-s" x="105" y="95.5" text-anchor="middle">connection owner</text>
+<rect class="box gray" x="250" y="60" width="170" height="46" rx="10"/>
+<text class="t-b" x="335" y="78.5" text-anchor="middle">Connection</text>
+<text class="t-s" x="335" y="95.5" text-anchor="middle">created by Developer A</text>
+<path class="ln gray" d="M180 83H250" marker-end="url(#fig-ck-4-a-gray)"/>
+<rect class="pill-bg" x="197.1" y="63.5" width="35.8" height="16"/>
+<text class="t-s" x="215" y="76" text-anchor="middle">owns</text>
+<rect class="box" x="30" y="170" width="150" height="46" rx="10"/>
+<text class="t-b" x="105" y="188.5" text-anchor="middle">Release manager</text>
+<text class="t-s" x="105" y="205.5" text-anchor="middle">deploys and runs</text>
+<path class="ln red dash" d="M180 193H335V106" marker-end="url(#fig-ck-4-a-red)"/>
+<rect class="pill-bg" x="224.8" y="174.5" width="65.5" height="16"/>
+<text class="t-s" x="257.5" y="187" text-anchor="middle">no access</text>
+<text class="t-s" x="30" y="252">Owner leaves: the connection is orphaned.</text>
+<text class="t-s" x="30" y="270">Refresh and pipeline runs fail until reassigned.</text>
+<rect class="box green" x="480" y="60" width="150" height="46" rx="10"/>
+<text class="t-b" x="555" y="78.5" text-anchor="middle">Service principal</text>
+<text class="t-s" x="555" y="95.5" text-anchor="middle">connection owner</text>
+<rect class="box green" x="700" y="60" width="170" height="46" rx="10"/>
+<text class="t-b" x="785" y="78.5" text-anchor="middle">Connection</text>
+<text class="t-s" x="785" y="95.5" text-anchor="middle">owned by the principal</text>
+<path class="ln green" d="M630 83H700" marker-end="url(#fig-ck-4-a-green)"/>
+<rect class="pill-bg" x="647.1" y="63.5" width="35.8" height="16"/>
+<text class="t-s" x="665" y="76" text-anchor="middle">owns</text>
+<rect class="box" x="480" y="170" width="150" height="46" rx="10"/>
+<text class="t-b" x="555" y="188.5" text-anchor="middle">Deployment group</text>
+<text class="t-s" x="555" y="205.5" text-anchor="middle">User on connection</text>
+<path class="ln green" d="M630 193H785V106" marker-end="url(#fig-ck-4-a-green)"/>
+<rect class="pill-bg" x="680.7" y="174.5" width="53.6" height="16"/>
+<text class="t-s" x="707.5" y="187" text-anchor="middle">can use</text>
+<text class="t-s" x="480" y="252">Staff changes do not break the connection.</text>
+<text class="t-s" x="480" y="270">Grant new deployers the User role.</text>
+</svg>
+<figcaption><b>Who owns the connection decides who can deploy.</b> Connections carry their own roles (User, User with resharing, Owner). Items that use a personal connection break when the person is not available; a service principal owner removes that single point of failure.</figcaption>
+</figure>
+<h3 id="connections-why">Why</h3>
+<ul>
+<li>A connection is an item with its own access list. It has roles (User, User with resharing, Owner), and the person who created it is its owner. Someone who is not on the list cannot use it, so their deployment, refresh or pipeline run fails even though they have every workspace role.</li>
+<li>When the owner leaves the organization, the connection is orphaned. Only a Fabric administrator can reassign it, through the admin connections APIs (preview), so recovery depends on someone outside the team.</li>
+<li>A deployment also moves ownership. The deploying user becomes the owner of cloned semantic models, so refresh and rules depend on a person unless you plan for it.</li>
+<li>Many connection types support a service principal as the authentication method. A principal does not leave the company and is not tied to one person's access.</li>
+</ul>
+<h3 id="connections-do">What to do</h3>
+<ul class="checklist">
+<li>Create connections for pipelines, notebooks and models with the service principal authentication method where the connector supports it.</li>
+<li>Share each connection with the deployment group (User role), and with a second owner who is not the service principal.</li>
+<li>List connections per layer in the runbook, with the group that has access.</li>
+<li>Keep a note of the exceptions: where a connector or item type does not support a service principal, the connection stays user-owned and needs a named backup owner.</li>
+</ul>
+<p><strong>If it already happened.</strong> A failing refresh or run after a deployment, with an error about credentials or access, usually means the identity that runs it cannot use the connection. Add that identity to the connection, or recreate the connection under the service principal and rebind the items.</p>
+
+<h2 id="order">Tip 2: lakehouse and environment first</h2>
+<p><strong>The rule.</strong> Deploy the lakehouse and the environment, and check they succeeded, before notebooks, shortcuts and the rest. The environment is an item in its own right: select it explicitly as part of the deployment.</p>
+<figure class="diagram">
+<svg class="dg" viewBox="0 0 900 280" role="img" aria-label="Dependency order inside a layer: the lakehouse, environment and variable library are deployed first because notebooks, pipelines and shortcuts bind to them in the same workspace">
+<defs>
+<marker id="fig-ck-5-a-blue" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar blue" d="M0 0L10 5L0 10z"/></marker>
+</defs>
+<rect class="zone teal" x="10" y="12" width="880" height="258" rx="12"/>
+<text class="t-b" x="24" y="31">Target workspace, deployed in this order</text>
+<rect class="box blue" x="40" y="50" width="170" height="46" rx="10"/>
+<text class="t-b" x="125" y="68.5" text-anchor="middle">Environment</text>
+<text class="t-s" x="125" y="85.5" text-anchor="middle">deploy first</text>
+<rect class="box blue" x="40" y="126" width="170" height="46" rx="10"/>
+<text class="t-b" x="125" y="144.5" text-anchor="middle">Lakehouse</text>
+<text class="t-s" x="125" y="161.5" text-anchor="middle">deploy first</text>
+<rect class="box blue" x="40" y="206" width="170" height="42" rx="10"/>
+<text class="t-b" x="125" y="223.5" text-anchor="middle">Variable library</text>
+<text class="t-s" x="125" y="238.5" text-anchor="middle">deploy first</text>
+<rect class="box teal" x="380" y="84" width="190" height="42" rx="10"/>
+<text class="t-b" x="475" y="101.5" text-anchor="middle">Notebooks</text>
+<text class="t-s" x="475" y="116.5" text-anchor="middle">bind to both</text>
+<rect class="box teal" x="380" y="146" width="190" height="42" rx="10"/>
+<text class="t-b" x="475" y="163.5" text-anchor="middle">Shortcuts</text>
+<text class="t-s" x="475" y="178.5" text-anchor="middle">remapped to the lakehouse</text>
+<rect class="box teal" x="380" y="206" width="190" height="42" rx="10"/>
+<text class="t-b" x="475" y="223.5" text-anchor="middle">Data pipelines</text>
+<text class="t-s" x="475" y="238.5" text-anchor="middle">read library variables</text>
+<path class="ln blue" d="M380 105H295V73H210" marker-end="url(#fig-ck-5-a-blue)"/>
+<path class="ln blue" d="M380 105H295V149H210" marker-end="url(#fig-ck-5-a-blue)"/>
+<rect class="pill-bg" x="307.2" y="86.5" width="59.5" height="16"/>
+<text class="t-s" x="337" y="99" text-anchor="middle">binds to</text>
+<path class="ln blue" d="M380 167H250V149H210" marker-end="url(#fig-ck-5-a-blue)"/>
+<path class="ln blue" d="M380 227H210" marker-end="url(#fig-ck-5-a-blue)"/>
+<rect class="pill-bg" x="274.1" y="208.5" width="41.7" height="16"/>
+<text class="t-s" x="295" y="221" text-anchor="middle">reads</text>
+<circle class="dot" cx="46" cy="46" r="10"/>
+<text class="t-b t-w" x="46" y="50" text-anchor="middle">1</text>
+<circle class="dot" cx="46" cy="122" r="10"/>
+<text class="t-b t-w" x="46" y="126" text-anchor="middle">1</text>
+<circle class="dot" cx="46" cy="202" r="10"/>
+<text class="t-b t-w" x="46" y="206" text-anchor="middle">1</text>
+<circle class="dot" cx="386" cy="80" r="10"/>
+<text class="t-b t-w" x="386" y="84" text-anchor="middle">2</text>
+<circle class="dot" cx="386" cy="142" r="10"/>
+<text class="t-b t-w" x="386" y="146" text-anchor="middle">2</text>
+<circle class="dot" cx="386" cy="202" r="10"/>
+<text class="t-b t-w" x="386" y="206" text-anchor="middle">2</text>
+<text class="t-s" x="620" y="100">Deployed second: each one needs</text>
+<text class="t-s" x="620" y="118">the items on the left to exist</text>
+<text class="t-s" x="620" y="136">and to be paired in this workspace.</text>
+</svg>
+<figcaption><b>Why the lakehouse and environment go first.</b> Autobinding looks for the paired lakehouse and environment in the target workspace when a notebook is deployed. If they are not there yet, the notebook is not bound to the right items.</figcaption>
+</figure>
+<h3 id="order-why">Why</h3>
+<p>Notebooks bind to the default lakehouse and to the attached environment when the lakehouse and environment are in the same workspace. The pipeline looks for the <em>paired</em> items in the target workspace at the moment the notebook is deployed. If they are not there, there is nothing to bind to: the deployment can fail on the missing dependency, or the notebook is left unbound until it is redeployed. A lakehouse deployment is metadata only and creates an empty lakehouse with the same name; notebooks and Spark job definitions are then remapped to it. Shortcuts follow the same logic: internal shortcut targets are remapped only when the lakehouse exists.</p>
+<h3 id="order-do">What to do</h3>
+<ul class="checklist">
+<li>Select the lakehouse, environment and variable library in the first deployment of a layer.</li>
+<li>Wait for success, then select notebooks, data pipelines and shortcuts in the second deployment.</li>
+<li>For a selective deployment of a notebook, use <strong>Select related</strong> to include its dependencies.</li>
+</ul>
+<p><strong>If it already happened.</strong> Redeploy the affected items now that their dependencies exist. Binding is evaluated at every deployment, so a second deployment of the notebooks fixes the binding. This is the "redeploy objects in lower environments to fix autobinding" step of the layer checklists.</p>
+
+<h2 id="deletions">Tip 3: remove deleted objects downstream</h2>
+<p><strong>The rule.</strong> If an object is deleted in one layer, delete it, and anything that depends on it, in the subsequent layers and in every downstream stage. Remove consumers first, then the object.</p>
+<figure class="diagram">
+<svg class="dg" viewBox="0 0 900 300" role="img" aria-label="An object deleted in DEV is not deleted in TST: it stays as Not in source, and items that still reference it end in a missing target error or in the Unidentified section until the object and its dependents are removed in the downstream stage">
+<defs>
+<marker id="fig-ck-6-a-red" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar red" d="M0 0L10 5L0 10z"/></marker>
+</defs>
+<rect class="zone blue" x="10" y="12" width="280" height="270" rx="12"/>
+<text class="t-b" x="24" y="31">DEV</text>
+<rect class="zone orange" x="310" y="12" width="280" height="270" rx="12"/>
+<text class="t-b" x="324" y="31">TST after the deploy</text>
+<rect class="zone green" x="610" y="12" width="280" height="270" rx="12"/>
+<text class="t-b" x="624" y="31">TST after clean-up</text>
+<rect class="box gray dashed" x="40" y="60" width="220" height="46" rx="10"/>
+<text class="t-b" x="150" y="78.5" text-anchor="middle">Table or item removed</text>
+<text class="t-s" x="150" y="95.5" text-anchor="middle">deleted by the developer</text>
+<rect class="box blue" x="40" y="140" width="220" height="46" rx="10"/>
+<text class="t-b" x="150" y="158.5" text-anchor="middle">Consumer updated</text>
+<text class="t-s" x="150" y="175.5" text-anchor="middle">no longer reads it</text>
+<rect class="box orange" x="340" y="60" width="220" height="46" rx="10"/>
+<text class="t-b" x="450" y="78.5" text-anchor="middle">Item still present</text>
+<text class="t-s" x="450" y="95.5" text-anchor="middle">labelled Not in source</text>
+<rect class="box red" x="340" y="140" width="220" height="46" rx="10"/>
+<text class="t-b" x="450" y="158.5" text-anchor="middle">Shortcut or reader</text>
+<text class="t-s" x="450" y="175.5" text-anchor="middle">Unidentified, missing target</text>
+<path class="ln red" d="M450 140V106" marker-end="url(#fig-ck-6-a-red)"/>
+<rect class="pill-bg" x="461.3" y="111.5" width="65.5" height="16"/>
+<text class="t-s" x="494" y="124" text-anchor="middle">points at</text>
+<rect class="box green" x="640" y="60" width="220" height="46" rx="10"/>
+<text class="t-b" x="750" y="78.5" text-anchor="middle">Consumer removed</text>
+<text class="t-s" x="750" y="95.5" text-anchor="middle">or repointed first</text>
+<rect class="box green" x="640" y="140" width="220" height="46" rx="10"/>
+<text class="t-b" x="750" y="158.5" text-anchor="middle">Stale item deleted</text>
+<text class="t-s" x="750" y="175.5" text-anchor="middle">in the target workspace</text>
+<text class="t-s" x="24" y="232">Deploy sends only the update.</text>
+<text class="t-s" x="324" y="232">Nothing removed the old item.</text>
+<text class="t-s" x="624" y="232">Repeat for each downstream stage.</text>
+</svg>
+<figcaption><b>Deletions do not travel with a deployment.</b> A deployment never deletes. Remove consumers first, then the object itself, in every downstream stage and in layer order.</figcaption>
+</figure>
+<h3 id="deletions-why">Why</h3>
+<ul>
+<li>A deployment copies new and changed items and overwrites paired ones. It never deletes. An item deleted in DEV is still in TST, labelled <em>Not in source</em>, and cannot be selected for deployment.</li>
+<li>Items that still reference the removed object end in error. A shortcut whose target no longer exists is moved to the <em>Unidentified</em> section of the lakehouse, and a "missing target" error is the symptom reported in practice when dependents are left behind (Learn does not document that message).</li>
+<li>Recreating an object under the same name in DEV creates an unpaired item. The first deployment of a Power BI item fails if the target already holds an item with the same name and type; for other item types you end up with a duplicate.</li>
+</ul>
+<h3 id="deletions-do">What to do</h3>
+<ul class="checklist">
+<li>Record deletions in the release note, in layer order.</li>
+<li>In each target stage, delete consumers first (later layers), then the stale item (earlier layers).</li>
+<li>After clean-up, open the lakehouse and confirm the <em>Unidentified</em> section is empty.</li>
+<li>Compare the stages and confirm nothing unexpected is left under <em>Not in source</em>.</li>
+</ul>
+<p><strong>If it already happened.</strong> Items listed under <em>Unidentified</em> at the bottom of the lakehouse are the ones with unresolved references; resolve each by deleting it or by creating its target. A duplicate pair is resolved by deleting the unpaired copy in the target workspace.</p>
+
+<h2 id="comparison">Tip 4: do not interact during the comparison</h2>
+<div class="callout learn"><p class="callout-title">Operational experience, not documented behaviour</p><p>Microsoft Learn does not describe this limitation. It is reported by practitioners using the new, preview deployment pipelines UI. Treat it as a precaution and check the <a href="https://learn.microsoft.com/fabric/cicd/troubleshoot-cicd">troubleshooting article</a> and the <a href="https://learn.microsoft.com/fabric/cicd/deployment-pipelines/deployment-pipelines-new-ui">new UI overview</a> for any change in status.</p></div>
+<p><strong>The rule.</strong> While the pipeline is comparing two stages, wait. Do not click items, filters or stage cards until the status labels have loaded.</p>
+<h3 id="comparison-why">Why</h3>
+<p>The compare is computed after you open the stage. The reported failure is that interacting while it runs stops the comparison and leaves the page unresponsive, and that refreshing the browser does not recover it. Because the compare feeds the item list you select from, a stuck compare blocks the deployment.</p>
+<h3 id="comparison-do">What to do</h3>
+<ul class="checklist">
+<li>Open the stage and wait until every item shows a status label.</li>
+<li>If the page freezes, start again in a new browser session or a private window.</li>
+<li>If it still freezes, toggle to the original UI with the switch in the upper right corner; this restarts the comparison in most cases.</li>
+<li>If the UI is not workable, run the deployment through the REST API, which does not depend on the comparison page. See <a href="../07-deployment/automation-and-limits.html">Automation and limits</a>.</li>
+</ul>
+
+<h2 id="hydration">Tip 5: verify hydration after every layer</h2>
+<p><strong>The rule.</strong> After a layer is deployed and its pipelines have run, open the workspace you deployed to and confirm the tables and shortcuts before you deploy the next layer. For example, after deploying <code>DEV_SALES_BRZ</code> to <code>TST_SALES_BRZ</code> through <code>DPLY_SALES_BRZ</code>, check the Bronze lakehouse in <code>TST_SALES_BRZ</code> before you start Silver.</p>
+<h3 id="hydration-why">Why</h3>
+<p>Deployment copies definitions, never data. A freshly deployed lakehouse is empty and a freshly deployed model has nothing to read. The next layer will run against empty inputs and succeed with empty outputs, so a green run proves nothing about data. The check has to be explicit.</p>
+<pre data-title="Notebook cell: list tables and row counts in the target lakehouse"><code class="language-python"># Attach the TARGET stage's lakehouse as the default lakehouse of this notebook, then run.
+# spark.catalog lists the tables of the current schema; in a schema-enabled lakehouse
+# repeat the check for each schema you use.
+tables = [t.name for t in spark.catalog.listTables()]
+counts = [(name, spark.table(name).count()) for name in tables]
+display(spark.createDataFrame(counts, ["table_name", "row_count"]).orderBy("table_name"))</code></pre>
+<p>Compare the output with the expected counts for the stage. For a warehouse use a count query per table instead.</p>
+<pre data-title="T-SQL (warehouse query editor): row counts for the tables a release touches"><code class="language-sql">SELECT 'dbo.customers' AS table_name, COUNT_BIG(*) AS row_count FROM dbo.customers
+UNION ALL
+SELECT 'dbo.orders', COUNT_BIG(*) FROM dbo.orders
+UNION ALL
+SELECT 'dbo.order_lines', COUNT_BIG(*) FROM dbo.order_lines;</code></pre>
+<h3 id="hydration-do">What to do</h3>
+<ul class="checklist">
+<li>Define, per layer, the tables to count and the range each count must fall in.</li>
+<li>Run the counts in the target workspace, not in DEV, and attach the output to the deployment record.</li>
+<li>Check shortcuts and the <em>Unidentified</em> section in the same pass.</li>
+<li>For semantic models, compare one measure from the model with the same figure from its source.</li>
+</ul>
+
+<h2 id="more">More watch-outs</h2>
+<table>
+<thead><tr><th>Watch-out</th><th>Why it matters</th><th>Do this</th></tr></thead>
+<tbody>
+<tr><td>Variable library comes up with <em>Default</em> active in a new stage</td><td>Pipelines and notebooks read the default values, which usually belong to DEV</td><td>Activate the stage's value set and save before anything runs</td></tr>
+<tr><td>Rules apply only at a deployment</td><td>A model looks right in the rule pane but still reads the source stage</td><td>Deploy the model again, and do not refresh it in between</td></tr>
+<tr><td>A dataflow refreshing during a deployment</td><td>The deployment fails, and a comparison made during the refresh is unpredictable</td><td>Pause dataflow refreshes before you compare and deploy</td></tr>
+<tr><td>Selective deployment without dependencies</td><td>A report fails without its model, or binds to a stale one</td><td>Use <strong>Select related</strong></td></tr>
+<tr><td>Hydration load right after a deployment</td><td>Loads and refreshes compete for capacity</td><td>Schedule the window and run layers one at a time</td></tr>
+<tr><td>An environment that uses a custom Spark pool</td><td>Custom pools are not supported by deployment pipelines: the target compute settings fall back to defaults, and the environment keeps showing as different after a successful deployment</td><td>Treat the difference as expected, and set the compute settings in the target by hand or use a starter pool</td></tr>
+<tr><td>Deployment notes left empty</td><td>The history cannot explain a change months later</td><td>Reference the release and layer in every note</td></tr>
+</tbody>
+</table>
+
+<div class="takeaways"><p class="tk-title">Key takeaways</p>
+<ul>
+<li>Connections owned by a service principal and shared with the deployment group remove the biggest single point of failure.</li>
+<li>Deploy lakehouse, environment and variable library first, and redeploy anything that was deployed too early.</li>
+<li>Deployments never delete: clean up downstream stages yourself, consumers first.</li>
+<li>Wait for the comparison to finish; if the UI freezes, restart the session, toggle the UI, or use the API.</li>
+<li>A green deployment is not a hydrated layer: count tables in the target workspace before moving on.</li>
+</ul></div>
+
+<section class="refs">
+<h2 id="refs">References</h2>
+<ul>
+<li><a href="https://learn.microsoft.com/fabric/data-factory/data-source-management">Data source management (connections and roles)</a></li>
+<li><a href="https://learn.microsoft.com/fabric/data-engineering/lakehouse-git-deployment-pipelines">Lakehouse Git integration and deployment pipelines</a></li>
+<li><a href="https://learn.microsoft.com/fabric/data-engineering/notebook-source-control-deployment">Notebook source control and deployment</a></li>
+<li><a href="https://learn.microsoft.com/fabric/data-engineering/environment-git-and-deployment-pipeline">Environment Git integration and deployment pipelines</a></li>
+<li><a href="https://learn.microsoft.com/fabric/cicd/deployment-pipelines/compare-pipeline-content">Compare content in different stages</a></li>
+<li><a href="https://learn.microsoft.com/fabric/cicd/troubleshoot-cicd">Troubleshoot the Fabric lifecycle management tools</a></li>
+</ul>
+</section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

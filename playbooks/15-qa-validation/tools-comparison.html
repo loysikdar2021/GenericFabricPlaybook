@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Comparison with other tools · QA Validation</title>
+<meta name="description" content="How a notebook validation framework compares with Delta constraints, materialized lake view constraints, Purview data quality, Great Expectations, Deequ, Soda and dbt tests, with a decision table and an adapter pattern for combining them.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="15-qa-validation" data-page="tools-comparison.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 15 · QA Validation</p>
+      <h1>Comparison with other tools</h1>
+      <p class="lede">Building your own validation framework is a choice, not a default. Fabric and the open-source ecosystem already cover parts of the problem. This page says what each option does, where it stops, how to decide, and how to combine them so that one results table and one gate remain.</p>
+    </header>
+
+    <h2 id="landscape">Where each option works</h2>
+    <p>The options differ first in <em>when</em> they run. Some act inside the write or refresh and can reject rows. Some run as notebooks or jobs inside your pipeline and can stop a release. Some run in the catalog after the fact and report. Choosing means matching the moment to the failure you are trying to prevent.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 290" role="img" aria-label="A data path from Bronze to Silver to Gold to the semantic model. Above it, Delta and materialized lake view constraints act at write or refresh time. Below it, notebook libraries, dbt tests, the QA framework and Purview data quality all connect to any layer">
+        <defs>
+          <marker id="fig-tools-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box blue" x="260" y="8" width="320" height="44" rx="8"/>
+        <text class="t-h" x="420" y="27" text-anchor="middle">Delta and MLV constraints</text>
+        <text class="t-s" x="420" y="43" text-anchor="middle">row rules at write or refresh</text>
+        <path class="ln thin" d="M330 52V100"/>
+        <path class="ln thin" d="M570 52V100"/>
+        <rect class="box bronze" x="20" y="100" width="140" height="60" rx="10"/>
+        <text class="t-h" x="90" y="136" text-anchor="middle">Bronze</text>
+        <rect class="box silver" x="260" y="100" width="140" height="60" rx="10"/>
+        <text class="t-h" x="330" y="136" text-anchor="middle">Silver</text>
+        <rect class="box gold" x="500" y="100" width="140" height="60" rx="10"/>
+        <text class="t-h" x="570" y="136" text-anchor="middle">Gold</text>
+        <rect class="box blue" x="740" y="100" width="140" height="60" rx="10"/>
+        <text class="t-h" x="810" y="136" text-anchor="middle">Semantic model</text>
+        <path class="ln" d="M160 130H258" marker-end="url(#fig-tools-1-a)"/>
+        <path class="ln" d="M400 130H498" marker-end="url(#fig-tools-1-a)"/>
+        <path class="ln" d="M640 130H738" marker-end="url(#fig-tools-1-a)"/>
+        <path class="ln thin" d="M90 160V175H810V160"/>
+        <path class="ln thin" d="M330 160V175"/>
+        <path class="ln thin" d="M570 160V175"/>
+        <path class="ln thin" d="M122 205V175"/>
+        <path class="ln thin" d="M347 205V175"/>
+        <path class="ln thin" d="M572 205V175"/>
+        <path class="ln thin" d="M797 205V175"/>
+        <rect class="box gray" x="20" y="205" width="205" height="66" rx="10"/>
+        <text class="t-h" x="122" y="231" text-anchor="middle">Notebook libraries</text>
+        <text class="t-s" x="122" y="249" text-anchor="middle">GX, Deequ, Soda</text>
+        <text class="t-s" x="122" y="263" text-anchor="middle">column and distribution rules</text>
+        <rect class="box gray" x="245" y="205" width="205" height="66" rx="10"/>
+        <text class="t-h" x="347" y="231" text-anchor="middle">dbt tests</text>
+        <text class="t-s" x="347" y="249" text-anchor="middle">tests in a dbt job</text>
+        <text class="t-s" x="347" y="263" text-anchor="middle">next to the models</text>
+        <rect class="box accent" x="470" y="205" width="205" height="66" rx="10"/>
+        <text class="t-h t-w" x="572" y="231" text-anchor="middle">QA framework</text>
+        <text class="t-s t-w" x="572" y="249" text-anchor="middle">reconciliation, metrics,</text>
+        <text class="t-s t-w" x="572" y="263" text-anchor="middle">freshness, gate</text>
+        <rect class="box gray" x="695" y="205" width="185" height="66" rx="10"/>
+        <text class="t-h" x="797" y="231" text-anchor="middle">Purview quality</text>
+        <text class="t-s" x="797" y="249" text-anchor="middle">steward rules, scores</text>
+        <text class="t-s" x="797" y="263" text-anchor="middle">cataloged tables</text>
+      </svg>
+      <figcaption><b>Different moments, different jobs.</b> Constraints sit inside the write or refresh and can refuse rows. The tools underneath run after a load and can only report or stop a pipeline that is built to listen. None of them replaces the others.</figcaption>
+    </figure>
+
+    <h2 id="native">Native Fabric and Microsoft options</h2>
+    <h3 id="delta-constraints">Delta constraints</h3>
+    <p>Delta tables support <code>NOT NULL</code> and <code>CHECK</code> constraints. A write that violates one fails, so bad rows never land. They are the cheapest control there is, because they cost nothing at run time that you schedule or monitor.</p>
+<pre data-title="Spark SQL: Delta constraints (run with the Gold lakehouse as the default)"><code class="language-sql">ALTER TABLE fact_orders ALTER COLUMN order_id SET NOT NULL;
+ALTER TABLE fact_orders ADD CONSTRAINT order_amount_not_negative CHECK (order_amount &gt;= 0);
+
+SHOW TBLPROPERTIES fact_orders;      -- constraints appear as delta.constraints.&lt;name&gt;
+ALTER TABLE fact_orders DROP CONSTRAINT order_amount_not_negative;</code></pre>
+    <ul>
+      <li><strong>Good for:</strong> invariants of a single row that must never be violated by any writer: required keys, non-negative amounts, allowed ranges.</li>
+      <li><strong>Stops at:</strong> one table, one row at a time. A constraint cannot compare two tables, check an aggregate, test freshness or tell you what changed. A failed write produces an error, not a history you can report on.</li>
+      <li><strong>Watch out:</strong> adding a constraint checks the existing rows and fails if any violate it, and it raises the table's writer protocol version, which older writers may not support. Plan it as a table change, not a tweak.</li>
+    </ul>
+
+    <h3 id="mlv">Materialized lake view constraints</h3>
+    <p>A materialized lake view can declare <code>CHECK</code> constraints with an action for rows that do not satisfy them. <code>ON MISMATCH DROP</code> removes the row and records the count in the view's data quality report. <code>ON MISMATCH FAIL</code>, the default, stops the refresh with an error. If a view has both, the failing action takes precedence.</p>
+<pre data-title="Spark SQL: row rules in a materialized lake view"><code class="language-sql">CREATE MATERIALIZED LAKE VIEW IF NOT EXISTS silver.orders_clean
+(
+    CONSTRAINT order_id_present   CHECK (order_id IS NOT NULL) ON MISMATCH DROP,
+    CONSTRAINT amount_not_negative CHECK (order_amount &gt;= 0)  ON MISMATCH FAIL
+)
+COMMENT "Orders with row-level rules applied at refresh"
+AS SELECT order_id, customer_id, order_date, order_amount
+   FROM bronze.orders;</code></pre>
+    <ul>
+      <li><strong>Good for:</strong> declarative cleansing in a medallion flow that already uses materialized lake views, with dropped-row counts visible without writing code.</li>
+      <li><strong>Stops at:</strong> row-level rules. Constraints may use only deterministic built-in functions, so they cannot reconcile tables or compare against history. Dropping rows silently is a design decision: pair a <code>DROP</code> rule with a framework check that the number of dropped rows is within what you expect (see <a href="results-model.html#reject-accounting">reject accounting</a>).</li>
+      <li><strong>Watch out:</strong> the definition cannot reference temporary views or user-defined functions, and session-level Spark settings are not applied in scheduled refreshes. Authoring with PySpark was in preview and refreshed in full when this page was written.</li>
+    </ul>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>Materialized lake views are evolving quickly: syntax, refresh behavior, schema requirements and which authoring paths are preview change between releases. Confirm the current state on <a href="https://learn.microsoft.com/fabric/data-engineering/materialized-lake-views/create-materialized-lake-view">the Spark SQL reference</a> and <a href="https://learn.microsoft.com/fabric/data-engineering/materialized-lake-views/data-quality">data quality in materialized lake views</a> before depending on a behavior.</p></div>
+
+    <h3 id="profiling">Profiling in notebooks and Data Wrangler</h3>
+    <p>Fabric notebooks can profile a DataFrame from the output table (the Inspect pane gives per-column statistics and distributions, limited to the rows the output widget holds, up to 10,000), and Data Wrangler summarizes missing values and column statistics and generates code. These are the right tools for understanding unfamiliar data and for deciding <em>which</em> checks to write. They work on a sample, are interactive, and leave no durable result, so they are not validations.</p>
+
+    <h3 id="purview">Microsoft Purview data quality</h3>
+    <p>Purview Unified Catalog can profile Fabric lakehouse tables, apply data quality rules and run scans that produce quality scores for data products, owned by stewards in governance domains rather than by pipeline engineers. It answers &quot;how healthy is this data product, and is it improving?&quot; for the whole estate, in a place business owners already use.</p>
+    <ul>
+      <li><strong>Prerequisites to plan for:</strong> tables in Delta (or Iceberg) format; a Data Map scan of the Fabric tenant that uses a service principal; a separate data quality connection that uses the Purview managed identity; that identity added to the Fabric workspace as <em>Contributor</em>; and the scanned tables added to data products in a governance domain.</li>
+      <li><strong>Good for:</strong> steward-owned rules, scorecards, trends and catalog integration across many sources, without code.</li>
+      <li><strong>Stops at:</strong> it reports; by itself it does not stop a pipeline. It has no notion of your fiscal windows, keyed comparisons between layers or release gates, and its schedule is the scan's, not your load's. A Contributor grant to a service on a workspace is a significant permission and needs a security decision.</li>
+    </ul>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>Purview data quality for Fabric changes often: supported sources, authentication, programmatic access (a data quality API was in preview) and licensing. Read <a href="https://learn.microsoft.com/purview/unified-catalog-data-quality-fabric-lakehouse">Set up data quality for Fabric Lakehouse data</a> and its limitations section before committing, and test a small data product end to end.</p></div>
+
+    <h2 id="open-source">Open-source and dbt options</h2>
+    <p>These tools run as code, so they fit the same place in a pipeline as the framework does. None of them is Fabric-specific, and the Fabric documentation covers some of them only lightly. Treat the notes below as a starting point for your own proof of concept, and pin versions.</p>
+    <table>
+      <thead><tr><th>Tool</th><th>What it is</th><th>How it runs in Fabric</th><th>Strengths</th><th>Watch out</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Great Expectations</strong></td><td>Python library: expectations grouped into suites, run by checkpoints or validation definitions, with generated documentation</td><td>In a notebook, against pandas or Spark DataFrames. A Fabric tutorial uses a data source built on semantic link to validate semantic models and DAX queries</td><td>Large expectation library, readable result documents, a familiar vocabulary</td><td>The API changed substantially between 0.x and 1.x, and the Fabric tutorial pins a pre-1.0 version. Results are in its own format and must be mapped to your results table</td></tr>
+        <tr><td><strong>Deequ</strong></td><td>Scala library on Spark, with a Python wrapper: constraints, metrics, a metrics repository and anomaly detection over history</td><td>On the Spark session, with the library attached to the environment or session</td><td>Computes many metrics in few passes; built-in history and anomaly checks; designed for large tables</td><td>Artifacts are tied to Spark versions, so match your runtime. Python wrapper lags the Scala library. No Fabric-specific guidance</td></tr>
+        <tr><td><strong>Soda</strong></td><td>Checks written in a YAML language (SodaCL), run by a library; a commercial cloud adds collaboration and alerting</td><td>In a notebook against Spark DataFrames or SQL data sources, through a Spark data source package</td><td>Readable declarative checks that non-developers can review; broad data source support</td><td>Package names and architecture changed between major versions, so check which one you are installing. Cloud features are commercial</td></tr>
+        <tr><td><strong>dbt tests</strong></td><td>Generic and singular tests, with warn and error severities and thresholds, defined next to dbt models</td><td>In a dbt job on a Fabric warehouse (dbt-fabric) or lakehouse (dbt-fabricspark): <code>dbt test</code> or <code>dbt build</code></td><td>Tests live with the transformations; <code>build</code> can skip downstream models when a test fails; strong review culture</td><td>Only for transformations managed in dbt. The dbt job feature was in preview. Reporting beyond run artifacts needs extra work</td></tr>
+      </tbody>
+    </table>
+    <div class="callout learn"><p class="callout-title">Verify before you adopt</p><p>Great Expectations: the <a href="https://learn.microsoft.com/fabric/data-science/tutorial-great-expectations">Fabric tutorial</a> installs <code>great-expectations&lt;1.0</code> and says newer versions have different configuration and expectation APIs. Deequ and Soda: test the exact package version against your Fabric Spark runtime, including the Spark 4 line of Runtime 2.0, before you design around them. dbt: the tenant setting is named <em>dbt jobs (preview)</em>; see <a href="https://learn.microsoft.com/fabric/data-factory/dbt-job-overview">dbt job in Microsoft Fabric</a> for adapters, versions and limitations.</p></div>
+
+    <h3 id="when-lib">Why a library is not automatically better</h3>
+    <ul>
+      <li><strong>Column rules are the easy part.</strong> Most libraries excel at &quot;this column is never null, unique, in this set, in this range&quot;. The expensive defects in the three frameworks of this playbook are different: a Gold measure that no longer equals the Silver aggregate, a window that is off by one period, a join that fans out, a transformation that changes a label. Those need business-specific SQL, which any library can run only through a custom hook.</li>
+      <li><strong>Results still need a home.</strong> A library gives you its result object. The gate, the history, the dashboard, the drift baseline and the alert still need one schema; that schema is the part of this playbook you keep regardless.</li>
+      <li><strong>Two engines, two vocabularies.</strong> Every tool you add is another thing to learn, upgrade and secure, with its own idea of severity and tolerance.</li>
+      <li><strong>But a framework you wrote is code you own.</strong> If your needs are mostly column rules over many tables, a library saves real effort. Use one.</li>
+    </ul>
+
+    <h2 id="matrix">Feature comparison</h2>
+    <table>
+      <thead><tr><th>Option</th><th>Runs</th><th>Authored as</th><th>Cross-table and cross-layer checks</th><th>Can refuse or stop data</th><th>History you can report on</th><th>Owned by non-developers</th></tr></thead>
+      <tbody>
+        <tr><td><strong>QA framework (this playbook)</strong></td><td>Notebook in a pipeline</td><td>SQL and Python configuration</td><td class="yes">Yes</td><td class="yes">Yes, through the gate</td><td class="yes">Yes, own tables</td><td class="maybe">With a control table</td></tr>
+        <tr><td><strong>Delta constraints</strong></td><td>Every write</td><td>SQL DDL</td><td class="no">No</td><td class="yes">Yes, the write fails</td><td class="no">No</td><td class="no">No</td></tr>
+        <tr><td><strong>MLV constraints</strong></td><td>View refresh</td><td>SQL in the view</td><td class="no">Row rules only</td><td class="yes">Drop rows or fail the refresh</td><td class="maybe">Quality report</td><td class="maybe">Partly</td></tr>
+        <tr><td><strong>Purview data quality</strong></td><td>Catalog scans</td><td>Portal rules</td><td class="maybe">Limited</td><td class="no">Reports</td><td class="yes">Scores and trends</td><td class="yes">Yes</td></tr>
+        <tr><td><strong>Great Expectations</strong></td><td>Notebook or job</td><td>Python</td><td class="maybe">Custom expectations</td><td class="maybe">By your code</td><td class="maybe">Its stores and documents</td><td class="no">No</td></tr>
+        <tr><td><strong>Deequ</strong></td><td>Spark session</td><td>Scala or Python</td><td class="maybe">Custom analyzers</td><td class="maybe">By your code</td><td class="yes">Metrics repository</td><td class="no">No</td></tr>
+        <tr><td><strong>Soda</strong></td><td>Notebook or job</td><td>YAML</td><td class="maybe">Some cross checks</td><td class="maybe">By your code</td><td class="maybe">Cloud, or your tables</td><td class="maybe">Reviewable YAML</td></tr>
+        <tr><td><strong>dbt tests</strong></td><td>dbt job</td><td>YAML and SQL</td><td class="maybe">Singular tests</td><td class="yes">With <code>build</code>, downstream is skipped</td><td class="maybe">Run artifacts</td><td class="maybe">Reviewable YAML</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="decision">Decision table</h2>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 400" role="img" aria-label="Decision path: a row or column rule that must never break goes to constraints; comparing tables, layers or metrics goes to the QA framework; steward-owned scorecards go to Purview; an existing dbt project goes to dbt tests; otherwise use a notebook library">
+        <defs>
+          <marker id="fig-tools-2-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-tools-2-ag" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box purple" x="20" y="15" width="360" height="52" rx="26"/>
+        <text class="t-b" x="200" y="46" text-anchor="middle">One row or column rule that must never break?</text>
+        <rect class="box purple" x="20" y="95" width="360" height="52" rx="26"/>
+        <text class="t-b" x="200" y="126" text-anchor="middle">Compare tables, layers or business metrics?</text>
+        <rect class="box purple" x="20" y="175" width="360" height="52" rx="26"/>
+        <text class="t-b" x="200" y="206" text-anchor="middle">Owned by stewards, with scorecards?</text>
+        <rect class="box purple" x="20" y="255" width="360" height="52" rx="26"/>
+        <text class="t-b" x="200" y="286" text-anchor="middle">Already a dbt project with tests?</text>
+        <rect class="box blue" x="470" y="15" width="410" height="52" rx="10"/>
+        <text class="t-h" x="675" y="37" text-anchor="middle">Delta or MLV constraints</text>
+        <text class="t-s" x="675" y="55" text-anchor="middle">enforced at write or refresh</text>
+        <rect class="box accent" x="470" y="95" width="410" height="52" rx="10"/>
+        <text class="t-h t-w" x="675" y="117" text-anchor="middle">QA framework</text>
+        <text class="t-s t-w" x="675" y="135" text-anchor="middle">reconciliation, metrics, freshness, gate</text>
+        <rect class="box gray" x="470" y="175" width="410" height="52" rx="10"/>
+        <text class="t-h" x="675" y="197" text-anchor="middle">Purview data quality</text>
+        <text class="t-s" x="675" y="215" text-anchor="middle">rules, profiling and scores in the catalog</text>
+        <rect class="box gray" x="470" y="255" width="410" height="52" rx="10"/>
+        <text class="t-h" x="675" y="277" text-anchor="middle">dbt tests</text>
+        <text class="t-s" x="675" y="295" text-anchor="middle">in a dbt job, next to the models</text>
+        <rect class="box gray" x="20" y="335" width="360" height="52" rx="10"/>
+        <text class="t-h" x="200" y="357" text-anchor="middle">Notebook library</text>
+        <text class="t-s" x="200" y="375" text-anchor="middle">GX, Soda or Deequ, adapted to the results table</text>
+        <path class="ln green" d="M380 41H468" marker-end="url(#fig-tools-2-ag)"/>
+        <path class="ln green" d="M380 121H468" marker-end="url(#fig-tools-2-ag)"/>
+        <path class="ln green" d="M380 201H468" marker-end="url(#fig-tools-2-ag)"/>
+        <path class="ln green" d="M380 281H468" marker-end="url(#fig-tools-2-ag)"/>
+        <path class="ln" d="M200 67V93" marker-end="url(#fig-tools-2-a)"/>
+        <path class="ln" d="M200 147V173" marker-end="url(#fig-tools-2-a)"/>
+        <path class="ln" d="M200 227V253" marker-end="url(#fig-tools-2-a)"/>
+        <path class="ln" d="M200 307V333" marker-end="url(#fig-tools-2-a)"/>
+        <rect class="pill-bg" x="391" y="25" width="36" height="14"/><text class="t-s c-green" x="409" y="36" text-anchor="middle">yes</text>
+        <rect class="pill-bg" x="391" y="105" width="36" height="14"/><text class="t-s c-green" x="409" y="116" text-anchor="middle">yes</text>
+        <rect class="pill-bg" x="391" y="185" width="36" height="14"/><text class="t-s c-green" x="409" y="196" text-anchor="middle">yes</text>
+        <rect class="pill-bg" x="391" y="265" width="36" height="14"/><text class="t-s c-green" x="409" y="276" text-anchor="middle">yes</text>
+        <text class="t-s" x="212" y="84">no</text>
+        <text class="t-s" x="212" y="164">no</text>
+        <text class="t-s" x="212" y="244">no</text>
+        <text class="t-s" x="212" y="324">no</text>
+      </svg>
+      <figcaption><b>Ask in this order.</b> The answers are not exclusive: most platforms end up with constraints on critical tables, the framework as the release gate, and a catalog tool for stewardship. The path tells you what to try first for a given defect.</figcaption>
+    </figure>
+    <table>
+      <thead><tr><th>You need to&hellip;</th><th>Reach for</th><th>Why, and the caveat</th></tr></thead>
+      <tbody>
+        <tr><td>Never let a negative amount or NULL key land in a table, whoever writes it</td><td>Delta constraints</td><td>Enforced at write. Cannot say anything about other tables, and adds a protocol requirement.</td></tr>
+        <tr><td>Clean rows declaratively in a flow of materialized lake views</td><td>MLV constraints</td><td>Counts dropped rows without code. Add a framework check for the expected number of drops.</td></tr>
+        <tr><td>Prove Gold equals Silver after a transformation, or a layer loses no rows</td><td>QA framework</td><td>Keyed comparisons and reconciliation are plain SQL here, awkward elsewhere.</td></tr>
+        <tr><td>Verify a business metric over a rolling fiscal window against its source</td><td>QA framework</td><td>Needs parameterized business logic and tolerances.</td></tr>
+        <tr><td>Block a release, notify, and keep a history of every verdict</td><td>QA framework</td><td>Gate, results table and alerts are the point of the design.</td></tr>
+        <tr><td>Apply a large catalog of ready-made column rules across many tables</td><td>Great Expectations or Soda</td><td>Saves writing the rules. Plan an adapter to your results table.</td></tr>
+        <tr><td>Track metrics over time on very large Spark tables with anomaly detection</td><td>Deequ, or the drift check here</td><td>Deequ has it built in; check Spark compatibility.</td></tr>
+        <tr><td>Test models where they are built, in a dbt project</td><td>dbt tests</td><td>Best place for model-level tests. Preview status and scope limits apply.</td></tr>
+        <tr><td>Give business stewards rules, scores and trends without code</td><td>Purview data quality</td><td>Catalog setup and permissions are real work. Reports, does not stop.</td></tr>
+        <tr><td>Understand a new dataset before writing any check</td><td>Notebook profiling, Data Wrangler</td><td>Exploratory only. Turn findings into checks.</td></tr>
+        <tr><td>Check measures or DAX output in a semantic model</td><td>Semantic link from the framework, or the GX Fabric data source</td><td>Runs a DAX query and compares it with the lakehouse (see <a href="advanced-checks.html#bi-parity">semantic model parity</a>).</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="combine">Combining them behind one gate</h2>
+    <p>The cleanest arrangement keeps one results schema and one gate, and treats every other tool as a producer of findings. Native constraints protect the tables, libraries and dbt supply extra column rules, Purview provides stewardship on top, and the framework turns everything that runs in the pipeline into <code>validation_results</code> rows.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 190" role="img" aria-label="Findings from another tool pass through an adapter that maps them to result rows with expected 0 and actual equal to violations; they land in the results table and are used by the gate and the report">
+        <defs>
+          <marker id="fig-tools-3-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box gray" x="20" y="35" width="200" height="70" rx="10"/>
+        <text class="t-h" x="120" y="64" text-anchor="middle">Other tool</text>
+        <text class="t-s" x="120" y="84" text-anchor="middle">GX, Soda, Deequ, dbt</text>
+        <rect class="box accent" x="290" y="35" width="180" height="70" rx="10"/>
+        <text class="t-h t-w" x="380" y="64" text-anchor="middle">Adapter</text>
+        <text class="t-s t-w" x="380" y="84" text-anchor="middle">findings to Result</text>
+        <rect class="box blue" x="540" y="35" width="160" height="70" rx="10"/>
+        <text class="t-h" x="620" y="64" text-anchor="middle">Results table</text>
+        <text class="t-s" x="620" y="84" text-anchor="middle">validation_results</text>
+        <rect class="box green" x="770" y="35" width="110" height="70" rx="10"/>
+        <text class="t-h" x="825" y="64" text-anchor="middle">Gate</text>
+        <text class="t-s" x="825" y="84" text-anchor="middle">and report</text>
+        <path class="ln" d="M220 70H288" marker-end="url(#fig-tools-3-a)"/>
+        <path class="ln" d="M470 70H538" marker-end="url(#fig-tools-3-a)"/>
+        <path class="ln" d="M700 70H768" marker-end="url(#fig-tools-3-a)"/>
+        <text class="t-s" x="120" y="132" text-anchor="middle">its own pass or fail</text>
+        <text class="t-s" x="380" y="132" text-anchor="middle">expected 0, actual = violations</text>
+        <text class="t-s" x="620" y="132" text-anchor="middle">one schema for every check</text>
+        <text class="t-s" x="825" y="132" text-anchor="middle">one verdict</text>
+      </svg>
+      <figcaption><b>One schema, many producers.</b> The adapter is the only place that knows another tool's output. Everything after it is shared.</figcaption>
+    </figure>
+    <p>The adapter below is deliberately tool-neutral. It defines the only contract: each finding has a name, a pass or fail, optionally a violation count, and a message. Write one small runner per tool that calls it and translates its output.</p>
+<pre data-title="Cell 21 (PySpark): adapter for findings from another tool"><code class="language-python">def adopt_findings(cfg: dict, findings: list) -&gt; list:
+    """Map findings from another tool to Result rows (expected 0 violations, actual = violations).
+
+    Each finding: {"name": str, "ok": bool, "violations": int (optional), "message": str (optional)}.
+    """
+    results = []
+    for f in findings:
+        violations = f.get("violations")
+        if violations is None:
+            violations = 0 if f["ok"] else 1
+        results.append(evaluate(new_result(
+            cfg, test_name=f"{cfg['test_name']}.{f['name']}", expected=0.0, actual=float(violations),
+            message=str(f.get("message", ""))[:400])))
+    return results
+
+RUNNERS = {}      # name -&gt; function(cfg) returning findings; register one per external tool
+
+@check("external")
+def external(cfg):
+    return adopt_findings(cfg, RUNNERS[cfg["runner"]](cfg))
+
+def run_my_tool(cfg):
+    # Call the other tool here against cfg["target"] and translate its output into findings.
+    return [{"name": "email_format", "ok": True, "message": "all values match"},
+            {"name": "country_in_set", "ok": False, "violations": 12, "message": "12 values outside the list"}]
+
+RUNNERS["my_tool"] = run_my_tool
+
+# Configuration row:
+# {"suite": "standard", "test_name": "dim_customer.external", "check_type": "external",
+#  "runner": "my_tool", "target": f"{GLD}.dim_customer", "severity": "warning"}</code></pre>
+    <p>With this in place, a Great Expectations suite, a Soda scan or a Deequ verification run becomes a check in the same suite: it appears in the same report, obeys the same severity and dependency rules, and blocks or warns through the same gate. dbt tests run in their own job; if you want them to count, run that job ahead of the QA suite and either gate on its status or read its run results into the adapter. Check how your environment can orchestrate dbt jobs before you rely on it.</p>
+    <div class="callout tip"><p class="callout-title">Defense in depth, cheaply</p><p>Put constraints on the few tables where an invalid row is never acceptable, because they cost nothing to run. Use the framework for everything that needs comparison, history or a release decision. Add a catalog tool when stewards need to own and see quality themselves, not as a substitute for the gate.</p></div>
+
+    <h2 id="checklist">Before you adopt a tool</h2>
+    <ul class="checklist">
+      <li><strong>Runtime fit.</strong> Does the exact version run on the Fabric runtime you use, including the next one? Test it in a notebook or environment before design work.</li>
+      <li><strong>Where results land.</strong> Can the output be turned into your results schema, so there is one gate and one report?</li>
+      <li><strong>Can it stop a release?</strong> If it only reports, who acts on its findings, and how fast?</li>
+      <li><strong>Identity and permissions.</strong> Which identity runs it, and what does it need on the data? Beware broad grants such as workspace roles for a service.</li>
+      <li><strong>Owner and skills.</strong> Who writes and reviews rules in it, and can the on-call person read a failure?</li>
+      <li><strong>Preview status.</strong> Is the feature generally available? If not, what is the exit plan?</li>
+      <li><strong>Cost.</strong> Compute for scans, licensing for commercial features, and the people cost of a second vocabulary.</li>
+      <li><strong>Fails closed.</strong> When the tool cannot run, does the gate stay shut, or does silence look like success?</li>
+    </ul>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p><ul>
+      <li>Match the tool to the moment: constraints refuse rows at write or refresh, pipeline tools can stop a release, catalog tools report.</li>
+      <li>Constraints are the cheapest control for single-row invariants and cannot compare tables or tell you about history.</li>
+      <li>Purview data quality suits steward-owned scorecards. It has real prerequisites and, on its own, does not gate a pipeline.</li>
+      <li>Libraries are strong at column rules and weaker at business reconciliation; verify versions against the Fabric runtime, and treat the dbt job feature and Great Expectations 1.x differences as things to test.</li>
+      <li>Keep one results schema and one gate, and adapt every other tool into it.</li>
+    </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://docs.delta.io/delta-constraints/">Delta Lake: constraints</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/materialized-lake-views/create-materialized-lake-view">Spark SQL reference for materialized lake views</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/materialized-lake-views/data-quality">Data quality in materialized lake views</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/notebook-visualization">Notebook visualization (Inspect pane and profiling)</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-science/data-wrangler">Accelerate data prep with Data Wrangler</a></li>
+        <li><a href="https://learn.microsoft.com/purview/unified-catalog-data-quality-fabric-lakehouse">Set up data quality for Fabric Lakehouse data</a></li>
+        <li><a href="https://learn.microsoft.com/purview/unified-catalog-data-quality-profiling">Configure and run data profiling</a></li>
+        <li><a href="https://learn.microsoft.com/purview/unified-catalog-data-quality-scan">Configure and run a data quality scan</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/dbt-job-overview">dbt job in Microsoft Fabric</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-science/tutorial-great-expectations">Tutorial: Validate data using SemPy and Great Expectations</a></li>
+        <li><a href="https://docs.greatexpectations.io/docs/core/introduction/gx_overview">Great Expectations: GX Core overview</a></li>
+        <li><a href="https://github.com/awslabs/deequ">Deequ</a> and <a href="https://github.com/awslabs/python-deequ">PyDeequ</a></li>
+        <li><a href="https://docs.soda.io/">Soda documentation</a></li>
+        <li><a href="https://docs.getdbt.com/docs/build/data-tests">dbt data tests</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

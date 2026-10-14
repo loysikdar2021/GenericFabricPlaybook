@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Access, ALM and lifecycle · Org Apps</title>
+<meta name="description" content="Share an org app through audiences and groups, revoke access cleanly, version the app in Git, promote it with deployment pipelines, update it safely, and retire it by deleting or withdrawing access.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="11-org-apps" data-page="access-alm.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 11 · Organizational Apps</p>
+      <h1>Access, ALM and lifecycle</h1>
+      <p class="lede">Once an app is built, three things decide whether it stays trustworthy: who has access and why, how changes are reviewed and promoted, and how the app is retired. This page covers sharing and audiences, Git integration and deployment pipelines, and the draft-to-deleted lifecycle.</p>
+    </header>
+
+    <h2 id="sharing">Sharing and managing access</h2>
+    <p>Sharing an org app is item sharing with a propagation layer on top. After you save the app, the <strong>Share</strong> button gives you four options.</p>
+    <table>
+      <thead><tr><th>Option</th><th>What it does</th><th>Use it for</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Copy link to this app</strong></td><td>Copies the app link; the recipient lands on the first element. Recipients must already have access.</td><td>Telling existing users where the app is</td></tr>
+        <tr><td><strong>Link to this app page</strong></td><td>Copies a link to the element you are viewing, with the same access requirement</td><td>Pointing someone at one report in the app</td></tr>
+        <tr><td><strong>Add person or group</strong></td><td>Opens a modal to select audiences for the recipients, optionally grant reshare permission, and notify them by email with a message</td><td>Granting access to people without leaving the app</td></tr>
+        <tr><td><strong>Manage access</strong></td><td>Opens the full access page with the Direct access tab and an <strong>Add user</strong> button</td><td>Reviewing, adding and removing access across audiences</td></tr>
+      </tbody>
+    </table>
+    <p>You can reach the same page from the workspace with <strong>... &gt; Manage permissions</strong>. When the app has audiences, sharing is audience-aware: org-app-level sharing lets you pick which audiences receive the recipients, and sharing from an audience's own child item is scoped to that one audience.</p>
+    <p>Sending someone a link does not give them access. Share the item first, then send the link, or use the modal so the notification email carries both.</p>
+
+    <h3 id="reshare">Reshare permission</h3>
+    <p>When you add a person, you can also grant reshare permission for the audiences you select, which lets them pass the app on. Users with share permission on the org app item can share it; a consumer without it can only send links to people who already have access. Reshare is convenient and easy to over-grant. Keep it to named group owners, record who holds it, and review it when you review membership.</p>
+
+    <h3 id="revoke">Revoking access</h3>
+    <p>From the user or group menu on the permissions page you have two choices. <strong>Manage access</strong> changes which audiences the user belongs to and their reshare rights. <strong>Remove access</strong> removes the org-app-derived access to the app, the included items and the underlying semantic models, and Read and Execute on an included Fabric App. Access granted independently of the app remains.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 880 290" role="img" aria-label="A user's effective access is the union of several sources; removing the org app source leaves the access that comes from a workspace role, a direct share or another app">
+        <defs>
+          <marker id="fig-acc-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-acc-1-ar" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar red" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box green" x="30" y="40" width="250" height="44" rx="8"/>
+        <text class="t-b" x="155" y="59" text-anchor="middle">Org app audience</text>
+        <text class="t-s" x="155" y="74" text-anchor="middle">app-derived access</text>
+        <rect class="box gray" x="30" y="100" width="250" height="44" rx="8"/>
+        <text class="t-b" x="155" y="119" text-anchor="middle">Workspace role</text>
+        <text class="t-s" x="155" y="134" text-anchor="middle">Viewer, Contributor, Member, Admin</text>
+        <rect class="box gray" x="30" y="160" width="250" height="44" rx="8"/>
+        <text class="t-b" x="155" y="179" text-anchor="middle">Direct share of the item</text>
+        <text class="t-s" x="155" y="194" text-anchor="middle">report, model or notebook</text>
+        <rect class="box gray" x="30" y="220" width="250" height="44" rx="8"/>
+        <text class="t-b" x="155" y="239" text-anchor="middle">Another app or audience</text>
+        <text class="t-s" x="155" y="254" text-anchor="middle">also includes the same item</text>
+        <rect class="box blue" x="420" y="100" width="200" height="104" rx="10"/>
+        <text class="t-b" x="520" y="142" text-anchor="middle">Effective access</text>
+        <text class="t-s" x="520" y="160" text-anchor="middle">to the report and</text>
+        <text class="t-s" x="520" y="176" text-anchor="middle">its semantic model</text>
+        <rect class="box orange" x="700" y="100" width="164" height="104" rx="10"/>
+        <text class="t-b" x="782" y="142" text-anchor="middle">User keeps access</text>
+        <text class="t-s" x="782" y="160" text-anchor="middle">while any other</text>
+        <text class="t-s" x="782" y="176" text-anchor="middle">source still grants it</text>
+        <path class="ln red dash" d="M280 62H340V116H418" marker-end="url(#fig-acc-1-ar)"/>
+        <path class="ln" d="M280 122H340V140H418" marker-end="url(#fig-acc-1-a)"/>
+        <path class="ln" d="M280 182H340V164H418" marker-end="url(#fig-acc-1-a)"/>
+        <path class="ln" d="M280 242H340V188H418" marker-end="url(#fig-acc-1-a)"/>
+        <text class="t-s c-red" x="290" y="52">removed from the app</text>
+        <path class="ln thick" d="M620 152H698" marker-end="url(#fig-acc-1-a)"/>
+        <rect class="pill-bg" x="632" y="132" width="54" height="14"/>
+        <text class="t-s" x="659" y="143" text-anchor="middle">result</text>
+      </svg>
+      <figcaption><b>Revocation removes one input.</b> The app withdraws only the access it granted. If the same person still holds a workspace role, a direct share or membership of another app, the effective access does not go away.</figcaption>
+    </figure>
+
+    <p>When a removed person can still see something, work through this list before you suspect a bug:</p>
+    <ul>
+      <li>They hold a workspace role in the workspace, which gives item access regardless of the app.</li>
+      <li>The report, model or notebook was shared with them directly, or through another app or audience.</li>
+      <li>They belong to a second group that is still assigned to an audience.</li>
+      <li>For a model in another workspace, access drift left records you can only remove from <strong>Manage permissions &gt; Access via related items</strong> on the model (<a href="concepts.html#access-propagation">see access propagation</a>).</li>
+      <li>The data store behind the model grants them access on its own, for example through a lakehouse role.</li>
+    </ul>
+
+    <h2 id="audiences">Audiences in practice</h2>
+    <p>Audiences let one app serve several groups. They are child items of the org app, and you can manage their access without opening the app in edit mode. Audiences are available only in new org apps: if your app predates them, create a new app.</p>
+    <p>Open <strong>Manage audiences</strong> in the editor. From there you create audiences with <strong>New audience</strong> and, from each audience tab's menu, rename, move the tab left or right, duplicate, change the <strong>Item access setting</strong>, or delete. Duplicating copies item visibility but not membership.</p>
+    <ul>
+      <li><strong>Visibility per item.</strong> Each item has a checkbox per audience. Checked means the audience sees the item; unchecked means it does not. By default this also drives access: showing an item can propagate access, hiding it can revoke it.</li>
+      <li><strong>Access to hidden content.</strong> Each audience has an <strong>Item access setting</strong>. When it is on for even one audience, users who have access to at least one audience can access all items in the app, even those hidden in their navigation. Turn it on only if you want audiences to shape navigation without restricting access.</li>
+      <li><strong>At least one audience.</strong> An app always has one; deleting the last creates a new one. Audience names must be unique in the workspace, and the names of deleted audiences can still collide.</li>
+      <li><strong>New items.</strong> With one audience, a new item is visible to it by default. With several you are prompted to choose.</li>
+      <li><strong>Consumer tabs.</strong> Users see an All tab plus one tab per audience, unless they belong to a single audience, in which case no tabs are shown. <strong>Customize &gt; Audience tabs</strong> controls the display. Audience tabs are not supported in the Power BI mobile apps, and deep-linking to a specific audience is not supported.</li>
+    </ul>
+
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 880 320" role="img" aria-label="A visibility matrix shows which items each audience sees; a user in only one audience sees no tabs, while a user in both sees an All tab with the union of items plus one tab per audience">
+        <defs>
+          <marker id="fig-acc-2-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="zone" x="16" y="16" width="440" height="288" rx="12"/>
+        <text class="t-h" x="32" y="38">Visibility per audience</text>
+        <rect class="lane" x="24" y="48" width="424" height="32"/>
+        <text class="t-b" x="36" y="69">Element</text>
+        <text class="t-b" x="300" y="69" text-anchor="middle">Executives</text>
+        <text class="t-b" x="396" y="69" text-anchor="middle">Managers</text>
+        <rect class="lane" x="24" y="114" width="424" height="34"/>
+        <rect class="lane" x="24" y="182" width="424" height="34"/>
+        <text x="36" y="102">Overview</text>
+        <text class="t-b c-green" x="300" y="102" text-anchor="middle">✓</text>
+        <text class="t-b c-green" x="396" y="102" text-anchor="middle">✓</text>
+        <text x="36" y="136">Revenue report</text>
+        <text class="t-b c-green" x="300" y="136" text-anchor="middle">✓</text>
+        <text class="t-s" x="396" y="136" text-anchor="middle">—</text>
+        <text x="36" y="170">Regional report</text>
+        <text class="t-s" x="300" y="170" text-anchor="middle">—</text>
+        <text class="t-b c-green" x="396" y="170" text-anchor="middle">✓</text>
+        <text x="36" y="204">Store traffic dashboard</text>
+        <text class="t-s" x="300" y="204" text-anchor="middle">—</text>
+        <text class="t-b c-green" x="396" y="204" text-anchor="middle">✓</text>
+        <text x="36" y="238">Methodology notebook</text>
+        <text class="t-b c-green" x="300" y="238" text-anchor="middle">✓</text>
+        <text class="t-b c-green" x="396" y="238" text-anchor="middle">✓</text>
+        <text class="t-s" x="36" y="276">✓ shows the item and grants access; — hides it and revokes access</text>
+        <text class="t-s" x="36" y="292">unless Access to hidden content is on for any audience</text>
+
+        <path class="ln thick" d="M458 160H518" marker-end="url(#fig-acc-2-a)"/>
+        <rect class="pill-bg" x="466" y="140" width="44" height="14"/>
+        <text class="t-s" x="488" y="151" text-anchor="middle">gives</text>
+
+        <rect class="zone purple" x="520" y="16" width="344" height="288" rx="12"/>
+        <text class="t-h" x="536" y="38">What each user sees</text>
+        <rect class="box plain" x="536" y="52" width="312" height="60" rx="8"/>
+        <text class="t-b" x="692" y="76" text-anchor="middle">Member of Executives only</text>
+        <text class="t-s" x="692" y="96" text-anchor="middle">3 items, no audience tabs</text>
+        <rect class="box plain" x="536" y="124" width="312" height="60" rx="8"/>
+        <text class="t-b" x="692" y="148" text-anchor="middle">Member of Managers only</text>
+        <text class="t-s" x="692" y="168" text-anchor="middle">4 items, no audience tabs</text>
+        <rect class="box green" x="536" y="196" width="312" height="74" rx="8"/>
+        <text class="t-b" x="692" y="220" text-anchor="middle">Member of both</text>
+        <text class="t-s" x="692" y="240" text-anchor="middle">All tab shows the union (5 items)</text>
+        <text class="t-s" x="692" y="256" text-anchor="middle">plus one tab per audience</text>
+      </svg>
+      <figcaption><b>How audience membership resolves.</b> The matrix is the author's design; the right-hand side is what each consumer gets. The All tab is a union, so a user in two audiences loses nothing by being in both.</figcaption>
+    </figure>
+
+    <h3 id="audience-design">Mapping audiences to groups</h3>
+    <p>Assign Entra security groups, not individuals, to audiences, and keep one group per audience per environment so test and production membership never mix.</p>
+    <table>
+      <thead><tr><th>Audience</th><th>Entra group (production)</th><th>Sees</th><th>Group owner</th></tr></thead>
+      <tbody>
+        <tr><td>Executives</td><td><code>sg-sales-exec-prd</code></td><td>Overview, revenue report, methodology notebook</td><td>Sales analytics lead</td></tr>
+        <tr><td>Managers</td><td><code>sg-sales-managers-prd</code></td><td>Overview, regional report, live dashboard, notebook</td><td>Regional operations lead</td></tr>
+        <tr><td>Analysts</td><td><code>sg-sales-analysts-prd</code></td><td>Everything except the live dashboard</td><td>Sales analytics lead</td></tr>
+      </tbody>
+    </table>
+    <div class="callout warning"><p class="callout-title">Audiences are not a secrecy mechanism by themselves</p>
+      <p>If Access to hidden content is on for any audience, a user with access to any audience can reach every item. Hidden elements also remain reachable through a direct link when that setting is on. Use group membership and the visibility checkboxes with that setting off when the content must stay separated.</p></div>
+
+    <h2 id="alm">Application lifecycle management</h2>
+    <p>An org app is a workspace item, so it can be versioned in Git and promoted through deployment pipelines like any other. That matters more here than for most items, because saved changes are live. The practical pattern is: build in a development workspace, review the change in Git, promote through test to production with a pipeline, and assign access separately in each stage.</p>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p>
+      <p>Org app items appear in the supported-items lists for both <a href="https://learn.microsoft.com/fabric/cicd/git-integration/intro-to-git-integration">Git integration</a> and <a href="https://learn.microsoft.com/fabric/cicd/deployment-pipelines/intro-to-deployment-pipelines">deployment pipelines</a> with a preview label, while the <a href="https://learn.microsoft.com/power-bi/developer/embedded/org-app-cicd">CI/CD for org apps</a> article describes the workflows without that label. Confirm the status of each before you make it a release gate.</p></div>
+
+    <h3 id="lifecycle">The lifecycle</h3>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 880 320" role="img" aria-label="State diagram: an org app is created as a draft, saved, shared so consumers have access, can be withdrawn by removing access and re-granted, and can be deleted from the saved, shared or withdrawn states">
+        <defs>
+          <marker id="fig-alm-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-alm-1-ar" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar red" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <circle class="dot" cx="22" cy="130" r="5"/>
+        <path class="ln" d="M28 130H38" marker-end="url(#fig-alm-1-a)"/>
+        <rect class="box orange" x="40" y="98" width="150" height="64" rx="10"/>
+        <text class="t-h" x="115" y="126" text-anchor="middle">Draft</text>
+        <text class="t-s" x="115" y="146" text-anchor="middle">created, not yet saved</text>
+        <rect class="box blue" x="262" y="98" width="150" height="64" rx="10"/>
+        <text class="t-h" x="337" y="126" text-anchor="middle">Saved</text>
+        <text class="t-s" x="337" y="146" text-anchor="middle">definition persisted</text>
+        <rect class="box green" x="484" y="98" width="150" height="64" rx="10"/>
+        <text class="t-h" x="559" y="126" text-anchor="middle">Shared</text>
+        <text class="t-s" x="559" y="146" text-anchor="middle">consumers have access</text>
+        <rect class="box gray" x="706" y="98" width="150" height="64" rx="10"/>
+        <text class="t-h" x="781" y="126" text-anchor="middle">Withdrawn</text>
+        <text class="t-s" x="781" y="146" text-anchor="middle">item kept, no access</text>
+        <rect class="box red" x="484" y="240" width="150" height="56" rx="10"/>
+        <text class="t-h" x="559" y="262" text-anchor="middle">Deleted</text>
+        <text class="t-s" x="559" y="280" text-anchor="middle">item and link gone</text>
+
+        <path class="ln" d="M190 130H260" marker-end="url(#fig-alm-1-a)"/>
+        <rect class="pill-bg" x="208" y="108" width="34" height="14"/>
+        <text class="t-s" x="225" y="119" text-anchor="middle">Save</text>
+        <path class="ln" d="M412 130H482" marker-end="url(#fig-alm-1-a)"/>
+        <rect class="pill-bg" x="424" y="108" width="46" height="14"/>
+        <text class="t-s" x="447" y="119" text-anchor="middle">Share</text>
+        <path class="ln" d="M634 120H704" marker-end="url(#fig-alm-1-a)"/>
+        <rect class="pill-bg" x="641" y="100" width="52" height="14"/>
+        <text class="t-s" x="667" y="111" text-anchor="middle">Revoke</text>
+        <path class="ln" d="M706 146H636" marker-end="url(#fig-alm-1-a)"/>
+        <rect class="pill-bg" x="638" y="152" width="64" height="14"/>
+        <text class="t-s" x="670" y="163" text-anchor="middle">Re-grant</text>
+        <path class="ln green" d="M520 98C520 56 600 56 600 96" marker-end="url(#fig-alm-1-a)"/>
+        <rect class="pill-bg" x="472" y="36" width="176" height="14"/>
+        <text class="t-s" x="560" y="47" text-anchor="middle">edit + Save (live at once)</text>
+
+        <path class="ln red" d="M337 162V268H482" marker-end="url(#fig-alm-1-ar)"/>
+        <rect class="pill-bg" x="346" y="190" width="52" height="14"/>
+        <text class="t-s" x="372" y="201" text-anchor="middle">Delete</text>
+        <path class="ln red" d="M559 162V238" marker-end="url(#fig-alm-1-ar)"/>
+        <rect class="pill-bg" x="567" y="193" width="52" height="14"/>
+        <text class="t-s" x="593" y="204" text-anchor="middle">Delete</text>
+        <path class="ln red" d="M781 162V268H636" marker-end="url(#fig-alm-1-ar)"/>
+        <rect class="pill-bg" x="789" y="190" width="52" height="14"/>
+        <text class="t-s" x="815" y="201" text-anchor="middle">Delete</text>
+
+        <rect class="box plain" x="40" y="214" width="250" height="68" rx="8"/>
+        <text class="t-s" x="165" y="236" text-anchor="middle">Included items are references:</text>
+        <text class="t-s" x="165" y="252" text-anchor="middle">saving a report changes what</text>
+        <text class="t-s" x="165" y="268" text-anchor="middle">viewers see, with no app step</text>
+      </svg>
+      <figcaption><b>Lifecycle states.</b> There is no separate "unpublish" step in the org app model: removing access withdraws the app, and deleting the item retires it. Each editing session is another draft that ends with Save.</figcaption>
+    </figure>
+
+    <h3 id="git">Git integration</h3>
+    <p>When a workspace is connected to a Git repository, the org app is part of the synchronization. Supported providers are Azure DevOps, GitHub and GitHub Enterprise (cloud-based only). Connect from workspace settings and use the source control panel to see the branch, the status of each item and the time of the last sync.</p>
+    <p>Each org app is stored as a set of artifacts: one for the app, which controls content and appearance, and one per audience. Committing creates a folder named <code>{display name}.OrgApp</code> containing a system-generated <code>.platform</code> file, a <code>definition.json</code> file, and a <code>.children</code> folder with one <code>{display name}.OrgAppAudience</code> subfolder per audience, each with its own <code>.platform</code> and <code>definition.json</code>.</p>
+<pre data-title="repository layout"><code class="language-text">workspace-content/
+├── Regional operations.OrgApp/
+│   ├── .platform
+│   ├── definition.json
+│   └── .children/
+│       ├── Managers.OrgAppAudience/
+│       │   ├── .platform
+│       │   └── definition.json
+│       └── Analysts.OrgAppAudience/
+│           ├── .platform
+│           └── definition.json
+├── RPT_SALES_CNSM_RegionNorth.Report/
+│   └── ...
+└── SM_SALES_CNSM_Core.SemanticModel/
+    └── ...</code></pre>
+    <p>The app definition has two parts: static settings (theme, logo and experience settings such as navigation pane behavior) and elements (the structure: overview, sections, items and links). Items are referenced by <code>itemLogicalId</code>, which matches the <code>logicalId</code> in the included item's own <code>.platform</code> file. The audience definition holds a reference to its parent (<code>parentAppId</code>, matching the app's <code>logicalId</code>), its settings (<code>hasAccessToHiddenContent</code>, <code>tabOrder</code>) and a flat list of element references by <code>elementId</code>.</p>
+<pre data-title="Regional operations.OrgApp/definition.json (illustrative)"><code class="language-json">{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/orgapp/definition/orgAppDefinition/2.0.0/schema.json",
+  "settings": {
+    "theme": {
+      "background": "#0B3D6B",
+      "foreground": "#FFFFFF",
+      "backgroundHover": "#1A5C99",
+      "backgroundSelected": "#2B77BD",
+      "backgroundPressed": "#0A2F52"
+    }
+  },
+  "elements": [
+    {
+      "elementType": "overview",
+      "elementId": "&lt;overview-element-id&gt;",
+      "displayName": "Overview",
+      "header": { "title": "Regional operations", "body": "Sales performance by region", "showTheme": true }
+    },
+    {
+      "elementType": "section",
+      "elementId": "&lt;regions-section-id&gt;",
+      "displayName": "Regions",
+      "elements": [
+        {
+          "elementType": "item",
+          "elementId": "&lt;north-element-id&gt;",
+          "itemType": "Report",
+          "itemLogicalId": "&lt;logical-id-of-RPT_SALES_CNSM_RegionNorth&gt;",
+          "displayName": "North region"
+        }
+      ]
+    },
+    {
+      "elementType": "link",
+      "elementId": "&lt;link-element-id&gt;",
+      "displayName": "Data dictionary",
+      "url": "https://contoso.example/data-dictionary",
+      "linkType": "newtab"
+    }
+  ]
+}</code></pre>
+<pre data-title="Regional operations.OrgApp/.children/Analysts.OrgAppAudience/definition.json (illustrative)"><code class="language-json">{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/orgappaudience/definition/orgAppAudienceDefinition/1.0.0/schema.json",
+  "settings": { "hasAccessToHiddenContent": false, "tabOrder": 1 },
+  "parentAppId": "&lt;logical-id-of-the-parent-org-app&gt;",
+  "elementReferences": [
+    { "elementId": "&lt;overview-element-id&gt;" },
+    { "elementId": "&lt;north-element-id&gt;", "itemType": "Report", "itemLogicalId": "&lt;logical-id-of-RPT_SALES_CNSM_RegionNorth&gt;" }
+  ]
+}</code></pre>
+    <div class="callout important"><p class="callout-title">Two definition versions, and no members</p>
+      <p>Definition version 1.0.0 does not support audiences; version 2.0.0 does, and Learn tells you to use 2.0.0 and create at least one audience artifact. Apps created with audience support always come with a default audience artifact. Note also what the files do not contain: neither the app nor the audience definition lists users or groups. Git carries structure and visibility, not who has access, so membership has to be assigned in each environment and documented outside the repository.</p></div>
+
+    <h3 id="git-review">Reviewing definition changes</h3>
+    <p>The definition is human-readable, so review it like code. Route changes through a pull request, ideally with owners for the app folder (see <a href="../17-pr-notifications-codeowners/index.html">Pull-Request Notifications with CODEOWNERS</a>), and branch as described in <a href="../05-github-integration/index.html">GitHub Integration and Branching</a>.</p>
+    <ul class="checklist">
+      <li><code>hasAccessToHiddenContent</code> did not flip to <code>true</code> without an explicit approval, because it widens access across the whole app.</li>
+      <li>Every <code>elementReferences</code> entry in each audience still points at an existing <code>elementId</code>, and removed elements are removed from all audiences.</li>
+      <li><code>parentAppId</code> matches the parent's <code>logicalId</code>, and no <code>itemLogicalId</code> points at an item that is not in the repository.</li>
+      <li>Theme colors were changed on purpose and still meet the contrast requirement.</li>
+      <li>Links point at approved destinations, and no personal or test URLs are included.</li>
+      <li>Element and audience names avoid characters that are invalid in folder names, because the folder names are derived from them.</li>
+    </ul>
+
+    <h3 id="pipelines">Deployment pipelines</h3>
+    <p>Deployment pipelines promote the app and its content through stages. A pipeline has two to ten stages, three by default (development, test, production). Items in adjacent stages are <em>paired</em>, and a deployment overwrites the paired item in the target stage. Unpaired items with the same name and type are not overwritten; a duplicate is created. Pair stages before the first deployment.</p>
+
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 340" role="img" aria-label="A development workspace is connected to Git; a deployment pipeline promotes the model, report, notebook and org app to test and production as a user; audience members are assigned separately in each stage because definition files hold no members">
+        <defs>
+          <marker id="fig-alm-2-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="zone" x="20" y="40" width="240" height="210" rx="12"/>
+        <text class="t-b" x="36" y="60">DEV_SALES_CNSM</text>
+        <rect class="box blue" x="36" y="74" width="208" height="42" rx="8"/>
+        <text class="t-b" x="140" y="99" text-anchor="middle">Model · report · notebook</text>
+        <rect class="box green" x="36" y="128" width="208" height="46" rx="8"/>
+        <text class="t-b" x="140" y="148" text-anchor="middle">Org app</text>
+        <text class="t-s" x="140" y="164" text-anchor="middle">definition + audiences</text>
+        <rect class="box gray" x="36" y="186" width="208" height="48" rx="8"/>
+        <text class="t-b" x="140" y="206" text-anchor="middle">Audience members</text>
+        <text class="t-s" x="140" y="222" text-anchor="middle">builders, test accounts</text>
+
+        <rect class="zone" x="330" y="40" width="240" height="210" rx="12"/>
+        <text class="t-b" x="346" y="60">TST_SALES_CNSM</text>
+        <rect class="box blue" x="346" y="74" width="208" height="42" rx="8"/>
+        <text class="t-b" x="450" y="99" text-anchor="middle">Model · report · notebook</text>
+        <rect class="box green" x="346" y="128" width="208" height="46" rx="8"/>
+        <text class="t-b" x="450" y="148" text-anchor="middle">Org app</text>
+        <text class="t-s" x="450" y="164" text-anchor="middle">definition + audiences</text>
+        <rect class="box gray" x="346" y="186" width="208" height="48" rx="8"/>
+        <text class="t-b" x="450" y="206" text-anchor="middle">Audience members</text>
+        <text class="t-s" x="450" y="222" text-anchor="middle">UAT group</text>
+
+        <rect class="zone" x="640" y="40" width="240" height="210" rx="12"/>
+        <text class="t-b" x="656" y="60">PRD_SALES_CNSM</text>
+        <rect class="box blue" x="656" y="74" width="208" height="42" rx="8"/>
+        <text class="t-b" x="760" y="99" text-anchor="middle">Model · report · notebook</text>
+        <rect class="box green" x="656" y="128" width="208" height="46" rx="8"/>
+        <text class="t-b" x="760" y="148" text-anchor="middle">Org app</text>
+        <text class="t-s" x="760" y="164" text-anchor="middle">definition + audiences</text>
+        <rect class="box gray" x="656" y="186" width="208" height="48" rx="8"/>
+        <text class="t-b" x="760" y="206" text-anchor="middle">Audience members</text>
+        <text class="t-s" x="760" y="222" text-anchor="middle">business groups</text>
+
+        <path class="ln teal thick" d="M262 150H328" marker-end="url(#fig-alm-2-a)"/>
+        <rect class="pill-bg" x="270" y="130" width="50" height="14"/>
+        <text class="t-s" x="295" y="141" text-anchor="middle">Deploy</text>
+        <text class="t-s" x="295" y="172" text-anchor="middle">as a user</text>
+        <path class="ln teal thick" d="M572 150H638" marker-end="url(#fig-alm-2-a)"/>
+        <rect class="pill-bg" x="580" y="130" width="50" height="14"/>
+        <text class="t-s" x="605" y="141" text-anchor="middle">Deploy</text>
+        <text class="t-s" x="605" y="172" text-anchor="middle">as a user</text>
+
+        <rect class="box gray" x="20" y="282" width="240" height="44" rx="8"/>
+        <text class="t-b" x="140" y="302" text-anchor="middle">Git repository</text>
+        <text class="t-s" x="140" y="318" text-anchor="middle">OrgApp + audience files</text>
+        <path class="ln" d="M140 250V280" marker-start="url(#fig-alm-2-a)" marker-end="url(#fig-alm-2-a)"/>
+        <text class="t-s" x="152" y="270">commit · sync</text>
+        <rect class="box teal" x="330" y="282" width="240" height="44" rx="8"/>
+        <text class="t-b" x="450" y="302" text-anchor="middle">Deployment pipeline</text>
+        <text class="t-s" x="450" y="318" text-anchor="middle">DPLY_SALES_CNSM</text>
+        <path class="ln dash teal" d="M450 282V252"/>
+        <rect class="box orange" x="640" y="282" width="240" height="44" rx="8"/>
+        <text class="t-b" x="760" y="302" text-anchor="middle">Assign access per stage</text>
+        <text class="t-s" x="760" y="318" text-anchor="middle">definitions hold no members</text>
+        <path class="ln thin orange" d="M760 250V280"/>
+      </svg>
+      <figcaption><b>Promotion path.</b> Git is connected to development only; the pipeline moves the items and the app together. Because the definition files list no members, each stage needs its own audience assignments.</figcaption>
+    </figure>
+
+    <ol class="steps">
+      <li><strong>Create the pipeline and assign stages</strong><p>Create <code>DPLY_SALES_CNSM</code> and assign the development, test and production workspaces. Pair the stages before the first deployment so an app that was created by hand in a later stage is not duplicated.</p></li>
+      <li><strong>Build and review in development</strong><p>Make the app and content changes in <code>DEV_SALES_CNSM</code>, commit them to Git and merge through a reviewed pull request.</p></li>
+      <li><strong>Deploy the app and its items together</strong><p>Select the org app with the reports, notebooks and dashboards it includes. The app refers to items by logical ID, so deploy them in the same run and verify afterwards that every element resolves to the target stage's paired item.</p></li>
+      <li><strong>Assign test access and validate</strong><p>Add the UAT group to each audience, then test with one account per audience.</p></li>
+      <li><strong>Promote to production</strong><p>Deploy to <code>PRD_SALES_CNSM</code> under a user account. Because the app's access-management rule requires write and reshare rights, use an account that holds them on the items and models in the target workspace, and confirm the behavior in your test stage first.</p></li>
+      <li><strong>Assign production access and smoke test</strong><p>Add the business groups to the audiences and open the app as a member of each.</p></li>
+    </ol>
+    <div class="callout warning"><p class="callout-title">Service principals cannot deploy org apps</p>
+      <p>Learn lists a limitation: org apps cannot be deployed across stages using service principals. A release job that authenticates as a service principal cannot promote the app, even if it promotes everything else. Keep app promotion as a user-context step with an approval, and plan the automation around that. See <a href="../07-deployment/index.html">Deployment Pipelines and Promotion</a> for the general pipeline design and <a href="../14-deployment-checklist/index.html">Deployment Checklist</a> for release gates.</p></div>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p>
+      <p>The CI/CD article says the <code>fabric-cicd</code> library can consume org app definitions from Git. The library's own documentation lists its supported item types, and org apps and org app audiences are not among them in the version reviewed. Do not build release automation on <code>fabric-cicd</code> for org apps until you have confirmed the item type in the <a href="https://microsoft.github.io/fabric-cicd/latest/">current supported item types</a> and tested it with your identity model.</p></div>
+
+    <h3 id="stage-access">Access per environment</h3>
+    <table>
+      <thead><tr><th>Stage</th><th>Audience members</th><th>Purpose</th><th>Who can edit</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Development</strong></td><td>Developers and test accounts</td><td>Build and review layout, navigation and audience visibility</td><td>Developers (Contributor), app owner (Member)</td></tr>
+        <tr><td><strong>Test</strong></td><td>UAT group and one test account per audience</td><td>Validate access, content and performance as a real consumer</td><td>Release owner only</td></tr>
+        <tr><td><strong>Production</strong></td><td>Business groups</td><td>Serve the audience</td><td>App owner and release owner; no direct item edits</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="updating">Updating an org app</h2>
+    <p>Users with Admin or Member permissions can edit an app when the update adds or removes items or otherwise changes access management. Contributors can edit when the update does not affect access management. Start from the workspace list (<strong>... &gt; Edit</strong>) or from the viewing experience (<strong>Edit app</strong>), change what you need and select <strong>Save</strong>.</p>
+    <table>
+      <thead><tr><th>Kind of change</th><th>Where</th><th>Visible to consumers</th></tr></thead>
+      <tbody>
+        <tr><td>Edit an included report or notebook</td><td>The item</td><td>When the item is saved; no app step</td></tr>
+        <tr><td>Rename, reorder, restructure, overview, branding</td><td>App editor</td><td>When the app is saved</td></tr>
+        <tr><td>Add or remove items, change audience visibility</td><td>App editor, Manage audiences</td><td>When saved, with the access changes that go with it</td></tr>
+        <tr><td>Name, description, endorsement</td><td>Settings pane</td><td>Immediately</td></tr>
+        <tr><td>Add or remove people</td><td>Share, Manage access</td><td>Immediately</td></tr>
+      </tbody>
+    </table>
+    <p>If you remove items from an app, everyone with access loses their app-derived access to those items and to the underlying models of removed reports and paginated reports. Do that deliberately, and announce it, because a consumer who had the report open sees it stop working.</p>
+    <p><strong>Urgent fixes.</strong> Even a hotfix should go through the pipeline. If someone edits an item directly in production, back-port the change to development straight away: the next deployment overwrites the paired item in the target stage, and the fix is lost if development never received it.</p>
+
+    <h2 id="retiring">Unpublishing and deleting</h2>
+    <p>In the org app model, unpublishing is deleting the org app item: select <strong>... &gt; Delete</strong> on the item in the workspace. Users lose the access the app gave them to the included items and to the underlying models of reports and paginated reports, and Read and Execute on an included Fabric App. Included items stay in the workspace, and access granted independently of the app stays in place.</p>
+    <div class="callout caution"><p class="callout-title">Plan for deletion as irreversible</p>
+      <p>The documentation describes deletion but not recovery. A re-created app is a new item, and links to the old one should not be assumed to work again. If the workspace is connected to Git, commit the definition first so the structure is recoverable even if the identity of the item is not.</p></div>
+    <p>If you want the effect of unpublishing without losing the item, remove access instead: use <strong>Manage access</strong> to remove the groups, which takes the app away from consumers and keeps the structure, branding and audiences ready to re-grant.</p>
+    <ol class="steps">
+      <li><strong>Announce</strong><p>Tell consumers what is being retired, what replaces it and where the new link is.</p></li>
+      <li><strong>Capture the definition</strong><p>Commit the app and audience definitions to Git, or export your documentation of its structure.</p></li>
+      <li><strong>Withdraw access</strong><p>Remove the groups and leave the item in place for a soak period. Watch for support requests.</p></li>
+      <li><strong>Delete the item</strong><p>Delete the app in each stage, starting with production if you are retiring it outright.</p></li>
+      <li><strong>Clean up</strong><p>Remove lingering independent access, check semantic model permissions for records left behind, remove the Git folder and update any intranet pages, bookmarks or documents that linked to the app.</p></li>
+    </ol>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p><ul>
+      <li>Share with Entra groups through audiences, restrict reshare to named owners, and expect a removed user to keep access that came from somewhere other than the app.</li>
+      <li>Treat Access to hidden content as a security-relevant switch; review it in every pull request and every audience review.</li>
+      <li>Git stores the app's structure and visibility, not its members. Assign and document membership per environment.</li>
+      <li>Build in development, review in Git, promote with a pipeline under a user account, and never edit production items directly.</li>
+      <li>There is no unpublish step: withdraw by removing access, retire by deleting, and capture the definition first.</li>
+    </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/power-bi/explore-reports/org-app-items">Get started with org apps</a></li>
+        <li><a href="https://learn.microsoft.com/power-bi/developer/embedded/org-app-cicd">CI/CD for org apps in Fabric</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/cicd/git-integration/intro-to-git-integration">Overview of Fabric Git integration</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/cicd/deployment-pipelines/intro-to-deployment-pipelines">Overview of Fabric deployment pipelines</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/cicd/cicd-overview">Introduction to CI/CD in Microsoft Fabric</a></li>
+        <li><a href="https://microsoft.github.io/fabric-cicd/latest/">fabric-cicd documentation</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

@@ -1,0 +1,21 @@
+{
+  "id": "10-control-table-pipelines",
+  "number": "10",
+  "title": "Control-Table-Driven Pipelines and Asset Discovery",
+  "short": "Control tables",
+  "summary": "Drive Fabric pipelines from a Warehouse control table instead of hard-coded activities, and keep the item IDs it needs fresh with an automated, API-based inventory of every workspace and item.",
+  "category": "data-engineering",
+  "level": "Advanced",
+  "audience": "Data platform engineers, Fabric administrators, orchestration and DevOps owners",
+  "readingTime": "100 min",
+  "pages": [
+    { "file": "index.html", "title": "Overview", "description": "What the control-table framework and asset inventory solve, when to use them, what you build, and how the pages fit together." },
+    { "file": "asset-inventory.html", "title": "Asset discovery and inventory", "description": "Choose the right API, authenticate safely, build the inventory notebook and tables, and use the catalog for governance, orchestration, cost, security and CI/CD." },
+    { "file": "framework-design.html", "title": "Framework design and decisions", "description": "Principles, end-to-end flow, prerequisites, topology, a decision table against alternatives, and design guidance for ordering, retries, concurrency and restarts." },
+    { "file": "warehouse-objects.html", "title": "Warehouse objects and seed data", "description": "Convert T-SQL scripts to stored procedures, create the control table, run log, procedures and views in a Fabric Warehouse, and seed the first tasks." },
+    { "file": "dispatcher.html", "title": "Notebook dispatcher (GUID launcher)", "description": "Run notebooks by item ID so renames cannot break orchestration: options compared, the dispatcher notebook, polling, identity and capacity behavior." },
+    { "file": "master-pipeline.html", "title": "Build the master pipeline", "description": "Guard step, stage lookups, ForEach settings, the per-task body with logging, Switch on task type, failure paths and a reusable notification pipeline." },
+    { "file": "extended-scenario.html", "title": "Extended scenario and workshop", "description": "Scale the plan from five to twenty tasks, populate the control table, inspect the lookups and run timelines, and rebuild the pipeline as a hands-on workshop." },
+    { "file": "operations.html", "title": "Operations, security and checklist", "description": "Health-check queries, monitoring, troubleshooting, security, CI/CD with variable libraries, observability, and a go-live checklist with references." }
+  ]
+}

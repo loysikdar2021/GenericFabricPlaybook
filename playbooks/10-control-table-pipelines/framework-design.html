@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Framework design and decisions · Control tables</title>
+<meta name="description" content="Principles of control-table orchestration in Fabric, the end-to-end flow, prerequisites, topology, a decision table against alternatives, and guidance on ordering, restarts, retries and concurrency.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="10-control-table-pipelines" data-page="framework-design.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+
+    <header class="page-header">
+      <p class="eyebrow">Playbook 10 · Half B</p>
+      <h1>Framework design and decisions</h1>
+      <p class="lede">Before you build, decide what the framework is, what it will and will not do, and how it behaves when tasks fail, overlap or need to be re-run. This page covers the principles, the end-to-end flow, prerequisites, the example topology, a decision table against alternatives and the design guidance that the later pages implement.</p>
+    </header>
+
+    <h2 id="principles">Principles of control-table-driven orchestration</h2>
+    <p>To orchestrate hundreds of PySpark notebooks and SQL scripts reliably, shift control flow out of hand-built pipeline wiring and into a configuration layer. By separating the <em>what</em> (a row in the control table that defines a task) from the <em>how</em> (a generic engine that executes any task), you get reuse, consistency and a platform that changes by data entry instead of by deployment.</p>
+    <p>A control-table framework uses configuration data to drive execution. Rather than building one pipeline per source or transformation, you build a small set of reusable pipelines that read their instructions at run time from the control table: which notebook to run, in which workspace, in which stage, owned by whom, notifying which address.</p>
+    <p>That changes the development lifecycle in four ways:</p>
+    <ul>
+      <li><strong>Agility.</strong> Onboarding a task is a planned data-entry step. The framework picks the new row up on the next run, so the time to add a workflow drops from days to minutes once the engine exists.</li>
+      <li><strong>Consistency.</strong> Every task is logged, retried and reported by the same tested template, so behavior does not drift from one pipeline to the next.</li>
+      <li><strong>Less duplication.</strong> One copy of the logging, error handling and notification logic replaces dozens of copies, and one fix repairs all of them.</li>
+      <li><strong>Simpler governance.</strong> The control table is a de facto catalog of every data operation. Lineage questions, impact analysis and change review become queries and pull requests against a table or its seed script.</li>
+    </ul>
+    <p>The cost is real and worth naming: you now own a framework. It needs a guard step, tests, versioned seed scripts and an owner, and it constrains how much pipeline logic can depend on run-time data. The <a href="#decision-table">decision table</a> below helps you judge whether that trade is right.</p>
+
+    <h2 id="deliverables">What the playbook delivers</h2>
+    <ul>
+      <li><strong>A control table and a task-dependency table</strong> in a Warehouse, with seed scripts. The control table is the system of record for your DAG: each row is a task with its type, stage, order, target IDs, parameters and notification targets.</li>
+      <li><strong>An append-only run log</strong> that records every start and end event. Because it never updates in place, it avoids the snapshot-isolation update conflicts that appear when many parallel tasks write status to the same table.</li>
+      <li><strong>Stored procedures</strong> the pipeline calls to validate configuration and write log events.</li>
+      <li><strong>A rename-proof notebook launcher</strong> that runs notebooks by item ID through the Fabric job-scheduler API and polls the job until it completes, plus an assessment of when the native Notebook activity is the better choice.</li>
+      <li><strong>A master pipeline design</strong> using Lookup to fetch a stage's tasks, ForEach to iterate them in parallel or in sequence, Switch to run the right activity for each task type, and failure paths that log and notify.</li>
+      <li><strong>Failure notification</strong> through a reusable pipeline that wraps the Office 365 Outlook activity, with recipients taken from the control table.</li>
+    </ul>
+
+    <h2 id="how-it-works">How it works, end to end</h2>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 300" role="img" aria-label="The control table feeds a Lookup, then a ForEach, then a Switch on task type that runs a notebook, stored procedure or child pipeline; start and end events go to the run log and failures go to a notification step">
+        <defs>
+          <marker id="fw1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fw1-ar" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar red" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box purple" x="10" y="64" width="140" height="64" rx="10"/>
+        <text class="t-b" x="80" y="92" text-anchor="middle">Control table</text>
+        <text class="t-s" x="80" y="110" text-anchor="middle">Warehouse table</text>
+        <rect class="box teal" x="190" y="64" width="120" height="64" rx="10"/>
+        <text class="t-b" x="250" y="92" text-anchor="middle">Lookup</text>
+        <text class="t-s" x="250" y="110" text-anchor="middle">rows for one stage</text>
+        <rect class="box teal" x="350" y="64" width="120" height="64" rx="10"/>
+        <text class="t-b" x="410" y="92" text-anchor="middle">ForEach</text>
+        <text class="t-s" x="410" y="110" text-anchor="middle">batch count</text>
+        <rect class="box teal" x="510" y="64" width="120" height="64" rx="10"/>
+        <text class="t-b" x="570" y="92" text-anchor="middle">Switch</text>
+        <text class="t-s" x="570" y="110" text-anchor="middle">on task_type</text>
+        <rect class="box blue" x="700" y="26" width="180" height="40" rx="8"/>
+        <text class="t-b" x="790" y="51" text-anchor="middle">Notebook by item ID</text>
+        <rect class="box blue" x="700" y="76" width="180" height="40" rx="8"/>
+        <text class="t-b" x="790" y="101" text-anchor="middle">Stored procedure</text>
+        <rect class="box teal" x="700" y="126" width="180" height="40" rx="8"/>
+        <text class="t-b" x="790" y="151" text-anchor="middle">Child pipeline</text>
+        <rect class="box blue" x="320" y="200" width="170" height="56" rx="10"/>
+        <text class="t-b" x="405" y="224" text-anchor="middle">ctl.run_log</text>
+        <text class="t-s" x="405" y="242" text-anchor="middle">append-only events</text>
+        <rect class="box orange" x="540" y="200" width="170" height="56" rx="10"/>
+        <text class="t-b" x="625" y="224" text-anchor="middle">Notify owners</text>
+        <text class="t-s" x="625" y="242" text-anchor="middle">email or Teams</text>
+        <path class="ln" d="M150 96H188" marker-end="url(#fw1-a)"/>
+        <path class="ln" d="M310 96H348" marker-end="url(#fw1-a)"/>
+        <path class="ln" d="M470 96H508" marker-end="url(#fw1-a)"/>
+        <path class="ln" d="M630 96H665V46H698" marker-end="url(#fw1-a)"/>
+        <path class="ln" d="M630 96H698" marker-end="url(#fw1-a)"/>
+        <path class="ln" d="M630 96H665V146H698" marker-end="url(#fw1-a)"/>
+        <path class="ln" d="M410 128V198" marker-end="url(#fw1-a)"/>
+        <path class="ln red" d="M570 128V198" marker-end="url(#fw1-ar)"/>
+        <text class="t-s" x="169" y="88" text-anchor="middle">query</text>
+        <text class="t-s" x="329" y="88" text-anchor="middle">rows</text>
+        <text class="t-s" x="489" y="88" text-anchor="middle">item</text>
+        <text class="t-s" x="418" y="170">start and end events</text>
+        <text class="t-s c-red" x="578" y="170">on failure</text>
+        <text class="t-s" x="10" y="284">Repeat Lookup, ForEach and Switch for each stage. Stage n+1 starts only when stage n has succeeded.</text>
+      </svg>
+      <figcaption><b>End-to-end flow.</b> The control table decides what runs; the pipeline decides how. Each task writes its own start and end events, so the run log is a complete trail even when parallel tasks overlap.</figcaption>
+    </figure>
+    <ol class="steps">
+      <li><strong>Declare tasks in the control table.</strong><p>Each row defines a task: <code>task_type</code> (Notebook, StoredProcedure, Pipeline), <code>stage</code>, <code>sequence_no</code>, the target IDs, and <code>notify_to</code>. This keeps orchestration data-driven and easy to review under change control.</p></li>
+      <li><strong>Stage the orchestration.</strong><p>The pipeline runs one loop per stage: ingests in parallel, transforms in sequence after the ingests, post-load SQL in sequence after the transforms. Each Lookup filters the table for one stage and each ForEach iterates <code>@activity('Lookup_Stage1').output.value</code>.</p></li>
+      <li><strong>Execute the work.</strong><p>A Switch on <code>task_type</code> sends notebook tasks to the launcher or the Notebook activity, procedure tasks to a Script activity that runs the named procedure, and pipeline tasks to Invoke pipeline. A failure inside any case is raised to the Switch so the failure path can run.</p></li>
+      <li><strong>Log and notify inside the iteration.</strong><p>Each iteration writes a Started event on entry and a Succeeded or Failed event on exit, with no in-place updates, and sends a notification on failure to the addresses in the row. Keeping these steps in the same ForEach iteration gives them access to the activity's error output.</p></li>
+      <li><strong>Observe and govern.</strong><p>Use the Monitor hub for run history and the Gantt view, and the log tables for ad-hoc queries and dashboards.</p></li>
+    </ol>
+
+    <h2 id="why">Why this approach</h2>
+    <ul>
+      <li><strong>Deterministic and auditable.</strong> A single table declares the DAG, the pipeline reads it exactly as it is at run time, and the append-only log is an immutable trail of every attempt and outcome.</li>
+      <li><strong>Parallel where it is safe, sequential where it is needed.</strong> ForEach settings balance throughput and dependencies, and the batch count caps concurrency.</li>
+      <li><strong>Rename-proof execution.</strong> Referencing items by ID instead of by display name removes a whole class of brittle failures. The <a href="dispatcher.html">dispatcher page</a> covers how and where that holds.</li>
+      <li><strong>Native building blocks.</strong> Lookup, ForEach, Switch, Stored procedure, Script, Notebook, Invoke pipeline and the Outlook and Teams activities are all documented Fabric activities, observable in the Monitor hub.</li>
+    </ul>
+
+    <h2 id="prerequisites">Prerequisites</h2>
+    <ul class="checklist">
+      <li>A Fabric workspace with Data Factory and a Warehouse for the control table, logs and procedures (the hub workspace).</li>
+      <li>Permission to run pipelines and to execute procedures in that workspace, and Contributor access (or higher) to every workspace whose notebooks and pipelines you will orchestrate.</li>
+      <li>A mailbox or a Teams channel for failure notifications. With a user connection the Outlook activity sends from that account, so use a team-owned account and not a personal one; a workspace identity or service principal is the alternative and needs admin-consented Microsoft Graph permissions.</li>
+      <li>For hub-and-spoke topologies, an identity authorized to invoke pipelines across workspaces: a service principal or a workspace identity.</li>
+      <li>An Azure Key Vault if any notebook authenticates with a service principal secret.</li>
+    </ul>
+    <p>Which identity does what matters, because it determines what fails when someone leaves or a secret expires.</p>
+    <table>
+      <thead><tr><th>Component</th><th>Authentication</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td>Notebook activity, Invoke pipeline activity</td><td>The connection on the activity: organizational account, service principal, or workspace identity.</td><td>To use a workspace identity, create it in the pipeline's workspace, enable the tenant setting <strong>Service principals can call Fabric public APIs</strong>, and grant it at least Contributor in the target workspace.</td></tr>
+        <tr><td>Stored procedure, Script, Lookup (Warehouse)</td><td>A Warehouse connection.</td><td>Authentication kinds differ by connector; check the connection dialog for what your tenant offers.</td></tr>
+        <tr><td>Office 365 Outlook activity</td><td>User (OAuth), workspace identity or service principal.</td><td>With a user connection the mail is sent from that user's account, and the activity is inactive in a target workspace until a connection is created there. A workspace identity or service principal needs application-level Microsoft Graph permissions with administrator consent, and possibly Exchange Online mailbox restrictions. The <a href="master-pipeline.html#notifications">notification pattern</a> keeps the connection in one reusable pipeline.</td></tr>
+        <tr><td>Teams activity</td><td>A user connection.</td><td>The Teams activity is documented as inactive when you deploy with CI/CD, so recreate its connection after a deployment or prefer email for production alerts.</td></tr>
+        <tr><td>Dispatcher notebook (REST calls)</td><td>The identity of the Notebook activity that runs it.</td><td>Under a service principal, <code>getToken('pbi')</code> returns a token with reduced scopes; use MSAL with a Key Vault secret if you need more. See the <a href="dispatcher.html#identity">dispatcher page</a>.</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="topology">Scenario and topology</h2>
+    <p>The worked example uses one orchestration hub workspace and two data workspaces. The hub holds the Warehouse with the control table, run log and procedures, the master pipeline and the dispatcher. Ingest notebooks live in the Bronze workspace, the transform notebook in the Silver workspace (see <a href="../03-medallion-architecture/index.html">Medallion Architecture</a> for the layout), and the two stored procedures live in the hub Warehouse.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 300" role="img" aria-label="Topology: two ingest notebooks in the Bronze workspace and a transform notebook in the Silver workspace are started by a master pipeline and dispatcher in the hub workspace, which also holds the control warehouse and inventory lakehouse">
+        <defs>
+          <marker id="fw2-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="zone" x="10" y="34" width="300" height="116" rx="12"/>
+        <text class="t-s" x="24" y="52">DEV_SALES_BRZ · Bronze workspace</text>
+        <rect class="box blue" x="25" y="62" width="270" height="34" rx="8"/>
+        <text class="t-b" x="160" y="84" text-anchor="middle">NB_SALES_BRZ_IngestCustomers</text>
+        <rect class="box blue" x="25" y="102" width="270" height="34" rx="8"/>
+        <text class="t-b" x="160" y="124" text-anchor="middle">NB_SALES_BRZ_IngestProducts</text>
+        <rect class="zone" x="340" y="34" width="260" height="116" rx="12"/>
+        <text class="t-s" x="354" y="52">DEV_SALES_SLV · Silver workspace</text>
+        <rect class="box blue" x="355" y="84" width="230" height="40" rx="8"/>
+        <text class="t-b" x="470" y="109" text-anchor="middle">NB_SALES_SLV_TransformSales</text>
+        <rect class="box gray" x="630" y="34" width="260" height="116" rx="12"/>
+        <text class="t-b" x="760" y="60" text-anchor="middle">Run order</text>
+        <text class="t-s" x="760" y="86" text-anchor="middle">Stage 1: both ingests in parallel</text>
+        <text class="t-s" x="760" y="108" text-anchor="middle">Stage 2: transform after both</text>
+        <text class="t-s" x="760" y="130" text-anchor="middle">Stage 3: two procedures in sequence</text>
+        <rect class="zone teal" x="5" y="176" width="890" height="116" rx="12"/>
+        <text class="t-s" x="16" y="194">DEV_ORCH_HUB · orchestration hub workspace</text>
+        <rect class="box teal" x="15" y="208" width="180" height="64" rx="10"/>
+        <text class="t-b" x="105" y="234" text-anchor="middle">PL_ORCH_HUB_Master</text>
+        <text class="t-s" x="105" y="252" text-anchor="middle">reads the control table</text>
+        <rect class="box blue" x="235" y="208" width="205" height="64" rx="10"/>
+        <text class="t-b" x="337" y="234" text-anchor="middle">NB_ORCH_HUB_RunNotebookById</text>
+        <text class="t-s" x="337" y="252" text-anchor="middle">starts notebooks by ID</text>
+        <rect class="box purple" x="480" y="208" width="190" height="64" rx="10"/>
+        <text class="t-b" x="575" y="234" text-anchor="middle">WH_ORCH_HUB_Control</text>
+        <text class="t-s" x="575" y="252" text-anchor="middle">control table · logs · procs</text>
+        <rect class="box blue" x="710" y="208" width="175" height="64" rx="10"/>
+        <text class="t-b" x="797" y="234" text-anchor="middle">LH_ORCH_HUB_Inventory</text>
+        <text class="t-s" x="797" y="252" text-anchor="middle">item IDs</text>
+        <path class="ln" d="M195 240H233" marker-end="url(#fw2-a)"/>
+        <text class="t-s" x="214" y="233" text-anchor="middle">runs</text>
+        <path class="ln" d="M710 240H672" marker-end="url(#fw2-a)"/>
+        <text class="t-s" x="691" y="233" text-anchor="middle">IDs</text>
+        <path class="ln teal" d="M337 208V172H160V152" marker-end="url(#fw2-a)"/>
+        <path class="ln teal" d="M337 172H470V152" marker-end="url(#fw2-a)"/>
+        <rect class="pill-bg" x="290" y="164" width="94" height="16"/>
+        <text class="t-s" x="337" y="176" text-anchor="middle">runs by item ID</text>
+      </svg>
+      <figcaption><b>Example topology.</b> The hub starts work in the data workspaces by ID. Procedures run in the hub Warehouse, which is why the stored-procedure stage needs no cross-workspace call.</figcaption>
+    </figure>
+    <table>
+      <thead><tr><th>Order</th><th>Artifact</th><th>Names</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td>Notebooks</td><td><code>NB_SALES_BRZ_IngestCustomers</code>, <code>NB_SALES_BRZ_IngestProducts</code></td><td>Run <strong>in parallel</strong></td></tr>
+        <tr><td>2</td><td>Notebook</td><td><code>NB_SALES_SLV_TransformSales</code></td><td>Waits for both ingests</td></tr>
+        <tr><td>3, 4</td><td>Stored procedures (Warehouse)</td><td><code>dbo.usp_create_snapshot</code>, <code>dbo.usp_archive_data</code></td><td>Run <strong>sequentially</strong> after the transform</td></tr>
+      </tbody>
+    </table>
+    <div class="callout tip"><p class="callout-title">Where do procedures live?</p>
+      <p>The Script activity that runs a task's procedure uses one Warehouse connection. Keep the procedures the framework calls in the control Warehouse, and let them reach other warehouses in the same workspace with three-part names, rather than multiplying activities per target warehouse.</p></div>
+
+    <h2 id="decision-table">Decision table: control table or something else?</h2>
+    <p>The control-table pattern is one of several reasonable ways to run work in Fabric. Pick it when its strengths line up with your constraints, not because it is the most flexible.</p>
+    <table>
+      <thead><tr><th>Approach</th><th>Strengths</th><th>Limits</th><th>Choose it when</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Hard-coded pipelines</strong><br>One pipeline per flow, activities and IDs set on the canvas</td><td>Simplest to read and debug. Visual lineage on the canvas. Nothing extra to maintain.</td><td>Duplicated logging and error handling. Every change is a deployment. Renames and re-creations break references.</td><td>A small, stable set of flows owned by one team.</td></tr>
+        <tr><td><strong>Control-table framework</strong><br>This playbook</td><td>Adding, disabling or reordering a task is data entry. One audited engine across task types and workspaces. SQL-queryable history.</td><td>You own a framework. Limited branching on run-time data. Pipeline limits apply (120 activities per pipeline; Lookup returns at most 5,000 rows and 4 MB).</td><td>Many tasks with the same run, log and notify pattern; several teams adding tasks; audit requirements.</td></tr>
+        <tr><td><strong>Copy job</strong></td><td>Built-in many-to-many data movement with full and incremental (watermark or change-data-capture) copy, state tracking, multiple schedules and no pipeline to build.</td><td>Moves data only: no notebooks, procedures or custom control flow. Can still be a task inside a pipeline through the Copy job activity.</td><td>Ingesting many tables from supported sources.</td></tr>
+        <tr><td><strong>Metadata-driven Copy activity</strong><br>Lookup, ForEach and Copy driven by a config table</td><td>Fine control of per-table queries, sinks and pre- or post-steps. It is the ingest-only form of this playbook's pattern.</td><td>You maintain the config table and the loop; no built-in incremental state.</td><td>Copy job options do not fit (custom per-table logic), or you already run a framework and want ingest inside it.</td></tr>
+        <tr><td><strong>Notebook DAG</strong><br><code>notebookutils.notebook.runMultiple</code></td><td>Cheap: runs notebooks as threads in one Spark session. Dependencies, retries and exit-value chaining are declared in code.</td><td>Notebooks only. Children share one session's resources (default concurrency is three times the cores). Referenced by name or path, so it is not rename-proof. No per-task entries in the Monitor hub.</td><td>Many small PySpark steps with data-dependent logic, owned by data engineers who prefer code.</td></tr>
+        <tr><td><strong>Code-first orchestrator</strong><br>Airflow-style Python DAGs</td><td>Rich DAG semantics and reuse of existing Airflow skills.</td><td>Another runtime to operate, with its own identity and monitoring model. Check the current status of the Fabric item before adopting it.</td><td>The team already runs Airflow and wants to keep one orchestration language.</td></tr>
+        <tr><td><strong>Event triggers and Activator</strong></td><td>Start work when something happens (a file lands, an alert fires).</td><td>Starts work; does not model a multi-step DAG.</td><td>Complement, not replacement: use events to start the master pipeline.</td></tr>
+      </tbody>
+    </table>
+    <table>
+      <thead><tr><th>Criterion</th><th>Hard-coded pipelines</th><th>Control table</th><th>Copy job</th><th>Notebook DAG</th></tr></thead>
+      <tbody>
+        <tr><td>New task is data entry</td><td class="no">No</td><td class="yes">Yes</td><td class="maybe">Per table, in the UI</td><td class="maybe">Edit a DAG in code</td></tr>
+        <tr><td>Notebook, SQL and pipeline tasks in one flow</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="no">No</td><td class="no">Notebooks only</td></tr>
+        <tr><td>Per-task history queryable in SQL</td><td class="no">No</td><td class="yes">Yes</td><td class="maybe">Through monitoring and audit columns</td><td class="maybe">If you log it yourself</td></tr>
+        <tr><td>Fine-grained dependencies</td><td class="yes">Yes, on the canvas</td><td class="maybe">Stage gates by default; dependency gates need extra logic</td><td class="no">No</td><td class="yes">Yes</td></tr>
+        <tr><td>Rename-proof references</td><td class="maybe">Selected items are stored by ID</td><td class="yes">Yes, by design</td><td class="yes">Yes</td><td class="no">By name or path</td></tr>
+        <tr><td>Operating effort</td><td class="yes">Low</td><td class="maybe">Medium</td><td class="yes">Low</td><td class="yes">Low</td></tr>
+      </tbody>
+    </table>
+    <div class="callout note"><p class="callout-title">Combine, do not choose</p>
+      <p>These approaches compose. A control-table task can be a Copy job activity for ingest, a notebook that runs a small DAG internally, and a child pipeline owned by a spoke team. The <a href="../04-cross-workspace-orchestration/index.html">hub-and-spoke playbook</a> describes how spokes expose pipelines for a hub to invoke; the control table is a convenient way to drive that hub.</p></div>
+
+    <h2 id="design-guidance">Design guidance</h2>
+
+    <h3 id="ordering">Ordering: stage, sequence and dependencies</h3>
+    <p>Model ordering explicitly. Three columns carry it:</p>
+    <ul>
+      <li><code>stage</code> is a gate. All enabled tasks of stage <em>n</em> must succeed before stage <em>n+1</em> starts. It maps to one Lookup and ForEach pair.</li>
+      <li><code>sequence_no</code> orders tasks inside a stage that runs sequentially. It is also the tie-breaker for parallel stages: order long-running tasks first so they start first.</li>
+      <li><code>ctl.task_dependency</code> records which task depends on which. By itself it documents the DAG and lets the guard step catch mistakes such as a dependency on a later stage. Optionally it drives a per-task gate.</li>
+    </ul>
+    <div class="callout warning"><p class="callout-title">Never order by task name</p>
+      <p>A common shortcut is to name tasks <code>01_...</code>, <code>02_...</code> and rely on <code>ORDER BY task_name</code>. It breaks as soon as a stage mixes tasks or the numbering is reused: in one early build, tasks sorted within a stage by name ran in the reverse of the intended order. A numeric <code>sequence_no</code> column removes the ambiguity.</p></div>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 300" role="img" aria-label="Stage gate: when task A fails both tasks of the next stage are skipped. Dependency gate: only the task that depends on A is skipped and the task that depends on B still runs">
+        <defs>
+          <marker id="fw3-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fw3-ar" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar red" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fw3-ag" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <text class="t-h" x="10" y="22">Stage gate: simple, coarse</text>
+        <rect class="zone" x="10" y="34" width="430" height="250" rx="12"/>
+        <rect class="box red" x="30" y="80" width="100" height="50" rx="8"/>
+        <text class="t-b" x="80" y="102" text-anchor="middle">Task A</text>
+        <text class="t-s" x="80" y="119" text-anchor="middle">Failed</text>
+        <rect class="box green" x="30" y="170" width="100" height="50" rx="8"/>
+        <text class="t-b" x="80" y="192" text-anchor="middle">Task B</text>
+        <text class="t-s" x="80" y="209" text-anchor="middle">Succeeded</text>
+        <rect class="box purple" x="180" y="110" width="80" height="100" rx="10"/>
+        <text class="t-b" x="220" y="157" text-anchor="middle">stage</text>
+        <text class="t-b" x="220" y="174" text-anchor="middle">gate</text>
+        <rect class="box gray dashed" x="310" y="80" width="100" height="50" rx="8"/>
+        <text class="t-b" x="360" y="102" text-anchor="middle">Task C</text>
+        <text class="t-s" x="360" y="119" text-anchor="middle">Skipped</text>
+        <rect class="box gray dashed" x="310" y="170" width="100" height="50" rx="8"/>
+        <text class="t-b" x="360" y="192" text-anchor="middle">Task D</text>
+        <text class="t-s" x="360" y="209" text-anchor="middle">Skipped</text>
+        <path class="ln red" d="M130 105H178" marker-end="url(#fw3-ar)"/>
+        <path class="ln green" d="M130 195H178" marker-end="url(#fw3-ag)"/>
+        <path class="ln" d="M260 140H285V105H308" marker-end="url(#fw3-a)"/>
+        <path class="ln" d="M260 180H285V195H308" marker-end="url(#fw3-a)"/>
+        <text class="t-s c-red" x="225" y="262" text-anchor="middle">Task B succeeded, yet task D never runs</text>
+        <text class="t-h" x="460" y="22">Dependency gate: precise, more logic</text>
+        <rect class="zone" x="460" y="34" width="430" height="250" rx="12"/>
+        <rect class="box red" x="480" y="80" width="100" height="50" rx="8"/>
+        <text class="t-b" x="530" y="102" text-anchor="middle">Task A</text>
+        <text class="t-s" x="530" y="119" text-anchor="middle">Failed</text>
+        <rect class="box green" x="480" y="170" width="100" height="50" rx="8"/>
+        <text class="t-b" x="530" y="192" text-anchor="middle">Task B</text>
+        <text class="t-s" x="530" y="209" text-anchor="middle">Succeeded</text>
+        <rect class="box gray dashed" x="770" y="80" width="100" height="50" rx="8"/>
+        <text class="t-b" x="820" y="102" text-anchor="middle">Task C</text>
+        <text class="t-s" x="820" y="119" text-anchor="middle">Skipped</text>
+        <rect class="box green" x="770" y="170" width="100" height="50" rx="8"/>
+        <text class="t-b" x="820" y="192" text-anchor="middle">Task D</text>
+        <text class="t-s" x="820" y="209" text-anchor="middle">Succeeded</text>
+        <path class="ln red dash" d="M580 105H768" marker-end="url(#fw3-ar)"/>
+        <path class="ln green" d="M580 195H768" marker-end="url(#fw3-ag)"/>
+        <rect class="pill-bg" x="624" y="97" width="102" height="16"/>
+        <text class="t-s" x="675" y="109" text-anchor="middle">C depends on A</text>
+        <rect class="pill-bg" x="624" y="187" width="102" height="16"/>
+        <text class="t-s" x="675" y="199" text-anchor="middle">D depends on B</text>
+        <text class="t-s c-green" x="675" y="262" text-anchor="middle">Only the task downstream of the failure is skipped</text>
+      </svg>
+      <figcaption><b>Two ways to gate.</b> A stage gate is a single pipeline dependency and is easy to reason about, but one failure blocks the whole next stage. A dependency gate checks each task's prerequisites in the run log before it starts, so unrelated branches keep running.</figcaption>
+    </figure>
+    <table>
+      <thead><tr><th>Gate</th><th>How you build it</th><th>Use it when</th></tr></thead>
+      <tbody>
+        <tr><td>Stage gate</td><td>ForEach for stage <em>n+1</em> depends on ForEach for stage <em>n</em> Succeeded.</td><td>Stages are naturally all-or-nothing (all ingests must land before any transform).</td></tr>
+        <tr><td>Dependency gate</td><td>Before running a task, run a Lookup that counts prerequisites without a Succeeded event in this run. Branch on the count (Switch on a computed key, because Switch and If cannot be nested inside each other) and log a Skipped event when blocked.</td><td>Independent subgraphs share a stage and a failure in one should not stall the others.</td></tr>
+      </tbody>
+    </table>
+
+    <h3 id="idempotency">Idempotency and restarts</h3>
+    <p>Assume every task can be run twice. Pipelines retry, people rerun, and a failed run is restarted. Write notebooks so that a repeat produces the same end state (overwrite a partition or <code>MERGE</code> on a key) and write procedures with <code>TRUNCATE</code> then insert, or <code>MERGE</code>, inside a transaction. The framework itself never promises exactly-once execution.</p>
+    <p>To restart a failed run without repeating finished work, give the master pipeline a <code>restart_run_id</code> parameter. Each stage's Lookup excludes tasks that already have a Succeeded event in that run:</p>
+<pre data-title="stage lookup with restart support (T-SQL, Lookup activity)"><code class="language-sql">SELECT c.task_id, c.task_name, c.task_type, c.object_name, c.object_id, c.target_workspace_id,
+       c.parameters_json, c.notify_to
+FROM ctl.control_table AS c
+WHERE c.is_enabled = 1
+  AND c.stage = 1
+  AND c.task_name NOT IN (
+        SELECT s.task_name
+        FROM ctl.vw_task_last_status_per_run AS s
+        WHERE s.run_id = '@{pipeline().parameters.restart_run_id}'
+          AND s.last_event = 'Succeeded')
+ORDER BY c.sequence_no, c.task_name;</code></pre>
+    <p>With an empty <code>restart_run_id</code> the subquery matches nothing and every enabled task runs. Because configuration can change between the failed run and the restart, treat a restart as "run what is enabled now, minus what already succeeded".</p>
+
+    <h3 id="retries">Retries and timeouts</h3>
+    <ul>
+      <li><strong>Use the activity's own retry for transient errors.</strong> Pipeline activities can retry automatically (the retry count, interval and optional retry conditions are set per activity). By default a retry fires on any failure; retry conditions, which are in preview and supported for specific activity types including Notebook and Stored procedure, let you retry only on matching error codes or messages such as throttling.</li>
+      <li><strong>Retry counts are static.</strong> They are not read from a row. If different tasks need different retry policies, group them into different stages or retry inside the dispatcher, where you can log each attempt.</li>
+      <li><strong>Do not retry logic errors.</strong> A schema mismatch fails the same way every time and wastes capacity.</li>
+      <li><strong>Set timeouts below the default.</strong> The activity default is 12 hours; a hung task holds a stage and its capacity for that long. Pick a timeout per task type and let a <code>timeout_minutes</code> column drive the dispatcher's own limit.</li>
+    </ul>
+
+    <h3 id="concurrency">Concurrency limits</h3>
+    <p>Set the ForEach batch count by the scarcest resource, not by the number of tasks. The scarce resource is rarely the pipeline.</p>
+    <table>
+      <thead><tr><th>Resource</th><th>Constraint</th><th>What to do</th></tr></thead>
+      <tbody>
+        <tr><td>ForEach</td><td>Parallel iterations are capped by the batch count (documented for Azure Data Factory as a maximum of 50, default 20).</td><td>Start low and raise it while watching the next rows.</td></tr>
+        <tr><td>Spark capacity</td><td>Notebooks started by a pipeline queue first-in, first-out when the capacity is full; queued jobs expire after 24 hours and the queue has a per-SKU limit. Interactive and public-API submissions are not queued and are rejected with HTTP 430.</td><td>Prefer the Notebook activity for large stages. If you use the dispatcher, retry on 430. Consider session tags with high-concurrency mode to reuse sessions.</td></tr>
+        <tr><td>Warehouse writes</td><td>Table-level locking and snapshot isolation. Concurrent <code>UPDATE</code>, <code>DELETE</code> or <code>MERGE</code> on one table can fail with an update conflict; concurrent <code>INSERT</code>s create new files and rarely conflict.</td><td>Make the log insert-only. Retry procedures that update shared tables, or run them sequentially.</td></tr>
+        <tr><td>Source systems</td><td>Connection and throttling limits of the system being read.</td><td>Group heavy ingests so that only a few run at once.</td></tr>
+        <tr><td>Pipeline size</td><td>A pipeline can contain up to 120 activities including inner ones; ForEach cannot be nested in ForEach; Switch and If cannot be nested in each other.</td><td>Keep the per-task body small and move repeated bodies into a child pipeline.</td></tr>
+      </tbody>
+    </table>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p>
+      <p>The ForEach batch-count maximum and the nesting rules above are documented for Azure Data Factory; the Fabric ForEach article does not restate them. Confirm in the pipeline editor, and read <a href="https://learn.microsoft.com/fabric/data-engineering/job-queueing-for-fabric-spark">Job queueing in Apache Spark for Fabric</a> for the current queue limits.</p></div>
+
+    <h3 id="dynamic-parameters">Dynamic parameters and JSON configuration</h3>
+    <p>Tasks differ in small ways: a load window, a table name, a mode flag. Resist adding a column for each. A nullable <code>parameters_json</code> column holds a JSON object that the pipeline passes to the task as one string parameter; the notebook parses it with <code>json.loads</code> and applies defaults. Keep frequently queried settings (<code>load_mode</code>, <code>timeout_minutes</code>) as typed columns, and use JSON for the long tail. Warehouse tables cannot hold a JSON data type, so store it as <code>VARCHAR</code>, and validate it in the notebook or a pre-check rather than relying on database-side JSON functions.</p>
+
+    <h3 id="extensibility">Extensibility to new task types</h3>
+    <p>A task type is a contract: required columns plus one branch in the Switch. To add Spark job definitions, Dataflow Gen2 refreshes, Copy jobs, semantic model refreshes or web calls, you add the type name to the guard procedure's list of valid types, add a Switch case that maps row columns to the activity's settings, and add a row-level rule to the guard (for example, a Copy job task must have <code>object_id</code>). The engine's logging, notification and ordering stay untouched. The <a href="master-pipeline.html#switch">master pipeline page</a> shows the Switch.</p>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p><ul>
+      <li>Use the pattern when many tasks share one run, log and notify shape; use plain pipelines when they do not, and a Copy job when the work is table copy.</li>
+      <li>Model order with <code>stage</code>, <code>sequence_no</code> and a dependency table; never rely on names. Choose stage gates or dependency gates deliberately.</li>
+      <li>Make every task idempotent and support restart by excluding already-succeeded tasks.</li>
+      <li>Size concurrency to Spark capacity and Warehouse conflicts, not to the number of rows.</li>
+      <li>Keep activity retry and timeout static and conservative; put per-task variation into the dispatcher.</li>
+    </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/activity-overview">Activity overview (general settings, retries, activity limits)</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/lookup-activity">Lookup activity</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/foreach-activity">ForEach activity</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/invoke-pipeline-activity">Invoke pipeline activity</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/notebook-activity">Notebook activity</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/what-is-copy-job">What is Copy job in Data Factory</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/decision-guide-data-movement">Data movement decision guide</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/notebookutils/notebookutils-notebook-run">NotebookUtils notebook run and orchestration</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/job-queueing-for-fabric-spark">Job queueing in Apache Spark for Fabric</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-warehouse/transactions">Transactions in Fabric Data Warehouse</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/security/workspace-identity">Workspace identity</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Troubleshooting · Deployment Checklist</title>
+<meta name="description" content="Symptom, likely cause and fix for blocked or failed deployments, duplicated or missing items, items reading the wrong stage, and empty or stale data, with a triage path to the right table.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="14-deployment-checklist" data-page="troubleshooting.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 14 · Deployment Checklist</p>
+      <h1>Troubleshooting</h1>
+      <p class="lede">Start from what you see, not from what you think is wrong. The triage path points to one of four groups; each table gives the symptom, the usual cause and the fix, and links to the page that explains the mechanism.</p>
+    </header>
+<h2 id="triage">Triage</h2>
+<figure class="diagram">
+<svg class="dg" viewBox="0 0 900 330" role="img" aria-label="Triage path: a blocked or failed deploy points to permissions, dependencies and limits; a duplicated or missing item points to pairing and deletions; wrong data points to binding, rules and value sets; empty data points to hydration, credentials and refresh">
+<defs>
+<marker id="fig-ck-9-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+<marker id="fig-ck-9-a-teal" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar teal" d="M0 0L10 5L0 10z"/></marker>
+</defs>
+<rect class="box purple" x="14" y="118" width="170" height="94" rx="47"/>
+<text class="t-b" x="99" y="160.5" text-anchor="middle">What looks</text>
+<text class="t-s" x="99" y="177.5" text-anchor="middle">wrong?</text>
+<rect class="box blue" x="260" y="14" width="190" height="62" rx="10"/>
+<text class="t-b" x="355" y="41" text-anchor="middle">Deploy blocked</text>
+<text class="t-s" x="355" y="57" text-anchor="middle">or failed</text>
+<rect class="box teal" x="560" y="14" width="326" height="62" rx="10"/>
+<text class="t-s" x="723" y="41" text-anchor="middle">Roles on both workspaces,</text>
+<text class="t-s" x="723" y="57" text-anchor="middle">missing dependency, 300 cap</text>
+<path class="ln" d="M184 165H222V45H260" marker-end="url(#fig-ck-9-a)"/>
+<path class="ln teal" d="M450 45H560" marker-end="url(#fig-ck-9-a-teal)"/>
+<rect class="pill-bg" x="484.1" y="28.5" width="41.7" height="16"/>
+<text class="t-s" x="505" y="41" text-anchor="middle">check</text>
+<rect class="box blue" x="260" y="92" width="190" height="62" rx="10"/>
+<text class="t-b" x="355" y="119" text-anchor="middle">Item duplicated</text>
+<text class="t-s" x="355" y="135" text-anchor="middle">or missing</text>
+<rect class="box teal" x="560" y="92" width="326" height="62" rx="10"/>
+<text class="t-s" x="723" y="119" text-anchor="middle">Pairing, names, Not in</text>
+<text class="t-s" x="723" y="135" text-anchor="middle">source, unassigned stage</text>
+<path class="ln" d="M184 165H222V123H260" marker-end="url(#fig-ck-9-a)"/>
+<path class="ln teal" d="M450 123H560" marker-end="url(#fig-ck-9-a-teal)"/>
+<rect class="pill-bg" x="484.1" y="106.5" width="41.7" height="16"/>
+<text class="t-s" x="505" y="119" text-anchor="middle">check</text>
+<rect class="box blue" x="260" y="170" width="190" height="62" rx="10"/>
+<text class="t-b" x="355" y="197" text-anchor="middle">Reads the wrong</text>
+<text class="t-s" x="355" y="213" text-anchor="middle">source</text>
+<rect class="box teal" x="560" y="170" width="326" height="62" rx="10"/>
+<text class="t-s" x="723" y="197" text-anchor="middle">Autobinding, rule applied?,</text>
+<text class="t-s" x="723" y="213" text-anchor="middle">value set active?</text>
+<path class="ln" d="M184 165H222V201H260" marker-end="url(#fig-ck-9-a)"/>
+<path class="ln teal" d="M450 201H560" marker-end="url(#fig-ck-9-a-teal)"/>
+<rect class="pill-bg" x="484.1" y="184.5" width="41.7" height="16"/>
+<text class="t-s" x="505" y="197" text-anchor="middle">check</text>
+<rect class="box blue" x="260" y="248" width="190" height="62" rx="10"/>
+<text class="t-b" x="355" y="275" text-anchor="middle">Empty or</text>
+<text class="t-s" x="355" y="291" text-anchor="middle">stale data</text>
+<rect class="box teal" x="560" y="248" width="326" height="62" rx="10"/>
+<text class="t-s" x="723" y="275" text-anchor="middle">Hydration ran? credentials,</text>
+<text class="t-s" x="723" y="291" text-anchor="middle">refresh, shortcut targets</text>
+<path class="ln" d="M184 165H222V279H260" marker-end="url(#fig-ck-9-a)"/>
+<path class="ln teal" d="M450 279H560" marker-end="url(#fig-ck-9-a-teal)"/>
+<rect class="pill-bg" x="484.1" y="262.5" width="41.7" height="16"/>
+<text class="t-s" x="505" y="275" text-anchor="middle">check</text>
+</svg>
+<figcaption><b>Start from what you see.</b> Pick the symptom, read the first check, then use the matching rows in the table below.</figcaption>
+</figure>
+<p>Before you work through a table, collect three facts: the deployment ID and status from the deployment history, the list of items that failed or differ, and the deployment note. They tell you which table to open and are what support will ask for.</p>
+<ul>
+<li><a href="#blocked">Deploy blocked or failed</a>: the deployment cannot start, or ends with an error.</li>
+<li><a href="#items">Item duplicated or missing</a>: pairing, deletions and unsupported items.</li>
+<li><a href="#wrong-source">Reads the wrong source</a>: bindings, rules and value sets.</li>
+<li><a href="#empty-data">Empty or stale data</a>: hydration, credentials and refresh.</li>
+</ul>
+
+<h2 id="blocked">Deploy blocked or failed</h2>
+<table>
+<thead><tr><th>Symptom</th><th>Likely cause</th><th>Fix</th></tr></thead>
+<tbody>
+<tr><td>The deploy button is disabled, or the stage is not listed</td><td>The pipeline and the workspaces are permissioned separately. You are missing the pipeline admin permission, or the role on the source or target workspace</td><td>Get pipeline admin and the workspace roles listed in <a href="../07-deployment/automation-and-limits.html#permissions">Permissions and roles</a>, then reload the page</td></tr>
+<tr><td>"Can't assign the workspace"</td><td>An adjacent stage holds two items of the same type and name, so pairing is ambiguous</td><td>Rename one of the duplicates, then assign again. See <a href="../07-deployment/pipeline-setup.html#known-issues">Pipeline setup and pairing</a></td></tr>
+<tr><td>The workspace is missing from the assign list</td><td>You are not its admin, it is already in another pipeline, or it is not on a Fabric capacity</td><td>Fix the failing condition; the list shows only workspaces that meet all three</td></tr>
+<tr><td>The first deployment to an empty stage fails</td><td>No permission to create the workspace on the capacity, a missing workspace role, workspace creation disabled by the tenant, or a selective deployment without the linked items</td><td>Check each in turn. For a selective deployment, select the linked semantic model or dataflow too (<strong>Select related</strong>)</td></tr>
+<tr><td>A "continue the deployment" message appears</td><td>A breaking schema change (for example a column type change) would lose data in the target semantic model</td><td>If the change is intended, continue, then refresh the target model. If not, close the message, fix the source and redeploy</td></tr>
+<tr><td>"Can't start the deployment" on a model with incremental refresh</td><td>Only certain semantic model changes are allowed when incremental refresh is in use</td><td>Publish the change directly to the target model (this drops partitions and data, so refresh afterwards) or make the change with XMLA tools</td></tr>
+<tr><td>Deployment fails with invalid or broken rules</td><td>A semantic model was republished and a parameter was removed or renamed, or a data source rule lost its values</td><td>Open <strong>Configure rules</strong>, fix or remove the marked rules and redeploy. See <a href="../07-deployment/deployment-rules.html#rule-problems">Supported items and rules</a></td></tr>
+<tr><td>The rule pane will not save a data source rule</td><td>The data source is controlled by a parameter, or the model has multiple data sources or a function bound to a data source</td><td>Use a parameter rule instead, or simplify the queries so one data source is used</td></tr>
+<tr><td>Deployment fails while a dataflow in scope is running</td><td>A dataflow that is refreshing blocks the deployment</td><td>Wait for the refresh to end (or pause its schedule) and redeploy</td></tr>
+<tr><td>A semantic model fails to deploy</td><td>A model over 4 GB without the large model format, or a circular or self dependency between items ("two way dependency")</td><td>Switch the model to the large model format, or remove the dependency, and redeploy</td></tr>
+<tr><td>Source and target model formats differ</td><td>The target model has a higher data modeling format version than the source</td><td>Upgrade the source model with the XMLA read-write endpoint or Power BI Desktop, republish it, and redeploy. Models with legacy metadata are no longer supported, so all models need enhanced metadata</td></tr>
+<tr><td>Deploy to the previous stage is disabled</td><td>A backward deployment works only into an empty stage, and only as a full deployment</td><td>Fix in DEV and promote forward through the stages (<a href="../07-deployment/manual-deploy.html#backward">Backward deployment</a>)</td></tr>
+<tr><td>A paginated report cannot be deployed</td><td>You are not a Member of the source workspace</td><td>Get the Member role there. A large batch of paginated reports with rules can also overload the capacity: deploy them selectively or use a larger capacity</td></tr>
+<tr><td>Rules are grayed out</td><td>You are not the owner of the item, or the item has no data sources or parameters to build a rule on</td><td>Ask the item owner to set the rule, or take over the item as owner</td></tr>
+<tr><td>A pipeline has no owner and nobody can unassign its workspaces</td><td>The owner left without transferring ownership</td><td>A Fabric administrator adds a new owner with the admin pipelines API, or deletes the pipeline</td></tr>
+</tbody>
+</table>
+
+<h2 id="items">Item duplicated or missing</h2>
+<table>
+<thead><tr><th>Symptom</th><th>Likely cause</th><th>Fix</th></tr></thead>
+<tbody>
+<tr><td>A second copy of an item appears in the target stage</td><td>The items were not paired: the target item was created by hand or added after the workspace was assigned, or the source item was deleted and recreated</td><td>Delete the unpaired copy in the target, deploy again, and check pairing first next time. See <a href="../07-deployment/pipeline-setup.html#pairing-consequences">pairing consequences</a></td></tr>
+<tr><td>The first deployment of a Power BI item fails</td><td>The target stage already holds an item with the same name and type that is not paired</td><td>Rename or delete the target item, or restore the pairing, before deploying</td></tr>
+<tr><td>An item is labelled <em>Not in source</em></td><td>It was deleted or renamed in the source. A deployment never deletes, and the item cannot be selected for deployment</td><td>Delete it in the target if it is stale, consumers first (<a href="tips.html#deletions">Tip 3</a>)</td></tr>
+<tr><td>An item you expect to deploy is not in the list</td><td>The item type is not supported by deployment pipelines</td><td>Check <a href="../07-deployment/deployment-rules.html#supported-items">supported items</a>. Unsupported items are not copied; manage them through Git or code</td></tr>
+<tr><td>A shortcut sits under <em>Unidentified</em></td><td>Its target no longer exists or was never created in this stage</td><td>Create the target, or delete the shortcut and its consumers</td></tr>
+<tr><td>Items are labelled <em>Different</em> straight after a successful deployment</td><td>Rules are set but not yet applied; an environment uses a custom pool (not carried over); legacy-format models cannot be compared; or a folder was moved or renamed, which counts as a rename of its items</td><td>Deploy again for rules. Treat the custom pool and model-format differences as known. For folders, deploy so the names match</td></tr>
+<tr><td>Items lost their links after you unassigned and deployed</td><td>Fabric could not re-establish the connections between source and target items, for example after an item was deleted</td><td>Unassign and reassign the same workspace. This discards the stage's history and rules, so record them first</td></tr>
+</tbody>
+</table>
+
+<h2 id="wrong-source">Reads the wrong source</h2>
+<table>
+<thead><tr><th>Symptom</th><th>Likely cause</th><th>Fix</th></tr></thead>
+<tbody>
+<tr><td>A notebook in TST reads the DEV lakehouse</td><td>It was deployed before its lakehouse existed in the target, the lakehouse is in another workspace (not autobound), or no default lakehouse rule is set</td><td>Deploy the lakehouse first and redeploy the notebook, or set a default lakehouse rule. See <a href="../07-deployment/autobinding.html#limits">Autobinding</a></td></tr>
+<tr><td>A rule is set but the model still reads the source stage</td><td>Rules apply only at the next deployment of the item; until then it shows as different</td><td>Deploy the model again, and do not refresh it in between</td></tr>
+<tr><td>A paginated report shows data from the source stage's model</td><td>Paginated reports do not autobind to Fabric semantic models</td><td>Apply a data source rule on the paginated report, and redeploy</td></tr>
+<tr><td>A pipeline or notebook uses DEV values in TST</td><td>The variable library's <em>Default</em> value set is active after the first deployment to the stage</td><td>Activate the stage's value set. See <a href="../07-deployment/automation-and-limits.html#variable-libraries">Variable libraries</a></td></tr>
+<tr><td>References between workspaces still point at the source stage</td><td>Cross-workspace references use object IDs and are not rewritten</td><td>Move the value into a variable library, a parameter or a rule, per stage</td></tr>
+<tr><td>A Direct Lake model reads the source stage</td><td>A data source rule is available for Direct Lake on SQL endpoint but not for Direct Lake on OneLake</td><td>Use one of the options in <a href="../07-deployment/deployment-rules.html#onelake-options">Direct Lake on OneLake</a></td></tr>
+</tbody>
+</table>
+
+<h2 id="empty-data">Empty or stale data</h2>
+<table>
+<thead><tr><th>Symptom</th><th>Likely cause</th><th>Fix</th></tr></thead>
+<tbody>
+<tr><td>Tables are missing or empty after a deployment</td><td>A deployment copies definitions only, never data</td><td>Run the layer's loads, then the verify gate (<a href="preflight-verify.html#gates">three gates</a>)</td></tr>
+<tr><td>Report visuals are empty after deploying a model or dataflow</td><td>The data of models and dataflows is not copied</td><td>Refresh the dataflow, then the semantic model, in the target stage</td></tr>
+<tr><td>A model refresh fails in the target</td><td>Credentials are not copied, and the deploying user owns the cloned model; the identity that refreshes may not have access to the connection</td><td>Set the data source credentials in the target model, and share the connection with the right identity (<a href="tips.html#connections">Tip 1</a>)</td></tr>
+<tr><td>A model refreshes manually but not on schedule</td><td>The refresh schedule is not copied</td><td>Set the schedule in the target stage</td></tr>
+<tr><td>A report cannot reach on-premises data</td><td>Gateway mapping is not set automatically</td><td>Map the model's data source to the gateway in the target stage</td></tr>
+<tr><td>Users in PRD cannot see content, or see the wrong audience</td><td>Permissions, role members and app content are not copied</td><td>Set stage permissions, role members and the app by hand (<a href="layer-checklists.html#delivery">Delivery checklist</a>)</td></tr>
+<tr><td>A shortcut returns no rows</td><td>An internal shortcut was remapped, but its target table or folder was not created in the target</td><td>Create the target, hydrate it, and recheck (<a href="../07-deployment/order-and-layers.html#lakehouse-behaviour">Lakehouse behaviour</a>)</td></tr>
+</tbody>
+</table>
+
+<h2 id="escalate">When to escalate</h2>
+<ul class="checklist">
+<li>You have the deployment ID, the history entry, the failed item list and the note.</li>
+<li>You have confirmed the pair, the permissions and the active value set, and the problem persists.</li>
+<li>The behaviour contradicts the page you were following. Check the status of the Learn article, because some of these features are in preview.</li>
+<li>Open a support request or a community post with the deployment ID, and describe what you did in order. Do not include tenant URLs, secrets or tokens.</li>
+</ul>
+<div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>The rows in these tables come from the Learn troubleshooting article for the lifecycle tools, the deployment limitations and the rules article, plus the operational experience in <a href="tips.html">Tips and watch-outs</a>. Error text and limits change; check the current <a href="https://learn.microsoft.com/fabric/cicd/troubleshoot-cicd">troubleshooting article</a> before you act on a row that matters.</p></div>
+
+<div class="takeaways"><p class="tk-title">Key takeaways</p>
+<ul>
+<li>Pick the table from the symptom: blocked, duplicated or missing, wrong source, or empty.</li>
+<li>Most blocked deployments are permissions, ambiguous pairing, broken rules or a dataflow refresh.</li>
+<li>Most wrong-source cases are an order problem, a rule not yet applied, or the wrong active value set.</li>
+<li>Most empty-data cases are expected: a deployment never copies data, credentials, schedules or permissions.</li>
+<li>Keep the deployment ID and note for every deployment; they shorten every investigation.</li>
+</ul></div>
+
+<section class="refs">
+<h2 id="refs">References</h2>
+<ul>
+<li><a href="https://learn.microsoft.com/fabric/cicd/troubleshoot-cicd">Troubleshoot the Fabric lifecycle management tools</a></li>
+<li><a href="https://learn.microsoft.com/fabric/cicd/deployment-pipelines/understand-the-deployment-process">The deployment pipelines process</a></li>
+<li><a href="https://learn.microsoft.com/fabric/cicd/deployment-pipelines/create-rules">Create deployment rules</a></li>
+<li><a href="https://learn.microsoft.com/fabric/cicd/deployment-pipelines/deployment-history">Deployment history</a></li>
+</ul>
+</section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

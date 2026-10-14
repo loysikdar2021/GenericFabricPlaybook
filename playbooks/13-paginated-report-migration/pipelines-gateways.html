@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pipelines, gateways and sources · Paginated Migration</title>
+<meta name="description" content="Point each environment at its own sources with deployment pipeline data source rules, map data sources to gateways and cloud connections, connect to Fabric SQL endpoints, and script the same steps with REST.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="13-paginated-report-migration" data-page="pipelines-gateways.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+
+    <header class="page-header">
+      <p class="eyebrow">Playbook 13 · Paginated Report Migration</p>
+      <h1>Pipelines, gateways and sources</h1>
+      <p class="lede">A migrated report is only as good as its connections. This page covers the three things that change per environment: which server and database each stage reads, which gateway or cloud connection carries the query, and which identity runs it.</p>
+    </header>
+
+    <h2 id="rules">Environment-specific sources with data source rules</h2>
+    <p>The recommended Fabric-native approach keeps the RDL file untouched. The report is developed against the development source with a static connection, and the deployment pipeline carries a <strong>data source rule</strong> for each later stage. The rule tells the service to replace the server and database with the stage's own values during deployment. For general pipeline setup and promotion, see <a href="../07-deployment/index.html">Deployment pipelines</a>; this page covers what is specific to paginated reports.</p>
+
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 330" role="img" aria-label="Three pipeline stages: the development report uses a static connection to the development source, while the test and production stages each hold a data source rule that swaps the server and database for that stage's source">
+        <defs>
+          <marker id="fig-pg-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-pg-1-at" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar teal" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="zone" x="20" y="24" width="260" height="256" rx="12"/>
+        <text class="t-h" x="36" y="48">DEV_SALES_DLV</text>
+        <rect class="zone" x="320" y="24" width="260" height="256" rx="12"/>
+        <text class="t-h" x="336" y="48">TST_SALES_DLV</text>
+        <rect class="zone" x="620" y="24" width="260" height="256" rx="12"/>
+        <text class="t-h" x="636" y="48">PRD_SALES_DLV</text>
+        <rect class="box blue" x="40" y="64" width="220" height="50" rx="10"/>
+        <text class="t-b" x="150" y="94" text-anchor="middle">Paginated report</text>
+        <rect class="box blue" x="340" y="64" width="220" height="50" rx="10"/>
+        <text class="t-b" x="450" y="94" text-anchor="middle">Paginated report</text>
+        <rect class="box blue" x="640" y="64" width="220" height="50" rx="10"/>
+        <text class="t-b" x="750" y="94" text-anchor="middle">Paginated report</text>
+        <path class="ln teal" d="M260 89H338" marker-end="url(#fig-pg-1-at)"/>
+        <text class="t-s c-teal" x="299" y="80" text-anchor="middle">deploy</text>
+        <path class="ln teal" d="M560 89H638" marker-end="url(#fig-pg-1-at)"/>
+        <text class="t-s c-teal" x="599" y="80" text-anchor="middle">deploy</text>
+        <rect class="box purple" x="340" y="142" width="220" height="40" rx="10"/>
+        <text class="t-s" x="450" y="166" text-anchor="middle">Rule: server and database</text>
+        <rect class="box purple" x="640" y="142" width="220" height="40" rx="10"/>
+        <text class="t-s" x="750" y="166" text-anchor="middle">Rule: server and database</text>
+        <path class="ln" d="M150 114V210" marker-end="url(#fig-pg-1-a)"/>
+        <text class="t-s" x="162" y="170">static connection</text>
+        <path class="ln" d="M450 114V140" marker-end="url(#fig-pg-1-a)"/>
+        <path class="ln" d="M450 182V210" marker-end="url(#fig-pg-1-a)"/>
+        <path class="ln" d="M750 114V140" marker-end="url(#fig-pg-1-a)"/>
+        <path class="ln" d="M750 182V210" marker-end="url(#fig-pg-1-a)"/>
+        <rect class="box gray" x="40" y="212" width="220" height="50" rx="10"/>
+        <text class="t-b" x="150" y="242" text-anchor="middle">Development source</text>
+        <rect class="box gray" x="340" y="212" width="220" height="50" rx="10"/>
+        <text class="t-b" x="450" y="242" text-anchor="middle">Test source</text>
+        <rect class="box gray" x="640" y="212" width="220" height="50" rx="10"/>
+        <text class="t-b" x="750" y="242" text-anchor="middle">Production source</text>
+        <text class="t-s" x="450" y="310" text-anchor="middle">Rules live on the target stage and take effect on the next deployment into it.</text>
+      </svg>
+      <figcaption><b>One file, three connections.</b> The report in each stage is the same layout; only the connection details differ, and they are held by the pipeline, not by the file.</figcaption>
+    </figure>
+
+    <h3 id="rules-options">Three ways to vary a source by environment</h3>
+    <table>
+      <thead><tr><th>Option</th><th>Strength</th><th>Cost</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Pipeline data source rules</strong></td><td>No change to the RDL; configured once per stage; visible in the pipeline.</td><td>Report Builder lock-in after deployment; limits listed below.</td></tr>
+        <tr><td><strong>Scripted update after each deployment</strong></td><td>Works for any number of reports; can be part of a release job.</td><td>You run it every time; the identity must own the data sources.</td></tr>
+        <tr><td><strong>One RDL per environment</strong></td><td>Simple to understand.</td><td>Copies drift apart; every fix is made three times.</td></tr>
+      </tbody>
+    </table>
+
+    <h3 id="rules-steps">Configure the rules</h3>
+    <p>Paginated reports support <strong>data source rules</strong> only. Parameter rules and default lakehouse rules do not apply to them. A rule is created in the stage it applies to, never in the first stage.</p>
+    <ol class="steps">
+      <li><strong>Create the pipeline and assign workspaces</strong><p>Create <code>DPLY_SALES_DLV</code> with development, test and production stages (the number and names of stages cannot be changed afterwards), and assign <code>DEV_SALES_DLV</code> to the first. Workspaces in a pipeline sit on Fabric capacity. You can assign existing workspaces to later stages or deploy to an empty stage and let the pipeline create the workspace.</p></li>
+      <li><strong>Deploy to Test</strong><p>Select the paginated reports in the development stage and deploy them to the test stage. Rules can only be defined once the items exist in the target stage.</p></li>
+      <li><strong>Open the rules pane</strong><p>On the test stage card, select the lightning bolt icon to open <strong>Deployment rules</strong>. The pane lists the items in the stage that support rules.</p></li>
+      <li><strong>Select the report</strong><p>Find the paginated report and expand it. Under <strong>Data source rules</strong>, select <strong>Add rule</strong>.</p></li>
+      <li><strong>Choose the data source</strong><p>From the data source list, pick the embedded data source to change. The name is the one defined inside the RDL file, and the list is built from the source stage.</p></li>
+      <li><strong>Enter the target values</strong><p>Enter the server and database for the test environment, for example the test Warehouse's SQL connection string and database name, then save. The new value must be of the same data source type as the original.</p></li>
+      <li><strong>Deploy again so the rule applies</strong><p>Rules are applied during deployment, so redeploy the report to the test stage. Open the report and confirm that it reads from the test source.</p></li>
+      <li><strong>Promote to Production</strong><p>Select the test stage as the source and deploy the reports to the production stage. Then open the rules pane on the <em>production</em> stage, add the production rule the same way, and deploy again.</p></li>
+    </ol>
+    <div class="callout note"><p class="callout-title">Source and target direction</p>
+      <p>The promotion that creates production content always runs from the test stage to the production stage. Make sure the person running the deployment selects that direction, because a deployment can go to any adjacent stage in either direction.</p></div>
+
+    <h3 id="rules-limits">Limits that shape how you work</h3>
+    <table>
+      <thead><tr><th>Constraint</th><th>Consequence</th><th>What to do</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Rules need the item owner</strong></td><td>Only the owner of the report can create or view its rules.</td><td>Use one named deployment identity so ownership is stable.</td></tr>
+        <tr><td><strong>The deployer becomes the owner</strong></td><td>After each deployment of a paginated report, the user who deployed it is the owner, and needs credentials for its data sources.</td><td>Deploy as the same account every time; keep its source access current.</td></tr>
+        <tr><td><strong>Report Builder lock-in</strong></td><td>After a deployment that applied a data source rule, the report cannot be opened in Power BI Report Builder from that stage.</td><td>Make every change in development and promote it. Never hot-fix by downloading from production.</td></tr>
+        <tr><td><strong>Same data source type only</strong></td><td>A rule cannot change, for example, SQL Server into a different type.</td><td>Convert the source type in development before deploying.</td></tr>
+        <tr><td><strong>One rule per data source</strong></td><td>A data source cannot be reused in more than one rule.</td><td>Give each connection its own name in the RDL.</td></tr>
+        <tr><td><strong>Rules depend on the source stage</strong></td><td>If the data source changes in the source stage, the rule becomes invalid and the next deployment fails.</td><td>Recreate the rule after changing a source.</td></tr>
+        <tr><td><strong>Unassigning a workspace</strong></td><td>Unassigning and reassigning a workspace to a stage loses its rules.</td><td>Document rules so they can be recreated.</td></tr>
+        <tr><td><strong>Power Query Online sources</strong></td><td>Data sources defined through Power Query Online do not support rules.</td><td>Use a supported source type.</td></tr>
+        <tr><td><strong>Subreports</strong></td><td>Subreports must be deployed with the parent report.</td><td>Select related items when deploying.</td></tr>
+        <tr><td><strong>Deployment size</strong></td><td>One deployment handles up to 300 items; large batches with rules can load the capacity.</td><td>Deploy in selective batches or on a larger capacity.</td></tr>
+        <tr><td><strong>Semantic model sources</strong></td><td>A paginated report that reads a Fabric semantic model keeps pointing to the original model unless a rule changes it.</td><td>Add a rule for the model's workspace and name per stage.</td></tr>
+      </tbody>
+    </table>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p>
+      <p>The rule limits above come from <a href="https://learn.microsoft.com/fabric/cicd/deployment-pipelines/create-rules">Create deployment rules</a> and <a href="https://learn.microsoft.com/fabric/cicd/deployment-pipelines/understand-the-deployment-process">The Fabric deployment pipelines process</a>. The two pages describe data source rules for Direct Lake semantic models differently, so check how a paginated report that reads a Direct Lake model should be pointed at each stage. The deployment pipeline interface also has a new version in preview, and button names and positions differ between the two.</p></div>
+    <p>Gateways are not mapped by deployment either. After the first deployment of a report to a stage, its data sources are not automatically bound to a gateway; configure the binding in the report's settings once, and later deployments leave it alone. Keep the paginated reports' RDL source files in Git if you can: the repository then holds the development version that the pipeline promotes, as described in <a href="../05-github-integration/index.html">GitHub integration and branching</a>. Git integration for paginated reports has preview status on Learn.</p>
+
+    <h2 id="gateways">Gateways and connections</h2>
+    <p>Each data source in a published report needs a route to its data. For a source in the cloud, the report connects directly or through a shareable cloud connection. For a source on a private network, it goes through a gateway.</p>
+
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 300" role="img" aria-label="A paginated report reaches cloud sources directly or through a cloud connection, and reaches on-premises sources through an on-premises data gateway">
+        <defs>
+          <marker id="fig-pg-2-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-pg-2-ab" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar blue" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-pg-2-ao" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar orange" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box blue accent" x="20" y="100" width="170" height="80" rx="10"/>
+        <text class="t-b" x="105" y="136" text-anchor="middle">Paginated report</text>
+        <text class="t-s" x="105" y="156" text-anchor="middle">runs the query at render</text>
+        <path class="ln blue" d="M190 128H230V68H268" marker-end="url(#fig-pg-2-ab)"/>
+        <path class="ln orange" d="M190 152H230V238H268" marker-end="url(#fig-pg-2-ao)"/>
+        <rect class="box blue" x="270" y="40" width="210" height="56" rx="10"/>
+        <text class="t-b" x="375" y="64" text-anchor="middle">Cloud connection</text>
+        <text class="t-s" x="375" y="82" text-anchor="middle">credentials stored once</text>
+        <rect class="box orange" x="270" y="210" width="210" height="56" rx="10"/>
+        <text class="t-b" x="375" y="234" text-anchor="middle">On-premises gateway</text>
+        <text class="t-s" x="375" y="252" text-anchor="middle">VNet option: SQL Server, SSAS</text>
+        <path class="ln blue" d="M480 68H558" marker-end="url(#fig-pg-2-ab)"/>
+        <path class="ln orange" d="M480 238H558" marker-end="url(#fig-pg-2-ao)"/>
+        <rect class="zone blue" x="560" y="24" width="320" height="156" rx="12"/>
+        <text class="t-h" x="576" y="48">Cloud sources</text>
+        <rect class="box" x="576" y="60" width="288" height="30" rx="8"/>
+        <text class="t-s" x="720" y="79" text-anchor="middle">Azure SQL Database, Synapse</text>
+        <rect class="box" x="576" y="98" width="288" height="30" rx="8"/>
+        <text class="t-s" x="720" y="117" text-anchor="middle">Fabric Warehouse, Lakehouse SQL endpoint</text>
+        <rect class="box" x="576" y="136" width="288" height="30" rx="8"/>
+        <text class="t-s" x="720" y="155" text-anchor="middle">Power BI semantic models, XMLA</text>
+        <rect class="zone orange" x="560" y="196" width="320" height="84" rx="12"/>
+        <text class="t-h" x="576" y="218">On-premises sources</text>
+        <rect class="box" x="576" y="230" width="288" height="36" rx="8"/>
+        <text class="t-s" x="720" y="252" text-anchor="middle">SQL Server, SSAS, Oracle, Teradata, ODBC</text>
+      </svg>
+      <figcaption><b>Where each query goes.</b> The report runs its own queries when it renders, so connectivity and identity decide whether it works, not a refresh schedule.</figcaption>
+    </figure>
+
+    <h3 id="gateway-rules">Gateway rules that catch migrations</h3>
+    <ul>
+      <li><strong>Binding needs rights on both sides.</strong> The person who binds a report to a gateway needs permission on the gateway and on the data source in it. Plan who does this for each environment.</li>
+      <li><strong>Names must match.</strong> The server and database in the report have to match the gateway data source exactly, including the form of the server name. A rule that changes the server also changes which gateway data source matches.</li>
+      <li><strong>Separate data sources per environment.</strong> Create one gateway data source per environment, so test reports never reach production data.</li>
+      <li><strong>Clusters.</strong> If the gateway is a cluster, the API uses the primary gateway's ID as the gateway ID.</li>
+      <li><strong>Azure Analysis Services does not use a gateway</strong> from paginated reports; it connects directly.</li>
+      <li><strong>Single sign-on to on-premises sources</strong> with Kerberos is configured on the gateway and the source, not in the report.</li>
+      <li><strong>Stored procedures</strong> work through the gateway for SQL Server sources, with or without parameters.</li>
+      <li><strong>Spatial data.</strong> A map visual that depends on SQL Server spatial types does not work through the gateway.</li>
+    </ul>
+
+    <h3 id="auth">Which identity runs the query</h3>
+    <p>The identity a report uses decides what data it can see, and security applied at the source (row-level rules, warehouse permissions) is applied to that identity. Choose it on purpose.</p>
+    <table>
+      <thead><tr><th>Authentication</th><th>Queries run as</th><th>Source-side security</th><th>Use when</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Single sign-on</strong></td><td>Each viewer</td><td class="yes">Applied per viewer</td><td>The source has per-user permissions and every viewer is meant to see only their rows.</td></tr>
+        <tr><td><strong>Stored credential</strong> (for example OAuth2 or basic)</td><td>The account that stored it</td><td class="no">Everyone sees what that account sees</td><td>The report shows the same data to its whole audience.</td></tr>
+        <tr><td><strong>Shared cloud connection</strong></td><td>The connection's identity</td><td class="no">Everyone sees what that identity sees</td><td>Several reports share one governed credential.</td></tr>
+      </tbody>
+    </table>
+    <div class="callout warning"><p class="callout-title">A stored credential exposes whatever its owner can read</p>
+      <p>If a person stores their own OAuth2 credential in a report, every viewer queries as that person. Use a dedicated service identity with the minimum access the report needs, not a person's account, and decide per report whether single sign-on is required. Check the supported authentication methods per source in <a href="https://learn.microsoft.com/power-bi/paginated-reports/paginated-reports-data-sources">Supported data sources for Power BI paginated reports</a>.</p></div>
+
+    <h3 id="cloud-connections">Cloud connections</h3>
+    <p>A shareable cloud connection holds a source and its credential once, and several reports and items can use it. A connection can be created by someone with the right workspace role and used by others who are granted permission on it. The connections that apply to a workspace's paginated reports are managed from the workspace's <strong>Manage</strong> experience; confirm the exact navigation and the permissions needed to create and use a connection in the paginated reports data sources article. Use them to avoid typing the same credential for every report in every stage.</p>
+
+    <h2 id="fabric-sources">Fabric Warehouse and Lakehouse SQL endpoints as sources</h2>
+    <p>Many migrations repoint reports from an on-premises SQL Server to the Gold layer in Fabric. The report reaches a Warehouse or a Lakehouse SQL analytics endpoint over the same T-SQL connection that other tools use.</p>
+    <ol class="steps">
+      <li><strong>Copy the connection string</strong><p>Open the Warehouse or SQL analytics endpoint in the Fabric portal and copy its <strong>SQL connection string</strong>. Use it as the server name. The string is unique to the item's workspace, so each environment has its own.</p></li>
+      <li><strong>Name the database</strong><p>Specify the Warehouse or endpoint name as the initial catalog or database. If you leave it out, the connection lands on a system database rather than your data.</p></li>
+      <li><strong>Use a supported identity</strong><p>Use Microsoft Entra authentication: a user or a service principal. SQL authentication is not supported, and neither is Multiple Active Result Sets.</p></li>
+      <li><strong>Keep port 1433 open</strong><p>The TDS endpoint listens on 1433, so a gateway or firewall in between must allow it.</p></li>
+      <li><strong>Test every dataset query</strong><p>The T-SQL surface of Fabric Warehouse differs from SQL Server. Run each dataset query in the Warehouse query editor and fix anything unsupported before you publish.</p></li>
+      <li><strong>Add the rule per stage</strong><p>Because each environment has its own SQL connection string, the rule changes the server and, if names differ, the database. The example table below shows the pattern.</p></li>
+    </ol>
+    <table>
+      <thead><tr><th>Stage</th><th>Server (rule value)</th><th>Database (rule value)</th></tr></thead>
+      <tbody>
+        <tr><td>DEV</td><td><code>&lt;dev-sql-endpoint&gt;.datawarehouse.fabric.microsoft.com</code></td><td><code>WH_SALES_CNSM</code></td></tr>
+        <tr><td>TST</td><td><code>&lt;tst-sql-endpoint&gt;.datawarehouse.fabric.microsoft.com</code></td><td><code>WH_SALES_CNSM</code></td></tr>
+        <tr><td>PRD</td><td><code>&lt;prd-sql-endpoint&gt;.datawarehouse.fabric.microsoft.com</code></td><td><code>WH_SALES_CNSM</code></td></tr>
+      </tbody>
+    </table>
+<pre data-title="Warehouse query editor: a parameterized dataset query to test before publishing"><code class="language-sql">-- Same shape as the report dataset; @StartDate and @EndDate are report parameters.
+SELECT  o.order_id,
+        o.order_date,
+        c.customer_name,
+        o.order_total
+FROM    gld.orders      AS o
+JOIN    gld.customers   AS c ON c.customer_id = o.customer_id
+WHERE   o.order_date BETWEEN @StartDate AND @EndDate
+ORDER BY o.order_date, o.order_id;</code></pre>
+    <ul>
+      <li><strong>Lakehouse SQL analytics endpoint and stored procedures.</strong> In Report Builder, the stored procedure query type is not offered for the Lakehouse SQL analytics endpoint. Set the query type to <strong>Text</strong> and call the procedure with <code>EXEC</code>.</li>
+      <li><strong>Semantic models as sources.</strong> A report can read a Power BI or Direct Lake semantic model through its XMLA endpoint, using the workspace as the server and the model name as the database. Queries to semantic models carry a fixed timeout, so move heavy extracts to the SQL endpoint instead.</li>
+      <li><strong>Security follows the identity.</strong> With single sign-on, a user's permissions on the Warehouse or the semantic model apply. See the table above before you choose between single sign-on and a stored credential.</li>
+    </ul>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p>
+      <p>Connectivity rules for Warehouse and SQL endpoints change as the feature grows. Confirm authentication options, ports and the stored procedure behavior in <a href="https://learn.microsoft.com/fabric/data-warehouse/connectivity">Connectivity to data warehousing in Microsoft Fabric</a> and in the Warehouse section of <a href="https://learn.microsoft.com/power-bi/paginated-reports/paginated-reports-data-sources">Supported data sources for Power BI paginated reports</a>.</p></div>
+
+    <h2 id="scripting">Script the post-publish steps</h2>
+    <p>When you publish many reports, set sources and bindings with the REST API rather than by hand. Four calls cover it.</p>
+    <table>
+      <thead><tr><th>Call</th><th>Purpose</th><th>Limits</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Get Datasources In Group</strong></td><td>List a report's data sources, with data source and gateway IDs (empty when not bound).</td><td>Paginated reports only.</td></tr>
+        <tr><td><strong>Take Over In Group</strong></td><td>Transfer ownership of the report's data sources to the caller.</td><td>Paginated reports only.</td></tr>
+        <tr><td><strong>Update Datasources In Group</strong></td><td>Change the server and database of a data source.</td><td>Caller must own the data source; old and new source need the same schema; the source type cannot change; ODBC is not supported.</td></tr>
+        <tr><td><strong>Bind To Gateway In Group</strong></td><td>Bind named data sources to gateway data sources.</td><td>On-premises data gateway only; use the primary gateway ID for a cluster.</td></tr>
+      </tbody>
+    </table>
+<pre data-title="Python: take over, repoint and bind one report"><code class="language-python">import requests
+
+TOKEN = "&lt;token&gt;"        # Microsoft Entra token for the Power BI API
+BASE = "https://api.powerbi.com/v1.0/myorg"
+HEADERS = {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"}
+
+
+def post(path: str, body=None) -&gt; None:
+    resp = requests.post(f"{BASE}{path}", headers=HEADERS, json=body, timeout=60)
+    resp.raise_for_status()
+
+
+ws, rpt = "&lt;workspace-id&gt;", "&lt;report-id&gt;"
+
+# 1. Take over the data sources so the caller owns them (paginated reports only)
+post(f"/groups/{ws}/reports/{rpt}/Default.TakeOver")
+
+# 2. Point the data source at the target environment (same schema, same source type)
+post(f"/groups/{ws}/reports/{rpt}/Default.UpdateDatasources", {
+    "updateDetails": [{
+        "datasourceName": "SalesSource",
+        "connectionDetails": {"server": "&lt;server-name&gt;", "database": "&lt;database-name&gt;"},
+    }]
+})
+
+# 3. Bind the data source to a gateway data source (on-premises gateway only)
+post(f"/groups/{ws}/reports/{rpt}/Default.BindToGateway", {
+    "gatewayObjectId": "&lt;gateway-id&gt;",
+    "bindDetails": [{
+        "dataSourceName": "SalesSource",
+        "dataSourceObjectId": "&lt;gateway-data-source-id&gt;",
+    }],
+})</code></pre>
+    <ul>
+      <li><strong>Service principals need take-over.</strong> If a service principal imported or deployed the report, run the take-over call, otherwise the report can fail to render.</li>
+      <li><strong>Check afterwards.</strong> Call Get Datasources In Group again and confirm the gateway ID and data source ID are filled in.</li>
+      <li><strong>Credentials remain separate.</strong> These calls set the target and the binding; the credential is set through the gateway data source or a cloud connection.</li>
+    </ul>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p>
+      <ul>
+        <li>Keep the RDL pointing at development and let each pipeline stage carry its own data source rule.</li>
+        <li>Rules apply on the next deployment, belong to the item owner, and lock the report out of Report Builder in that stage: change in development, promote, never hot-fix in production.</li>
+        <li>Deploy with one stable identity; the deployer owns the report and needs the source credentials.</li>
+        <li>Gateways are not mapped by deployment. Create one gateway data source per environment and bind after the first deployment.</li>
+        <li>For Fabric Warehouse and SQL endpoints, use the item's SQL connection string with Microsoft Entra authentication and name the database.</li>
+        <li>Pick single sign-on or a service identity per report; never a person's stored credential.</li>
+      </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/fabric/cicd/deployment-pipelines/create-rules">Create deployment rules</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/cicd/deployment-pipelines/understand-the-deployment-process">The Microsoft Fabric deployment pipelines process</a></li>
+        <li><a href="https://learn.microsoft.com/power-bi/paginated-reports/paginated-reports-data-sources">Supported data sources for Power BI paginated reports</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-warehouse/connectivity">Connectivity to data warehousing in Microsoft Fabric</a></li>
+        <li><a href="https://learn.microsoft.com/rest/api/power-bi/reports/get-datasources-in-group">Reports - Get Datasources In Group</a></li>
+        <li><a href="https://learn.microsoft.com/rest/api/power-bi/reports/take-over-in-group">Reports - Take Over In Group</a></li>
+        <li><a href="https://learn.microsoft.com/rest/api/power-bi/reports/update-datasources-in-group">Reports - Update Datasources In Group</a></li>
+        <li><a href="https://learn.microsoft.com/rest/api/power-bi/reports/bind-to-gateway-in-group">Reports - Bind To Gateway In Group</a></li>
+        <li><a href="https://learn.microsoft.com/power-bi/connect-data/service-gateway-onprem">What is an on-premises data gateway?</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

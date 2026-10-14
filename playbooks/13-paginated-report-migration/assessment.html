@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Phase 1: Inventory and assessment · Paginated Migration</title>
+<meta name="description" content="Catalog every paginated report with REST calls and an RDL parser, flag unsupported features and sources, and decide whether each report is migrated, modified, redesigned or retired.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="13-paginated-report-migration" data-page="assessment.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+
+    <header class="page-header">
+      <p class="eyebrow">Playbook 13 · Paginated Report Migration</p>
+      <h1>Phase 1: Inventory and assessment</h1>
+      <p class="lede">The inventory decides everything that follows: which method you use, how much rework you face, who has to sign off, and how big the target capacity needs to be. Build it from the platform's own metadata and from the RDL files themselves, not from memory.</p>
+    </header>
+
+    <h2 id="what-to-record">What to record for each report</h2>
+    <p>A spreadsheet is enough to start, but build the inventory with scripts so you can rerun it after every change. One row per report, with these columns:</p>
+    <table>
+      <thead><tr><th>Column</th><th>Why it matters</th><th>Where it comes from</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Name, workspace, report ID</strong></td><td>Identity and traceability through the migration.</td><td>Reports API</td></tr>
+        <tr><td><strong>Owner</strong></td><td>Data source rules, credentials and take-over depend on the owning identity. The owner also signs off the result.</td><td>Workspace settings and your own register</td></tr>
+        <tr><td><strong>Data sources</strong> (type, server, database, gateway binding)</td><td>Decides gateway work, per-environment rules and whether a source is supported at all.</td><td>Report data sources API, RDL files</td></tr>
+        <tr><td><strong>Datasets, parameters, stored procedures</strong></td><td>Shows complexity, timeouts and how much testing each report needs.</td><td>RDL files</td></tr>
+        <tr><td><strong>Subreports and drillthrough targets</strong></td><td>Reports that reference each other must move together and keep their links.</td><td>RDL files</td></tr>
+        <tr><td><strong>Custom code, assemblies, images, fonts, maps</strong></td><td>The features most likely to block a report.</td><td>RDL files</td></tr>
+        <tr><td><strong>Export formats and delivery</strong> (subscriptions, embedding)</td><td>Defines what the parity test must cover.</td><td>Owners, subscription settings, audit log</td></tr>
+        <tr><td><strong>Usage</strong> (opens per period, peak times)</td><td>Separates reports worth migrating from candidates for retirement, and sizes the capacity.</td><td>Audit log, Fabric Capacity Metrics app</td></tr>
+        <tr><td><strong>Business criticality and refresh dependencies</strong></td><td>Orders the waves and sets the cutover window.</td><td>Owners</td></tr>
+        <tr><td><strong>Disposition and reason</strong></td><td>The output of this phase: migrate, modify, redesign or retire.</td><td>Review with owners</td></tr>
+      </tbody>
+    </table>
+    <div class="callout tip"><p class="callout-title">Look for report families</p>
+      <p>Inventories often show groups of near-duplicates: a chart version, a summary version and a raw-data version of the same query. Decide up front whether to consolidate them. Every report you do not migrate is one fewer to test, convert and support.</p></div>
+
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 236" role="img" aria-label="Three inventory sources, the reports API, the exported RDL files and the audit log, feed one inventory table that is classified and then reviewed with owners">
+        <defs>
+          <marker id="fig-as-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-as-1-ap" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar purple" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box gray" x="20" y="30" width="200" height="52" rx="10"/>
+        <text class="t-b" x="120" y="54" text-anchor="middle">Reports API</text>
+        <text class="t-s" x="120" y="72" text-anchor="middle">list, data sources</text>
+        <rect class="box gray" x="20" y="92" width="200" height="52" rx="10"/>
+        <text class="t-b" x="120" y="116" text-anchor="middle">RDL files</text>
+        <text class="t-s" x="120" y="134" text-anchor="middle">export and parse the XML</text>
+        <rect class="box gray" x="20" y="154" width="200" height="52" rx="10"/>
+        <text class="t-b" x="120" y="178" text-anchor="middle">Audit log</text>
+        <text class="t-s" x="120" y="196" text-anchor="middle">opens per report</text>
+        <path class="ln" d="M220 56H260V106H298" marker-end="url(#fig-as-1-a)"/>
+        <path class="ln" d="M220 118H298" marker-end="url(#fig-as-1-a)"/>
+        <path class="ln" d="M220 180H260V130H298" marker-end="url(#fig-as-1-a)"/>
+        <rect class="box blue accent" x="300" y="70" width="200" height="96" rx="10"/>
+        <text class="t-b" x="400" y="110" text-anchor="middle">Inventory table</text>
+        <text class="t-s" x="400" y="130" text-anchor="middle">one row per report</text>
+        <path class="ln purple" d="M500 118H588" marker-end="url(#fig-as-1-ap)"/>
+        <text class="t-s c-purple" x="544" y="108" text-anchor="middle">classify</text>
+        <rect class="box purple" x="590" y="70" width="280" height="96" rx="10"/>
+        <text class="t-b" x="730" y="110" text-anchor="middle">Review with owners</text>
+        <text class="t-s" x="730" y="130" text-anchor="middle">migrate, modify, redesign, retire</text>
+      </svg>
+      <figcaption><b>Three views of the same report.</b> The API says what exists and how it is bound, the RDL says what it contains, and the audit log says whether anyone still opens it.</figcaption>
+    </figure>
+
+    <h2 id="list-reports">Step 1: list the reports and their data sources</h2>
+    <p>The Power BI REST API lists the items in a workspace, and the report <em>type</em> separates paginated reports from Power BI reports. For paginated reports, the <strong>Get Datasources In Group</strong> call returns each data source, its connection details and, if bound, the gateway it uses. A data source ID that is empty means the data source is not bound to a gateway. The notebook cell below builds the first version of the inventory.</p>
+<pre data-title="Notebook cell: inventory paginated reports and their data sources"><code class="language-python">import pandas as pd
+import sempy.fabric as fabric
+
+client = fabric.PowerBIRestClient()
+
+# Legacy workspaces that hold paginated reports: friendly name -> workspace ID
+LEGACY_WORKSPACES = {
+    "LEGACY_SALES_PAGINATED": "&lt;workspace-id&gt;",
+}
+
+rows = []
+for ws_name, ws_id in LEGACY_WORKSPACES.items():
+    resp = client.get(f"/v1.0/myorg/groups/{ws_id}/reports")
+    resp.raise_for_status()
+    for rpt in resp.json()["value"]:
+        if rpt.get("reportType") != "PaginatedReport":
+            continue
+        ds = client.get(f"/v1.0/myorg/groups/{ws_id}/reports/{rpt['id']}/datasources")
+        sources = ds.json().get("value", []) if ds.ok else []
+        rows.append({
+            "workspace": ws_name,
+            "workspace_id": ws_id,
+            "report_id": rpt["id"],
+            "report_name": rpt["name"],
+            "data_source_count": len(sources),
+            "source_types": ", ".join(sorted({s.get("datasourceType") or "" for s in sources})),
+            "servers": ", ".join(sorted({(s.get("connectionDetails") or {}).get("server") or "" for s in sources})),
+            "bound_to_gateway": any(s.get("gatewayId") for s in sources),
+        })
+
+inventory = pd.DataFrame(rows)
+display(inventory)</code></pre>
+    <p>For a tenant-wide view, the admin APIs list reports across workspaces, which helps when you do not know where every paginated report lives. Use them to find workspaces, then run the per-workspace calls above.</p>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p>
+      <p>Confirm the response fields in <a href="https://learn.microsoft.com/rest/api/power-bi/reports/get-reports-in-group">Reports - Get Reports In Group</a> and <a href="https://learn.microsoft.com/rest/api/power-bi/reports/get-datasources-in-group">Reports - Get Datasources In Group</a>. The notebook client class and its method names belong to the semantic link library, which evolves; if your runtime differs, send the same requests with any HTTP client and a token for the Power BI API.</p></div>
+
+    <h2 id="export-rdl">Step 2: export and parse the RDL</h2>
+    <p>The API shows how reports are bound, not what is inside them. The RDL file is XML, so a short script can read every file and report the features that decide effort. First export the files; the <strong>Export Report In Group</strong> call returns the report definition for a paginated report.</p>
+<pre data-title="Notebook cell: export each RDL file to the lakehouse Files area"><code class="language-python">import re
+from pathlib import Path
+
+export_dir = Path("/lakehouse/default/Files/rdl_export")   # needs a default lakehouse attached
+export_dir.mkdir(parents=True, exist_ok=True)
+
+for r in inventory.itertuples():
+    resp = client.get(f"/v1.0/myorg/groups/{r.workspace_id}/reports/{r.report_id}/Export")
+    if not resp.ok:
+        print(f"Skipped {r.report_name}: HTTP {resp.status_code}")
+        continue
+    safe_name = re.sub(r"[^\w.-]+", "_", r.report_name)
+    (export_dir / f"{safe_name}.rdl").write_bytes(resp.content)</code></pre>
+    <p>Then parse each file. The cell below reads the XML with namespace wildcards, because the RDL namespace differs by schema version, and it deliberately does not store connection strings, which can contain credentials.</p>
+<pre data-title="Notebook cell: detect features that affect migration"><code class="language-python">import xml.etree.ElementTree as ET
+
+def analyse_rdl(path: Path) -> dict:
+    root = ET.parse(path).getroot()
+    raw = path.read_text(encoding="utf-8-sig", errors="ignore")
+
+    def texts(xpath):
+        return sorted({(e.text or "").strip() for e in root.iterfind(xpath)})
+
+    def count(tag):
+        return len(root.findall(f".//{{*}}{tag}"))
+
+    providers = texts(".//{*}DataSource/{*}ConnectionProperties/{*}DataProvider")
+    stored_procs = sum(
+        1 for e in root.iterfind(".//{*}Query/{*}CommandType")
+        if (e.text or "").strip() == "StoredProcedure"
+    )
+    info = {
+        "report": path.stem,
+        "providers": ", ".join(providers),
+        "shared_data_sources": count("DataSourceReference"),
+        "shared_datasets": count("SharedDataSet"),
+        "datasets": count("DataSet"),
+        "stored_procedures": stored_procs,
+        "parameters": count("ReportParameter"),
+        "subreports": count("Subreport"),
+        "drillthrough_targets": ", ".join(texts(".//{*}Drillthrough/{*}ReportName")),
+        "custom_assemblies": count("CodeModule") + count("Class"),
+        "code_block": count("Code") &gt; 0,
+        "embedded_images": count("EmbeddedImage"),
+        "maps": count("Map"),
+        "fonts": ", ".join(texts(".//{*}FontFamily")),
+        "uses_userid": "User!UserID" in raw,
+        "uses_executiontime": "Globals!ExecutionTime" in raw,
+    }
+    flags = []
+    if info["shared_data_sources"] or info["shared_datasets"]:
+        flags.append("shared source or dataset")
+    if info["custom_assemblies"]:
+        flags.append("custom assembly")
+    if info["maps"]:
+        flags.append("map visual")
+    if info["uses_userid"]:
+        flags.append("UserID")
+    if info["uses_executiontime"]:
+        flags.append("ExecutionTime")
+    info["flags"] = ", ".join(flags)
+    return info
+
+features = pd.DataFrame(analyse_rdl(p) for p in sorted(export_dir.glob("*.rdl")))
+display(features)</code></pre>
+    <p>Join the two tables on the report name and you have the working inventory. Add the owner, usage and criticality columns by hand or from the audit log, then keep the table: the validation phase reuses it as the test list.</p>
+
+    <h2 id="usage">Step 3: measure usage</h2>
+    <p>Two sources tell you whether a report is worth moving. The audit log records report views for paginated reports, with a report type field that distinguishes them from Power BI reports, and the Fabric Capacity Metrics app shows what the paginated workload costs on your current capacity. Use the audit data to find reports nobody opens, and the capacity data, with peak render times, to size the target. Microsoft's guidance on retiring unused reports describes a repeatable cadence for the clean-up.</p>
+    <ul>
+      <li><strong>Peak concurrency.</strong> Paginated reports render on demand, so the hour when everyone runs month-end reports sets the load, not the daily average.</li>
+      <li><strong>Heavy exports.</strong> Reports that routinely export very large Excel or PDF files cost more than reports that people only view.</li>
+      <li><strong>Documented limits.</strong> The capacity planning article describes limits on concurrent renders for the paginated reports workload; requests over the limit fail with an HTTP 429 error. Check the current figure when you size.</li>
+    </ul>
+
+    <h2 id="feature-differences">Step 4: check the feature differences</h2>
+    <p>These are the differences that most often change a report's disposition. Check each flagged report against this table.</p>
+    <table>
+      <thead><tr><th>Feature or behavior</th><th>In the Power BI service</th><th>Action</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Shared data sources (<code>.rds</code>) and shared datasets (<code>.rsd</code>)</strong></td><td>Not supported. The RDL Migration Tool converts them to embedded data sources and datasets.</td><td>Use embedded sources, cloud connections or shared Power BI semantic models.</td></tr>
+        <tr><td><strong>Custom assemblies and DLL references</strong></td><td>Not supported. Code blocks and Azure Functions are supported.</td><td>Move the logic into an embedded code block or a function.</td></tr>
+        <tr><td><strong>Custom fonts</strong></td><td>Not supported.</td><td>Switch to a font available in the service, then test PDF output.</td></tr>
+        <tr><td><strong>Linked reports</strong></td><td>The paginated reports FAQ lists them as unsupported, while the migration guidance says they migrate and become regular reports.</td><td>Treat each as an independent report and retest; do not depend on parent-child behavior.</td></tr>
+        <tr><td><strong><code>User!UserID</code></strong></td><td>Returns the user principal name, not a domain account name.</td><td>Revise dataset filters and security tables, then test with real users.</td></tr>
+        <tr><td><strong><code>Globals!ExecutionTime</code></strong></td><td>Returns UTC.</td><td>Convert in expressions, especially in parameter defaults and footers.</td></tr>
+        <tr><td><strong>Date parameters</strong></td><td>Fetched in US format (month, day, year) regardless of the design-time format.</td><td>Test parameters with a non-US locale.</td></tr>
+        <tr><td><strong>Query timeout</strong></td><td>Stored in the report; the default is 600 seconds and the maximum is 2147483646.</td><td>Review long-running datasets and set the timeout explicitly.</td></tr>
+        <tr><td><strong>Data source count</strong></td><td>At most 250 per report; above that the report does not publish.</td><td>Split extreme reports.</td></tr>
+        <tr><td><strong>Map visuals on SQL Server spatial types through a gateway</strong></td><td>Not supported, because the gateway does not support those data types.</td><td>Convert the spatial data or redesign the visual.</td></tr>
+        <tr><td><strong>File size and source location</strong></td><td>The service limits the size of an uploaded RDL file, and files must be uploaded from a local path rather than from OneDrive or SharePoint.</td><td>Keep embedded images small; stage files locally for upload.</td></tr>
+        <tr><td><strong>Report server items that do not migrate</strong></td><td>Resources such as images, KPIs, mobile reports, report models and report parts.</td><td>Embed images in the RDL; rebuild KPIs and mobile reports as Power BI reports.</td></tr>
+      </tbody>
+    </table>
+    <div class="callout learn"><p class="callout-title">Verify before you rely on these</p>
+      <p>These behaviors are stated in <a href="https://learn.microsoft.com/power-bi/paginated-reports/paginated-reports-faq">the paginated reports FAQ</a> and <a href="https://learn.microsoft.com/power-bi/guidance/migrate-ssrs-reports-to-power-bi">the migration planning guide</a>, and the two disagree on linked reports. Do not assume SSRS-style caching, snapshots or report history carry over: neither article describes them for the service, so test any report that depends on them.</p></div>
+
+    <h3 id="source-support">Data source support</h3>
+    <table>
+      <thead><tr><th>Source type</th><th>Reached how</th><th>Note</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Azure SQL Database, Azure Synapse, Azure SQL Managed Instance, Dataverse</strong></td><td>Directly from the service</td><td>No gateway needed for supported cloud sources.</td></tr>
+        <tr><td><strong>Power BI semantic models, Direct Lake models, XMLA endpoints</strong></td><td>Directly from the service</td><td>Semantic model queries carry a fixed timeout; use the XMLA endpoint for longer queries.</td></tr>
+        <tr><td><strong>SQL Server, SQL Server Analysis Services, Oracle, Teradata, ODBC</strong></td><td>Through an on-premises data gateway</td><td>A virtual network gateway supports a narrower set; see the gateway page.</td></tr>
+        <tr><td><strong>Fabric Warehouse and Lakehouse SQL analytics endpoint</strong></td><td>Through the SQL connection string of the item</td><td>Needs Microsoft Entra authentication; see <a href="pipelines-gateways.html#fabric-sources">the sources section</a>.</td></tr>
+        <tr><td><strong>Anything else</strong></td><td>Check the supported data sources list</td><td>An unsupported source blocks the report; plan a replacement source.</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="disposition">Step 5: decide each report's fate</h2>
+    <p>Apply the same four dispositions to every report and record the reason.</p>
+
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 330" role="img" aria-label="Disposition tree: a report that nobody opens is retired; a report that uses no unsupported feature migrates as is; one that does is modified if the RDL can be fixed, otherwise redesigned">
+        <defs>
+          <marker id="fig-as-2-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-as-2-ag" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-as-2-ar" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar red" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-as-2-ao" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar orange" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box purple" x="20" y="40" width="170" height="64" rx="10"/>
+        <text class="t-b" x="105" y="68" text-anchor="middle">Opened in the</text>
+        <text class="t-b" x="105" y="86" text-anchor="middle">usage window?</text>
+        <rect class="box purple" x="250" y="40" width="170" height="64" rx="10"/>
+        <text class="t-b" x="335" y="68" text-anchor="middle">Uses an unsupported</text>
+        <text class="t-b" x="335" y="86" text-anchor="middle">feature or source?</text>
+        <rect class="box purple" x="480" y="40" width="170" height="64" rx="10"/>
+        <text class="t-b" x="565" y="68" text-anchor="middle">Can the RDL be</text>
+        <text class="t-b" x="565" y="86" text-anchor="middle">fixed in place?</text>
+        <rect class="box orange" x="710" y="40" width="170" height="64" rx="10"/>
+        <text class="t-b" x="795" y="68" text-anchor="middle">Modify, then migrate</text>
+        <text class="t-s" x="795" y="88" text-anchor="middle">edit RDL, retest</text>
+        <path class="ln green" d="M190 72H248" marker-end="url(#fig-as-2-ag)"/>
+        <text class="t-s c-green" x="219" y="62" text-anchor="middle">yes</text>
+        <path class="ln" d="M420 72H478" marker-end="url(#fig-as-2-a)"/>
+        <text class="t-s" x="449" y="62" text-anchor="middle">yes</text>
+        <path class="ln orange" d="M650 72H708" marker-end="url(#fig-as-2-ao)"/>
+        <text class="t-s c-orange" x="679" y="62" text-anchor="middle">yes</text>
+        <path class="ln" d="M105 104V196" marker-end="url(#fig-as-2-a)"/>
+        <text class="t-s" x="115" y="154">no</text>
+        <path class="ln green" d="M335 104V196" marker-end="url(#fig-as-2-ag)"/>
+        <text class="t-s c-green" x="345" y="154">no</text>
+        <path class="ln red" d="M565 104V196" marker-end="url(#fig-as-2-ar)"/>
+        <text class="t-s c-red" x="575" y="154">no</text>
+        <rect class="box gray" x="20" y="198" width="170" height="64" rx="10"/>
+        <text class="t-b" x="105" y="226" text-anchor="middle">Retire</text>
+        <text class="t-s" x="105" y="246" text-anchor="middle">archive the RDL</text>
+        <rect class="box green" x="250" y="198" width="170" height="64" rx="10"/>
+        <text class="t-b" x="335" y="226" text-anchor="middle">Migrate as is</text>
+        <text class="t-s" x="335" y="246" text-anchor="middle">reassign or republish</text>
+        <rect class="box red" x="480" y="198" width="170" height="64" rx="10"/>
+        <text class="t-b" x="565" y="226" text-anchor="middle">Redesign</text>
+        <text class="t-s" x="565" y="246" text-anchor="middle">Power BI report or code</text>
+        <text class="t-s" x="450" y="304" text-anchor="middle">Record the owner, the reason and the sign-off for every outcome.</text>
+      </svg>
+      <figcaption><b>Three questions, four outcomes.</b> Usage comes first because retiring a report is the cheapest migration. Only reports that are used and blocked by an unsupported feature need rework.</figcaption>
+    </figure>
+
+    <table>
+      <thead><tr><th>Disposition</th><th>What it means</th><th>Typical examples</th></tr></thead>
+      <tbody>
+        <tr><td><span class="badge ga">Migrate</span></td><td>Publish or reassign without changes to the layout.</td><td>Reports on supported sources with embedded data sources.</td></tr>
+        <tr><td><span class="badge info">Modify</span></td><td>Edit the RDL, then migrate.</td><td>Reports with a custom assembly that fits a code block, a <code>UserID</code> filter to revise, a font to swap.</td></tr>
+        <tr><td><span class="badge warn">Redesign</span></td><td>Rebuild, usually as a Power BI report or against a different source.</td><td>Spatial maps through a gateway, report models, mobile reports.</td></tr>
+        <tr><td><span class="badge neutral">Retire</span></td><td>Do not migrate; archive the RDL and tell the owner.</td><td>Reports without views in the usage window; duplicates.</td></tr>
+      </tbody>
+    </table>
+    <p>Group the migrating reports into waves by owner and criticality, and put reports that reference each other in the same wave. Take the data source list from this phase into <a href="pipelines-gateways.html">the pipelines and gateways page</a> to plan connections for each environment.</p>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p>
+      <ul>
+        <li>Build the inventory from three sources: the reports API for bindings, the RDL for contents, the audit log for usage.</li>
+        <li>Parse every RDL file with a script and flag assemblies, shared sources, maps, <code>UserID</code> and <code>ExecutionTime</code> before anyone opens a report.</li>
+        <li>Retire first: reports nobody opens are the cheapest ones to migrate.</li>
+        <li>Never write connection strings to the inventory; record type, server and database only.</li>
+        <li>Keep the inventory table. It becomes the test list for validation.</li>
+      </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/power-bi/guidance/migrate-ssrs-reports-to-power-bi">Plan to migrate .rdl reports to Power BI</a></li>
+        <li><a href="https://learn.microsoft.com/power-bi/paginated-reports/paginated-reports-faq">Paginated reports in Power BI: FAQ</a></li>
+        <li><a href="https://learn.microsoft.com/power-bi/paginated-reports/paginated-reports-data-sources">Supported data sources for Power BI paginated reports</a></li>
+        <li><a href="https://learn.microsoft.com/power-bi/paginated-reports/paginated-capacity-planning">Capacity planning for paginated reports</a></li>
+        <li><a href="https://learn.microsoft.com/power-bi/guidance/retire-unused-reports-ssrs">Find and retire unused reports</a></li>
+        <li><a href="https://learn.microsoft.com/rest/api/power-bi/reports/get-reports-in-group">Reports - Get Reports In Group</a></li>
+        <li><a href="https://learn.microsoft.com/rest/api/power-bi/reports/export-report-in-group">Reports - Export Report In Group</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

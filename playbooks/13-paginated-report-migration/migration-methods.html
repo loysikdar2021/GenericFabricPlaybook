@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Phase 2: Migration methods · Paginated Migration</title>
+<meta name="description" content="Move paginated reports by reassigning a workspace to Fabric capacity or by republishing RDL files with Report Builder or REST, plus the report server path and a decision flow for choosing.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="13-paginated-report-migration" data-page="migration-methods.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+
+    <header class="page-header">
+      <p class="eyebrow">Playbook 13 · Paginated Report Migration</p>
+      <h1>Phase 2: Migration methods</h1>
+      <p class="lede">There are two ways to put paginated reports on Fabric capacity. Reassigning moves the whole workspace in one step and is the simplest. Republishing moves reports one at a time and is the only way to change them on the way. A third route covers reports that still live on a report server.</p>
+    </header>
+
+    <h2 id="prepare">Prepare the target capacity</h2>
+    <p>Migration is not a tenant-wide switch. You move workspaces, one at a time or in waves, and the Premium capacity keeps serving everything you have not moved. That is what makes a pilot and a rollback possible, and it means both capacities run side by side until you finish.</p>
+    <ol class="steps">
+      <li><strong>Buy the Fabric capacity first</strong><p>Create the F SKU capacity and add capacity administrators before you reassign anything. Keep the Premium capacity running until every workspace has moved and validated.</p></li>
+      <li><strong>Size it from the Premium capacity it replaces</strong><p>Use the table below as a starting point, then right-size with the Capacity Metrics app after the first waves.</p></li>
+      <li><strong>Choose a pilot workspace</strong><p>Pick a low-impact workspace with a handful of reports and an engaged owner. Use it to rehearse the steps, the validation and the rollback.</p></li>
+    </ol>
+    <table>
+      <thead><tr><th>Premium capacity</th><th>Starting point on Fabric</th><th>Free-license viewers</th></tr></thead>
+      <tbody>
+        <tr><td>P1</td><td>F64</td><td class="yes">Can view paginated reports</td></tr>
+        <tr><td>P2</td><td>F128</td><td class="yes">Can view paginated reports</td></tr>
+        <tr><td>P3</td><td>F256</td><td class="yes">Can view paginated reports</td></tr>
+        <tr><td>P4</td><td>F512</td><td class="yes">Can view paginated reports</td></tr>
+        <tr><td>P5</td><td>F1024</td><td class="yes">Can view paginated reports</td></tr>
+        <tr><td>Any capacity below F64</td><td>Not an equivalent</td><td class="no">Viewers need Pro or Premium Per User</td></tr>
+      </tbody>
+    </table>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p>
+      <p>The mapping matches capacity units. Confirm it, and the behavior of an ended Premium subscription, in <a href="https://learn.microsoft.com/power-bi/support/premium-migration-decision-guide">the Premium to Fabric decision guide</a> and <a href="https://learn.microsoft.com/power-bi/support/premium-migration-how-to">the workspace migration how-to</a>. Learn also covers conditions that complicate reassignment, such as moving across regions or tenants and tenants that use Private Link or customer-managed keys.</p></div>
+
+    <h2 id="method-a">Method A: reassign the workspace</h2>
+    <p>Choose this when the workspace should move as it stands. The paginated reports, their permissions and their settings stay in the workspace; only the capacity underneath changes.</p>
+
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 270" role="img" aria-label="Before reassignment the workspace runs on a Premium capacity; after reassignment the same workspace runs on a Fabric capacity; running queries and refreshes are interrupted during the move and gateways and refreshes are verified afterwards">
+        <defs>
+          <marker id="fig-mm-1-ag" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="zone gray" x="20" y="24" width="300" height="150" rx="12"/>
+        <text class="t-h" x="36" y="48">Premium capacity (P SKU)</text>
+        <rect class="box gray" x="40" y="70" width="260" height="84" rx="10"/>
+        <text class="t-b" x="170" y="104" text-anchor="middle">Legacy workspace</text>
+        <text class="t-s" x="170" y="124" text-anchor="middle">paginated reports, roles, bindings</text>
+        <rect class="zone green" x="580" y="24" width="300" height="150" rx="12"/>
+        <text class="t-h" x="596" y="48">Fabric capacity (F SKU)</text>
+        <rect class="box green" x="600" y="70" width="260" height="84" rx="10"/>
+        <text class="t-b" x="730" y="104" text-anchor="middle">Same workspace</text>
+        <text class="t-s" x="730" y="124" text-anchor="middle">same reports, new capacity</text>
+        <path class="ln thick green" d="M320 112H578" marker-end="url(#fig-mm-1-ag)"/>
+        <rect class="pill-bg" x="378" y="96" width="142" height="22" rx="11"/>
+        <text class="t-s" x="449" y="111" text-anchor="middle">Assign workspace</text>
+        <rect class="box orange dashed" x="20" y="198" width="420" height="52" rx="10"/>
+        <text class="t-b" x="230" y="222" text-anchor="middle">During the move</text>
+        <text class="t-s" x="230" y="240" text-anchor="middle">running queries and refreshes are interrupted</text>
+        <rect class="box blue dashed" x="460" y="198" width="420" height="52" rx="10"/>
+        <text class="t-b" x="670" y="222" text-anchor="middle">After the move</text>
+        <text class="t-s" x="670" y="240" text-anchor="middle">verify gateways, refreshes and item counts</text>
+      </svg>
+      <figcaption><b>A capacity change, not a copy.</b> Nothing is republished. That is why it is quick, and why the checks that matter are the ones about connectivity and load.</figcaption>
+    </figure>
+
+    <h3 id="method-a-steps">Steps</h3>
+    <ol class="steps">
+      <li><strong>Announce a window</strong><p>Reassigning a workspace interrupts active queries and refreshes, and running jobs are cancelled when the move happens. Pick a quiet hour and tell the report owners.</p></li>
+      <li><strong>Reassign</strong>
+        <p>As a capacity administrator, open the admin portal, go to <strong>Capacity settings</strong>, open the <strong>Fabric capacity</strong> tab and select the target capacity. Choose <strong>Assign workspaces</strong> and select the specific workspaces to move.</p>
+        <p>As a workspace administrator, open the workspace settings, go to <strong>License info</strong> (labelled <strong>Workspace type</strong> in some tenants), select <strong>Edit</strong>, choose <strong>Fabric capacity</strong> and pick the capacity from the list, then save. The assignment API requires the workspace admin role plus contributor permission on the capacity (or capacity admin), so plan who runs each wave.</p></li>
+      <li><strong>Confirm the assignment</strong><p>The workspace settings show the new capacity. Open the workspace as a member of the owning team to confirm the reports are listed.</p></li>
+      <li><strong>Run the post-move checks</strong><p>Open every report, check gateway bindings and credentials, run the scheduled refreshes of any semantic models the reports read, compare item counts with the inventory, and watch the Capacity Metrics app for one to two days.</p></li>
+      <li><strong>Hold the Premium capacity</strong><p>Do not cancel it until every workspace has moved and passed validation. While it exists, reassigning the workspace back is your rollback.</p></li>
+    </ol>
+    <p>For many workspaces, script it. The Fabric REST API assigns a workspace to a capacity, and the Capacity Migration notebook in the semantic link labs library automates moving whole capacities.</p>
+<pre data-title="PowerShell: assign one workspace to a Fabric capacity"><code class="language-powershell">$token       = "&lt;token&gt;"   # Microsoft Entra token for https://api.fabric.microsoft.com
+$workspaceId = "&lt;workspace-id&gt;"
+$body        = @{ capacityId = "&lt;fabric-capacity-id&gt;" } | ConvertTo-Json
+
+Invoke-RestMethod -Method Post `
+    -Uri "https://api.fabric.microsoft.com/v1/workspaces/$workspaceId/assignToCapacity" `
+    -Headers @{ Authorization = "Bearer $token" } `
+    -ContentType "application/json" `
+    -Body $body</code></pre>
+    <p>The call returns <code>202 Accepted</code>: the assignment continues in the background, so confirm the capacity in the workspace settings before you start the checks. Service principals are supported identities for this call.</p>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p>
+      <p>Check the request shape and required permissions in <a href="https://learn.microsoft.com/rest/api/fabric/core/workspaces/assign-to-capacity">Workspaces - Assign To Capacity</a>, and the workspace and capacity roles in <a href="https://learn.microsoft.com/fabric/admin/capacity-settings">Manage your Fabric capacity</a>. The label of the workspace setting differs between tenants and over time, so follow the text in the Learn how-to.</p></div>
+    <div class="callout caution"><p class="callout-title">A Fabric workspace can hold more than reports</p>
+      <p>After reassignment, the workspace can also contain Fabric items. If you do not want that, check the tenant switches and workspace roles for creating them before you move, using <a href="../16-tenant-settings/index.html">Tenant settings</a>.</p></div>
+
+    <h2 id="method-b">Method B: republish the RDL files</h2>
+    <p>Choose this when you want new workspaces, different data sources, edits to individual reports or promotion through a pipeline from the start. The goal is to move each paginated report from the legacy workspace into the development workspace of the new environment set, then promote it.</p>
+
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 230" role="img" aria-label="Republishing flow: export the RDL from the legacy workspace, open and edit it in Report Builder, publish it to the development workspace, set credentials and gateway binding, then promote through the pipeline">
+        <defs>
+          <marker id="fig-mm-2-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box gray" x="20" y="50" width="146" height="72" rx="10"/>
+        <text class="t-b" x="93" y="80" text-anchor="middle">Export</text>
+        <text class="t-s" x="93" y="100" text-anchor="middle">legacy workspace</text>
+        <rect class="box blue" x="196" y="50" width="146" height="72" rx="10"/>
+        <text class="t-b" x="269" y="80" text-anchor="middle">Edit and test</text>
+        <text class="t-s" x="269" y="100" text-anchor="middle">Report Builder</text>
+        <rect class="box teal" x="372" y="50" width="146" height="72" rx="10"/>
+        <text class="t-b" x="445" y="80" text-anchor="middle">Publish</text>
+        <text class="t-s" x="445" y="100" text-anchor="middle">DEV_SALES_DLV</text>
+        <rect class="box orange" x="548" y="50" width="146" height="72" rx="10"/>
+        <text class="t-b" x="621" y="80" text-anchor="middle">Connect</text>
+        <text class="t-s" x="621" y="100" text-anchor="middle">credentials, gateway</text>
+        <rect class="box green" x="724" y="50" width="156" height="72" rx="10"/>
+        <text class="t-b" x="802" y="80" text-anchor="middle">Promote</text>
+        <text class="t-s" x="802" y="100" text-anchor="middle">TST then PRD</text>
+        <path class="ln" d="M166 86H194" marker-end="url(#fig-mm-2-a)"/>
+        <path class="ln" d="M342 86H370" marker-end="url(#fig-mm-2-a)"/>
+        <path class="ln" d="M518 86H546" marker-end="url(#fig-mm-2-a)"/>
+        <path class="ln" d="M694 86H722" marker-end="url(#fig-mm-2-a)"/>
+        <rect class="box orange dashed" x="372" y="158" width="322" height="46" rx="8"/>
+        <text class="t-s" x="533" y="178" text-anchor="middle">Not in the file: credentials, gateway bindings</text>
+        <text class="t-s" x="533" y="194" text-anchor="middle">Recreate them for every report in every workspace</text>
+        <text class="t-s" x="93" y="150" text-anchor="middle">repeat per report</text>
+      </svg>
+      <figcaption><b>The RDL file is only the layout and queries.</b> Credentials and gateway bindings are stored in the service, so they have to be set again after each publish.</figcaption>
+    </figure>
+
+    <h3 id="method-b-steps">Steps in Report Builder</h3>
+    <ol class="steps">
+      <li><strong>Download the RDL</strong><p>Open the report in the legacy workspace, choose <strong>File</strong> and then <strong>Download report</strong> to save the RDL file. For many reports, use the export call in <a href="assessment.html#export-rdl">the assessment page</a> instead.</p></li>
+      <li><strong>Open it in Power BI Report Builder</strong><p>Use an up-to-date version, and sign in to the service with your Microsoft Entra account so you can publish from the tool.</p></li>
+      <li><strong>Review the data sources</strong><p>Confirm that every data source and dataset is embedded in the report, and that each source is supported in the service. Update connection strings that must point at a different server or database, and re-authenticate where needed. Keep a static connection to the <em>development</em> source in the file; the pipeline rules on <a href="pipelines-gateways.html#rules">the next page</a> swap it for each stage.</p></li>
+      <li><strong>Preview</strong><p>Run the report with realistic parameters and compare it with the original. Fix anything the assessment flagged.</p></li>
+      <li><strong>Publish</strong><p>Choose <strong>File</strong>, then <strong>Publish</strong>, then <strong>Power BI service</strong>, and select the development workspace. If the report uses a feature the service does not support, the save fails and the tool lists the reasons; revise the design and publish again.</p></li>
+      <li><strong>Set credentials and gateway</strong><p>In the service, open the report's menu, then <strong>Manage</strong>, and use <strong>Edit credentials</strong> and <strong>Manage connections and gateways</strong> to supply credentials and map each data source to a gateway or a cloud connection. See <a href="pipelines-gateways.html#gateways">Gateways and connections</a>.</p></li>
+    </ol>
+    <div class="callout important"><p class="callout-title">Repeat for every report</p>
+      <p>The steps run once per RDL file. If a report fails to publish, revise the design as the tool instructs and publish again. In the service you can also upload a file with <strong>Upload</strong> and then <strong>Browse</strong> in the workspace, but the service uploads a single item at a time, so larger waves use the script below.</p></div>
+
+    <h3 id="method-b-rest">Scripted publishing with the REST API</h3>
+    <p>The Power BI REST API imports an RDL file into a workspace. The call is asynchronous: it returns an import ID, and you poll until the import succeeds or fails. The <code>nameConflict</code> parameter decides what happens when a report with the same name already exists: <code>Abort</code> stops, <code>Overwrite</code> replaces.</p>
+<pre data-title="Python: publish a folder of RDL files to a workspace"><code class="language-python">import time
+from pathlib import Path
+
+import requests
+
+TOKEN = "&lt;token&gt;"            # Microsoft Entra token for the Power BI API
+BASE = "https://api.powerbi.com/v1.0/myorg"
+HEADERS = {"Authorization": f"Bearer {TOKEN}"}
+WORKSPACE_ID = "&lt;target-workspace-id&gt;"
+
+
+def import_rdl(workspace_id: str, rdl_path: Path, conflict: str = "Abort") -&gt; str:
+    """Upload one RDL file and return the import ID."""
+    params = {"datasetDisplayName": f"{rdl_path.stem}.rdl", "nameConflict": conflict}
+    with rdl_path.open("rb") as handle:
+        resp = requests.post(
+            f"{BASE}/groups/{workspace_id}/imports",
+            headers=HEADERS,
+            params=params,
+            files={"file": (rdl_path.name, handle, "application/octet-stream")},
+            timeout=120,
+        )
+    resp.raise_for_status()
+    return resp.json()["id"]
+
+
+def wait_for_import(workspace_id: str, import_id: str, timeout_s: int = 300) -&gt; dict:
+    """Poll the import until it succeeds or fails."""
+    deadline = time.time() + timeout_s
+    while time.time() &lt; deadline:
+        resp = requests.get(f"{BASE}/groups/{workspace_id}/imports/{import_id}", headers=HEADERS, timeout=60)
+        resp.raise_for_status()
+        body = resp.json()
+        if body.get("importState") in ("Succeeded", "Failed"):
+            return body
+        time.sleep(5)
+    raise TimeoutError(f"Import {import_id} did not finish within {timeout_s} seconds")
+
+
+for rdl in sorted(Path("rdl_ready").glob("*.rdl")):
+    result = wait_for_import(WORKSPACE_ID, import_rdl(WORKSPACE_ID, rdl))
+    reports = [r["id"] for r in result.get("reports", [])]
+    print(f"{rdl.stem}: {result.get('importState')} {reports}")</code></pre>
+    <ul>
+      <li><strong>Who owns the result.</strong> The identity that imports owns the report. If a service principal imports, run the take-over call so that a person or the service principal can own the data sources, otherwise the report can fail to render. See <a href="pipelines-gateways.html#scripting">the scripting section</a>.</li>
+      <li><strong>Credentials still need setting.</strong> An import creates the report and its data source entries but not the credentials.</li>
+      <li><strong>Keep the list.</strong> Save the output with the inventory so that each source report maps to its new report ID.</li>
+    </ul>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p>
+      <p>Microsoft's documentation for the import call recommends a .NET client for RDL uploads. The multipart request above shows the pattern; confirm its parameters in <a href="https://learn.microsoft.com/rest/api/power-bi/imports/post-import-in-group">Imports - Post Import In Group</a> and test it on a scratch workspace before you run a wave. A Fabric REST item definition API for paginated reports may exist, but its payload was not verified for this playbook, so none is described here.</p></div>
+
+    <h2 id="report-server">Reports on SSRS or Power BI Report Server</h2>
+    <p>Reports that still live on a report server follow the same plan, with a different first mile. The server instances can run on premises or on virtual machines in a cloud. Discover them with a free inventory tool, then use the publishing route that fits the version.</p>
+    <table>
+      <thead><tr><th>Source</th><th>Route</th><th>What it does for you</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Power BI Report Server and SQL Server Reporting Services 2022</strong></td><td>Built-in publish to the Power BI service, for all reports or a selection</td><td>Publishes from the server's own portal. An administrator controls the feature through server properties, including a limit on how many reports can be published at once.</td></tr>
+        <tr><td><strong>Earlier SSRS versions (2012 to 2019)</strong></td><td>The RDL Migration Tool, an open-source tool from Microsoft</td><td>Checks for unsupported features, converts shared data sources and datasets to embedded ones, and publishes passing reports to a workspace. It does not change or remove the source reports.</td></tr>
+        <tr><td><strong>Small numbers, or reports that need edits first</strong></td><td>Manual: download, open in Report Builder, publish</td><td>Same steps as Method B.</td></tr>
+        <tr><td><strong>Custom scale or logic</strong></td><td>Public REST APIs of the report server and the Power BI service</td><td>The migration tool uses the same APIs; build your own tool only if you need different behavior.</td></tr>
+      </tbody>
+    </table>
+    <ul>
+      <li><strong>Credentials and gateways are not migrated.</strong> The tool does not set gateway bindings or store credentials, so plan that work for every report.</li>
+      <li><strong>Folders and permissions do not map one to one.</strong> Reproduce report server folders and security with workspaces, roles and apps rather than expecting a copy.</li>
+      <li><strong>Shared semantic models can replace shared data sources.</strong> Consider them where several reports used one shared data source on the server.</li>
+      <li><strong>Subscriptions.</strong> Report server subscriptions do not move. Recreate them in the service; data-driven subscriptions have no direct equivalent, so list them in the inventory early.</li>
+    </ul>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p>
+      <p>The publish feature, its server properties and the tool's behavior are described in <a href="https://learn.microsoft.com/power-bi/guidance/publish-reporting-services-power-bi-service">Publish .rdl files to Power BI</a> and <a href="https://learn.microsoft.com/power-bi/guidance/using-rdl-migration-tool">Use the RDL Migration Tool</a>. Check them against your server version before you plan a wave.</p></div>
+
+    <h2 id="decision">Choosing a method</h2>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 456" role="img" aria-label="Decision flow: reports on a report server use the report server path; otherwise edits, new sources or new environments call for republishing; otherwise a workspace that is ready with reachable gateways is reassigned; a workspace that is not ready is fixed or split first">
+        <defs>
+          <marker id="fig-mm-3-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-mm-3-at" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar teal" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-mm-3-ag" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-mm-3-ao" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar orange" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box purple" x="20" y="30" width="250" height="72" rx="10"/>
+        <text class="t-b" x="145" y="62" text-anchor="middle">Reports still on a</text>
+        <text class="t-b" x="145" y="82" text-anchor="middle">report server?</text>
+        <rect class="box purple" x="20" y="138" width="250" height="72" rx="10"/>
+        <text class="t-b" x="145" y="170" text-anchor="middle">Edits, new sources or</text>
+        <text class="t-b" x="145" y="190" text-anchor="middle">new environments?</text>
+        <rect class="box purple" x="20" y="246" width="250" height="72" rx="10"/>
+        <text class="t-b" x="145" y="278" text-anchor="middle">Workspace ready and</text>
+        <text class="t-b" x="145" y="298" text-anchor="middle">gateways reachable?</text>
+        <path class="ln" d="M145 102V136" marker-end="url(#fig-mm-3-a)"/>
+        <text class="t-s" x="155" y="124">no</text>
+        <path class="ln" d="M145 210V244" marker-end="url(#fig-mm-3-a)"/>
+        <text class="t-s" x="155" y="232">no</text>
+        <path class="ln teal" d="M270 66H348" marker-end="url(#fig-mm-3-at)"/>
+        <text class="t-s c-teal" x="309" y="56" text-anchor="middle">yes</text>
+        <path class="ln teal" d="M270 174H348" marker-end="url(#fig-mm-3-at)"/>
+        <text class="t-s c-teal" x="309" y="164" text-anchor="middle">yes</text>
+        <path class="ln green" d="M270 282H348" marker-end="url(#fig-mm-3-ag)"/>
+        <text class="t-s c-green" x="309" y="272" text-anchor="middle">yes</text>
+        <rect class="box teal" x="350" y="30" width="300" height="72" rx="10"/>
+        <text class="t-b" x="500" y="58" text-anchor="middle">Report server path</text>
+        <text class="t-s" x="500" y="76" text-anchor="middle">built-in publish or migration tool,</text>
+        <text class="t-s" x="500" y="92" text-anchor="middle">then the Method B steps</text>
+        <rect class="box teal" x="350" y="138" width="300" height="72" rx="10"/>
+        <text class="t-b" x="500" y="166" text-anchor="middle">Method B: republish</text>
+        <text class="t-s" x="500" y="184" text-anchor="middle">new DEV, TST and PRD workspaces,</text>
+        <text class="t-s" x="500" y="200" text-anchor="middle">pipeline with data source rules</text>
+        <rect class="box green" x="350" y="246" width="300" height="72" rx="10"/>
+        <text class="t-b" x="500" y="274" text-anchor="middle">Method A: reassign</text>
+        <text class="t-s" x="500" y="292" text-anchor="middle">pilot first, then waves,</text>
+        <text class="t-s" x="500" y="308" text-anchor="middle">validate before the next wave</text>
+        <path class="ln orange" d="M145 318V366" marker-end="url(#fig-mm-3-ao)"/>
+        <text class="t-s c-orange" x="155" y="346">no</text>
+        <rect class="box orange" x="20" y="368" width="630" height="64" rx="10"/>
+        <text class="t-b" x="335" y="394" text-anchor="middle">Fix blockers or split the workspace</text>
+        <text class="t-s" x="335" y="414" text-anchor="middle">move ready reports with Method A, the rest with Method B, then ask again</text>
+      </svg>
+      <figcaption><b>Questions in order of how much they narrow the choice.</b> The two methods are not exclusive: a common pattern is to reassign workspaces whose reports are clean and republish the exceptions.</figcaption>
+    </figure>
+    <table>
+      <thead><tr><th>Consideration</th><th>Method A: reassign</th><th>Method B: republish</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Unit of work</strong></td><td>A workspace</td><td>A report</td></tr>
+        <tr><td><strong>Changes to reports on the way</strong></td><td class="no">None</td><td class="yes">Any, in Report Builder</td></tr>
+        <tr><td><strong>New environment workspaces and pipeline</strong></td><td class="maybe">Added afterwards</td><td class="yes">Built in from the start</td></tr>
+        <tr><td><strong>Effort per report</strong></td><td class="yes">Near zero</td><td class="no">Publish, credentials, gateway</td></tr>
+        <tr><td><strong>Rollback</strong></td><td class="yes">Reassign back while the Premium capacity exists</td><td class="yes">Legacy workspace remains untouched</td></tr>
+        <tr><td><strong>Risk if sources change</strong></td><td class="maybe">Sources stay as they are</td><td class="yes">Each report is revisited</td></tr>
+      </tbody>
+    </table>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p>
+      <ul>
+        <li>Buy the Fabric capacity first and keep the Premium capacity until validation ends; both methods depend on that overlap for rollback.</li>
+        <li>Reassign workspaces whose reports are clean; republish the reports that need change or a new environment layout.</li>
+        <li>Expect running queries and refreshes to be interrupted during a reassignment; schedule it.</li>
+        <li>The RDL carries layout and queries only. Credentials and gateway bindings are recreated in the service.</li>
+        <li>Script bulk publishing, but pilot it on a scratch workspace and verify the import call against Learn first.</li>
+      </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/power-bi/guidance/migrate-ssrs-reports-to-power-bi">Plan to migrate .rdl reports to Power BI</a></li>
+        <li><a href="https://learn.microsoft.com/power-bi/guidance/publish-reporting-services-power-bi-service">Publish .rdl files to Power BI from Reporting Services</a></li>
+        <li><a href="https://learn.microsoft.com/power-bi/guidance/using-rdl-migration-tool">Use the RDL Migration Tool</a></li>
+        <li><a href="https://learn.microsoft.com/power-bi/support/premium-migration-how-to">Migrate workspaces from Power BI Premium to Microsoft Fabric</a></li>
+        <li><a href="https://learn.microsoft.com/power-bi/support/premium-migration-decision-guide">Power BI Premium P SKU to Fabric F SKU migration decision guide</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/admin/capacity-settings">Manage your Fabric capacity</a></li>
+        <li><a href="https://learn.microsoft.com/rest/api/fabric/core/workspaces/assign-to-capacity">Workspaces - Assign To Capacity</a></li>
+        <li><a href="https://learn.microsoft.com/rest/api/power-bi/imports/post-import-in-group">Imports - Post Import In Group</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

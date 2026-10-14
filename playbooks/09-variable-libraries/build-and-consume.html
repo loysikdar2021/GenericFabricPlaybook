@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Create and consume variables · Variable Libraries</title>
+<meta name="description" content="Create a Fabric variable library with variables and value sets, then read it from pipelines, notebooks, Dataflow Gen2, lakehouse shortcuts, copy jobs and other items, with each consumer's types and limits.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="09-variable-libraries" data-page="build-and-consume.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 09 · Variable Libraries</p>
+      <h1>Create and consume variables</h1>
+      <p class="lede">Create a library in a few minutes, then wire it into the items that need stage-specific values. Each consumer reads variables differently and has its own limits, so this page gives the procedure for each and a matrix of what to design around.</p>
+    </header>
+
+    <h2 id="create">Create a variable library</h2>
+    <p>Do this in the development workspace, in the same workspace as the items that will consume the library. Libraries are workspace-scoped, so each stage gets its own copy through deployment, not through a shared library.</p>
+    <ol class="steps">
+      <li><strong>Create the item</strong><p>In the workspace select <strong>+ New item</strong>, scroll to <strong>Develop data</strong> and select <strong>Variable library</strong>. (From the Fabric home page you can also select <strong>Create</strong> and pick <strong>Variable library</strong> in the Data Factory section.) Name it by the house convention, for example <code>VL_SALES_SLV_Config</code>, and select <strong>Create</strong>. An empty library opens.</p></li>
+      <li><strong>Define the variables</strong><p>Select <strong>+ New variable</strong>. Enter a name, choose a type, enter the default value and, optionally, a note that says what the variable controls and who owns it. Select <strong>Save</strong>. Saving validates every variable name and value; fix reported errors before the save succeeds. Repeat for each variable.</p></li>
+      <li><strong>Add the alternative value sets</strong><p>Select <strong>Add value set</strong>, name it with the stage name (<code>TST</code>, <code>PRD</code>), optionally add a description, and enter the stage's values. You only need to change the variables that differ from the default. Select <strong>Save</strong>.</p></li>
+      <li><strong>Activate the right set in this workspace</strong><p>The default value set is active in a new library. To switch, use the three-dot menu next to a value set and select <strong>Set as active</strong> (the menu also offers <strong>Rename</strong> and <strong>Delete</strong>), or select <strong>Set as active</strong> while creating the set. Changes take effect only after you save.</p></li>
+      <li><strong>Reference it from consumers</strong><p>Use the procedures below. Test each consumer in this workspace before you deploy.</p></li>
+    </ol>
+    <div class="callout tip"><p class="callout-title">Edit in DEV, deploy everywhere else</p><p>Make value changes for every stage in the development workspace and promote them with the library. Editing the PRD value set directly in the PRD workspace creates a difference the deployment pipeline reports and that Git does not contain.</p></div>
+
+    <h2 id="consumers">What can consume a library</h2>
+    <p>A consumer resolves variables from the library in <em>its own workspace</em>, using the library's active value set. The table summarizes the supported consumers and the limits that most often decide a design.</p>
+    <table>
+      <thead><tr><th>Consumer</th><th>How it reads variables</th><th>Types to expect</th><th>Limits to design around</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Data pipeline</strong></td><td>A <strong>Library variables</strong> reference on the pipeline, used in dynamic content as <code>@pipeline().libraryVariables.&lt;Name&gt;</code></td><td>Boolean, DateTime, Guid, Integer, String; item and connection references through their properties. <strong>Number is not supported.</strong> DateTime and Guid arrive as strings.</td><td>Value is the active set at run time. Preview data shows what a reference resolves to.</td></tr>
+        <tr><td><strong>Notebook</strong>, NotebookUtils</td><td><code>notebookutils.variableLibrary.getLibrary(...)</code> or <code>.get("$(/**/Library/Variable)")</code></td><td>Typed by the variable definition, including item reference</td><td>Same workspace only; read-only; names are case sensitive; service principal identity is not supported for these utilities.</td></tr>
+        <tr><td><strong>Notebook</strong>, <code>%%configure</code></td><td><code>"variableName": "$(/**/Library/Variable)"</code> inside the session configuration</td><td>Define the variables as String, even for GUID values</td><td>Item references are not supported through <code>%%configure</code>. Supply <code>workspaceId</code> when the lakehouse is in another workspace.</td></tr>
+        <tr><td><strong>Dataflow Gen2 with CI/CD</strong></td><td><code>Variable.ValueOrDefault("$(/**/Library/Variable)", default)</code> or <code>Variable.Value(...)</code>; input widgets in supported dialogs</td><td>Basic types only</td><td>Same workspace; only inside the mashup file; values fixed at the start of a run; variables cannot change connections or destination schema mappings.</td></tr>
+        <tr><td><strong>Lakehouse shortcut</strong></td><td>A variable assigned to a shortcut property in <strong>Manage shortcut</strong></td><td>Properties such as connection ID or target location; item reference</td><td>Variable libraries are the only supported way to assign shortcut variables across environments; assignment through REST is not supported.</td></tr>
+        <tr><td><strong>Copy job</strong></td><td>Source and destination connections linked to library variables</td><td>Connection IDs</td><td>Activate the right connection value set in each workspace after deployment.</td></tr>
+        <tr><td><strong>User data function</strong></td><td>Through the Python programming model; item and connection references for data connections</td><td>As defined</td><td>See the user data functions article for the exact calls.</td></tr>
+        <tr><td><strong>Eventstream</strong></td><td>Connection references to rebind connections when deploying across workspaces</td><td>Connection reference</td><td>Some destinations still need manual reconfiguration after deployment.</td></tr>
+        <tr><td><strong>Deployment plan, Plan</strong></td><td>Action parameters (deployment plan); see the Plan overview</td><td>As defined</td><td>Check each article for the exact scope.</td></tr>
+      </tbody>
+    </table>
+
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 340" role="img" aria-label="The active value set of the workspace's variable library is read by four kinds of consumer, each through its own mechanism: a pipeline expression, a NotebookUtils call or configure block, a Dataflow Gen2 M function and a property bound on a lakehouse shortcut">
+        <defs>
+          <marker id="fig-build-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box blue" x="20" y="108" width="190" height="124" rx="10"/>
+        <text class="t-h" x="115" y="140" text-anchor="middle">Variable library</text>
+        <text class="t-s" x="115" y="162" text-anchor="middle">same workspace as</text>
+        <text class="t-s" x="115" y="178" text-anchor="middle">the consumers</text>
+        <rect class="box green" x="36" y="192" width="158" height="30" rx="6"/>
+        <text class="t-b" x="115" y="212" text-anchor="middle">active value set</text>
+
+        <rect class="box teal" x="420" y="20" width="460" height="56" rx="8"/>
+        <text class="t-b" x="440" y="43">Data pipeline</text>
+        <text class="t-s" x="440" y="62">@pipeline().libraryVariables.Name · resolved on each run</text>
+        <rect class="box blue" x="420" y="100" width="460" height="56" rx="8"/>
+        <text class="t-b" x="440" y="123">Notebook</text>
+        <text class="t-s" x="440" y="142">notebookutils.variableLibrary or %%configure · when the code runs</text>
+        <rect class="box teal" x="420" y="184" width="460" height="56" rx="8"/>
+        <text class="t-b" x="440" y="207">Dataflow Gen2 with CI/CD</text>
+        <text class="t-s" x="440" y="226">Variable.ValueOrDefault · read once at the start of a run</text>
+        <rect class="box blue" x="420" y="264" width="460" height="56" rx="8"/>
+        <text class="t-b" x="440" y="287">Lakehouse shortcut</text>
+        <text class="t-s" x="440" y="306">shortcut property bound to a variable in Manage shortcut</text>
+
+        <path class="ln" d="M210 170H300V48H418" marker-end="url(#fig-build-1-a)"/>
+        <path class="ln" d="M210 170H300V128H418" marker-end="url(#fig-build-1-a)"/>
+        <path class="ln" d="M210 170H300V212H418" marker-end="url(#fig-build-1-a)"/>
+        <path class="ln" d="M210 170H300V292H418" marker-end="url(#fig-build-1-a)"/>
+        <rect class="pill-bg" x="318" y="40" width="76" height="16"/>
+        <text class="t-s" x="356" y="52" text-anchor="middle">expression</text>
+        <rect class="pill-bg" x="326" y="120" width="60" height="16"/>
+        <text class="t-s" x="356" y="132" text-anchor="middle">API call</text>
+        <rect class="pill-bg" x="318" y="204" width="76" height="16"/>
+        <text class="t-s" x="356" y="216" text-anchor="middle">M function</text>
+        <rect class="pill-bg" x="324" y="284" width="64" height="16"/>
+        <text class="t-s" x="356" y="296" text-anchor="middle">property</text>
+      </svg>
+      <figcaption><b>Four ways to read one source.</b> Every consumer resolves the active value set of the library in its own workspace; what differs is the mechanism and the moment of resolution.</figcaption>
+    </figure>
+
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>Support is added item by item, and each article carries its own limits. Check the consumer's article before you rely on a type or a behavior: <a href="https://learn.microsoft.com/fabric/data-factory/variable-library-integration-with-data-pipelines">pipelines</a>, <a href="https://learn.microsoft.com/fabric/data-engineering/notebookutils/notebookutils-variable-library">NotebookUtils</a>, <a href="https://learn.microsoft.com/fabric/data-factory/dataflow-gen2-variable-library-integration">Dataflow Gen2</a>, <a href="https://learn.microsoft.com/fabric/onelake/assign-variables-to-shortcuts">shortcuts</a>, <a href="https://learn.microsoft.com/fabric/data-factory/cicd-copy-job">copy job</a>.</p></div>
+
+    <h2 id="pipelines">Pipelines</h2>
+    <p>A pipeline does not read the library directly in an expression. You first add a <strong>library variable reference</strong> to the pipeline, then use that reference in dynamic content. There is no need to create pipeline parameters and map them to the library: the reference is the link.</p>
+    <ol class="steps">
+      <li><strong>Add the reference</strong><p>Open the pipeline and select an empty area of the canvas so that no activity has focus. In the bottom panel open <strong>Library variables</strong> and select <strong>+ New</strong>. Pick the variable from the library picker, give the reference a name (for example <code>SourceTable</code>) and select <strong>OK</strong>.</p></li>
+      <li><strong>Use it in an activity</strong><p>On the activity setting to parameterize (a connection, workspace, table name, wait time, query), choose <strong>Add dynamic content</strong>. In the expression builder open the <strong>Library variables</strong> tab (if it is hidden, use the three dots next to <strong>Functions</strong>) and select the reference. The builder inserts <code>@pipeline().libraryVariables.SourceTable</code>.</p></li>
+      <li><strong>Reference types need a property</strong><p>For a connection reference or an item reference, type a <code>.</code> after the reference in the builder and choose the property you need (the connection ID, the item ID or the item's workspace).</p></li>
+      <li><strong>Check the value</strong><p>Use <strong>Preview data</strong> on the activity to see what the reference resolves to, then save and run. The value is whatever the active value set of the workspace contains.</p></li>
+    </ol>
+<pre data-title="Pipeline expression: dynamic content on a Copy activity"><code class="language-text">@pipeline().libraryVariables.SourceTable
+@pipeline().libraryVariables.LookbackDays
+@concat('orders_', pipeline().libraryVariables.StageName)</code></pre>
+    <p>Pipelines see Boolean as <code>Bool</code>, Integer as <code>Int</code>, and DateTime and Guid as <code>String</code>. Number variables are not supported in pipelines, so model a decimal threshold as an integer in minor units or read it in a notebook.</p>
+
+    <h3 id="connection-scenario">The connection scenario</h3>
+    <p>The most common use is making a copy activity connect to the stage's own source and destination without editing the pipeline after deployment:</p>
+    <ol class="steps">
+      <li><strong>Model the connection as a variable.</strong><p>Use a connection reference variable for an external connection, or a String variable holding the lakehouse and workspace IDs for a Fabric destination. Give each stage its value in its value set. Look up a connection's ID in <strong>Manage connections and gateways</strong>.</p></li>
+      <li><strong>Add references on the pipeline.</strong><p>Add one library variable reference per value the activity needs (connection, workspace ID, table name).</p></li>
+      <li><strong>Bind the activity.</strong><p>In the Copy activity, open <strong>Source</strong>, choose <strong>Add dynamic content</strong> on the connection (and on workspace and table fields) and select the references. Repeat for <strong>Destination</strong>.</p></li>
+      <li><strong>Test in DEV, deploy, then activate.</strong><p>Deploy the pipeline and the library together. In the target stage activate the stage's value set (see <a href="cicd-promotion.html#after-deployment">the step after deployment</a>) before the first run.</p></li>
+    </ol>
+    <div class="callout note"><p class="callout-title">A pipeline's identity runs the activity</p><p>When a pipeline runs a notebook, the notebook runs under the identity of the pipeline's last modified user, not the pipeline or notebook owner. A variable that points at an item or connection only works if that identity can use the target. Re-test after someone else edits the pipeline.</p></div>
+
+    <h2 id="notebooks">Notebooks</h2>
+    <p>Notebooks read a library with NotebookUtils at run time or inject values into the session configuration with <code>%%configure</code>. Both read the active value set of the library in the notebook's own workspace.</p>
+    <h3 id="notebookutils">With NotebookUtils</h3>
+<pre data-title="Notebook cell: read a whole library, or one variable"><code class="language-python">cfg = notebookutils.variableLibrary.getLibrary("VL_SALES_SLV_Config")
+
+batch_size = cfg.BatchSize           # property access, typed from the definition
+stage = cfg["StageName"]             # bracket access, useful for dynamic names
+lookback = cfg.getVariable("LookbackDays")
+
+# One variable by reference path (the "/**/" prefix is required)
+full_reload = notebookutils.variableLibrary.get("$(/**/VL_SALES_SLV_Config/FullReload)")
+
+print(stage, batch_size, lookback, full_reload)</code></pre>
+    <p>An item reference resolves to an object from which you extract the two IDs. Use them to build a OneLake path to the item.</p>
+<pre data-title="Notebook cell: resolve an item reference to a OneLake path"><code class="language-python">ref = notebookutils.variableLibrary.get("$(/**/VL_SALES_SLV_Config/BronzeLakehouse)")
+workspace_id = ref.get("workspaceId").value()
+lakehouse_id = ref.get("itemId").value()
+
+orders_path = f"abfss://{workspace_id}@onelake.dfs.fabric.microsoft.com/{lakehouse_id}/Tables/orders"
+orders = spark.read.format("delta").load(orders_path)</code></pre>
+    <ul>
+      <li>The library must be in the same workspace as the notebook. Cross-workspace access is not supported, and a child notebook in a reference run cannot read libraries across workspaces.</li>
+      <li>Variables are read-only from notebooks. Change them in the Fabric UI or through the API.</li>
+      <li>Names are case sensitive: use the exact library and variable names.</li>
+      <li>NotebookUtils variable library utilities do not support a service principal identity. If the notebook runs under a service principal, test that the read works in that context.</li>
+    </ul>
+    <h3 id="configure">With %%configure</h3>
+    <p>Use <code>%%configure</code> to set the session's default lakehouse from the library, so one notebook can run in every stage without edits. This is the variable-library alternative to a default-lakehouse deployment rule.</p>
+<pre data-title="Notebook cell (first cell): default lakehouse from a variable library"><code class="language-text">%%configure
+{
+  "defaultLakehouse": {
+    "name":        { "variableName": "$(/**/VL_SALES_SLV_Config/LakehouseName)" },
+    "id":          { "variableName": "$(/**/VL_SALES_SLV_Config/LakehouseId)" },
+    "workspaceId": { "variableName": "$(/**/VL_SALES_SLV_Config/LakehouseWorkspaceId)" }
+  }
+}</code></pre>
+    <ul>
+      <li>Define all three variables as <strong>String</strong>, including the ID values.</li>
+      <li><code>workspaceId</code> is required when the lakehouse is in a different workspace from the notebook.</li>
+      <li>Item reference variables are not supported through <code>%%configure</code>; use String variables here.</li>
+    </ul>
+    <h3 id="passing-config">Passing values into shared code</h3>
+    <p>Keep library code (see <a href="../06-shared-libraries/index.html">Shared Python Libraries</a>) free of workspace names and IDs. Read the values in the notebook and pass them as arguments, so the same wheel works in every stage.</p>
+<pre data-title="Notebook cell: configuration from the library, mechanics from the wheel"><code class="language-python">import contoso_fabric_utils as lib   # the shared package from playbook 06
+from pyspark.sql import functions as F
+
+cfg = notebookutils.variableLibrary.getLibrary("VL_SALES_SLV_Config")
+
+if cfg.FullReload:
+    lib.full_load_overwrite(source_table="bronze_orders", target_table="silver_orders")
+else:
+    changes = spark.read.table("bronze_orders").where(
+        F.col("modified_at") &gt;= F.date_sub(F.current_date(), cfg.LookbackDays)
+    )
+    lib.merge_upsert(source_df=changes, target_table="silver_orders", key_cols=["order_id"])</code></pre>
+    <div class="callout note"><p class="callout-title">Orchestration hubs read their own workspace</p><p>A notebook resolves variables in the workspace where it runs. A hub workspace that invokes spoke pipelines (see <a href="../04-cross-workspace-orchestration/index.html">Cross-Workspace Pipeline Orchestration</a>) does not configure the spokes through its own library. Give each spoke workspace its own library, deployed with its items.</p></div>
+
+    <h2 id="dataflows">Dataflow Gen2</h2>
+    <p>Dataflow Gen2 with CI/CD can reference variables in filter, replace and column-transformation dialogs through the <strong>input widget</strong> (turn it on under <strong>View</strong>, <strong>Parameters</strong>, <strong>Always allow</strong>), or directly in M with the variable functions. The identifier must use the <code>$(/**/Library/Variable)</code> format.</p>
+<pre data-title="Dataflow Gen2: a query that exposes a variable (Power Query M)"><code class="language-text">// Query: LookbackDays
+Variable.ValueOrDefault("$(/**/VL_SALES_SLV_Config/LookbackDays)", 7)</code></pre>
+    <ul>
+      <li>Store each variable as a separate query that does not need staging; supported dialogs can then use it as a query input.</li>
+      <li>The default in <code>Variable.ValueOrDefault</code> keeps the formula valid when the dataflow is moved to a workspace without the library. Its data type must match the variable's type.</li>
+      <li>Values are retrieved at the start of a run and kept for the whole run; a change to the library during the run does not affect it.</li>
+      <li>Variables cannot change connection information or destination schema mappings; both stay as authored. Only basic types are supported, and the library must be in the same workspace.</li>
+      <li>Anyone who can edit the library can change the dataflow's output, and lineage views do not show the link between the dataflow and the library.</li>
+    </ul>
+
+    <h2 id="shortcuts">Lakehouse shortcuts</h2>
+    <p>A shortcut property such as the connection ID or the target location can be bound to a variable, so the same shortcut definition points at test data in TST and production data in PRD.</p>
+    <ol class="steps">
+      <li><strong>Open the shortcut.</strong><p>In the lakehouse, right-click the shortcut and choose <strong>Manage shortcut</strong>.</p></li>
+      <li><strong>Edit the target.</strong><p>Select <strong>Edit target</strong> and choose the property to parameterize.</p></li>
+      <li><strong>Assign the variable.</strong><p>Pick a variable from the library. The variable name and its current value appear under the property.</p></li>
+    </ol>
+    <p>Variable libraries are the only supported way to assign variables to shortcut properties across environments; assignment through the REST API is not supported, so shortcut bindings are made in the UI and then travel with the item through Git and deployment.</p>
+
+    <h2 id="others">Copy jobs and other items</h2>
+    <ul>
+      <li><strong>Copy job.</strong> Create connection variables (with each stage's connection ID in its value set), link the copy job's source and destination connections to them, and after deployment activate the matching value set in each workspace.</li>
+      <li><strong>User data functions.</strong> Read variables through the Python programming model, and use item or connection references to connect to data sources.</li>
+      <li><strong>Eventstream.</strong> Use connection references to rebind connections when you deploy across workspaces; destinations in some modes still need manual reconfiguration.</li>
+      <li><strong>Deployment plans and Plan.</strong> Listed as supported consumers; see their articles for how they use variables.</li>
+    </ul>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p><ul>
+      <li>Create libraries in DEV in the same workspace as their consumers, with value sets named after the stages.</li>
+      <li>Pipelines add a library variable reference and use <code>@pipeline().libraryVariables.Name</code>; there is no parameter mapping step. Number is not supported there.</li>
+      <li>Notebooks read with NotebookUtils (same workspace, read-only, case sensitive) or set the default lakehouse with <code>%%configure</code> using String variables.</li>
+      <li>Dataflows and shortcuts have their own binding rules and cannot change connections or schemas through variables.</li>
+    </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/fabric/cicd/variable-library/get-started-variable-libraries">Get started with variable libraries</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/cicd/variable-library/tutorial-variable-library">Tutorial: use variable libraries</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/variable-library-integration-with-data-pipelines">Variable library integration with pipelines</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/notebookutils/notebookutils-variable-library">NotebookUtils variable library utilities</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/author-execute-notebook">Develop, execute and manage notebooks (%%configure)</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/dataflow-gen2-variable-library-integration">Use Fabric variable libraries in Dataflow Gen2</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/onelake/assign-variables-to-shortcuts">Assign variables to shortcuts</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/cicd-copy-job">CI/CD for copy job in Data Factory</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/how-to-use-notebook">How to use notebooks (security context of a run)</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

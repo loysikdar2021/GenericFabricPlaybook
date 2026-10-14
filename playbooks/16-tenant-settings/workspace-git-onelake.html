@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Workspaces, Git, OneLake and items · Tenant Settings</title>
+<meta name="description" content="Reference for Fabric item creation, workspace and recovery settings, Git integration, OneLake access, networking and encryption.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="16-tenant-settings" data-page="workspace-git-onelake.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 16 · Tenant Settings</p>
+      <h1>Workspaces, Git, OneLake and items</h1>
+      <p class="lede">Settings that control who can create Fabric items and workspaces, how deleted content is recovered, how workspaces connect to Git, how OneLake data is reached from outside Fabric, and how network and encryption controls apply.</p>
+      <ul class="chips"><li><b>Portal groups</b> Microsoft Fabric, Workspace, Git integration, OneLake, Advanced networking, Encryption</li><li><b>Delegation</b> Capacity and workspace levels</li></ul>
+    </header>
+<h2 id="creation">Creating items and workspaces</h2>
+<p>Three switches shape sprawl: who may create Fabric items, who may create workspaces, and whether people can move their personal workspace. They interact, and the first one is delegated to capacity admins automatically.</p>
+<figure class="diagram">
+<svg class="dg" viewBox="0 0 880 270" role="img" aria-label="The Users can create Fabric items tenant setting is automatically delegated to capacity admins, who can inherit the tenant selection, enable it for their own groups, or disable it for their capacity">
+<defs><marker id="fig-items-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker><marker id="fig-items-a-blue" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar blue" d="M0 0L10 5L0 10z"/></marker><marker id="fig-items-a-purple" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar purple" d="M0 0L10 5L0 10z"/></marker></defs>
+<rect class="box purple" x="20" y="100" width="230" height="80" rx="10"/>
+<text class="t-b" x="135" y="129.5" text-anchor="middle">Tenant setting</text>
+<text class="t-s" x="135" y="144.4" text-anchor="middle">Users can create Fabric items</text>
+<text class="t-s" x="135" y="158.9" text-anchor="middle">Enabled for specific groups</text>
+<rect class="box blue" x="330" y="100" width="210" height="80" rx="10"/>
+<text class="t-b" x="435" y="129.5" text-anchor="middle">Capacity admin</text>
+<text class="t-s" x="435" y="144.4" text-anchor="middle">Delegated tenant settings</text>
+<text class="t-s" x="435" y="158.9" text-anchor="middle">Override tenant admin selection</text>
+<path class="ln purple" d="M250 140L328 140" marker-end="url(#fig-items-a-purple)"/>
+<rect class="pill-bg" x="255" y="116" width="68" height="15"/>
+<text class="t-s" x="289" y="127.5" text-anchor="middle">delegates</text>
+<rect class="box green" x="620" y="20" width="240" height="60" rx="10"/>
+<text class="t-b" x="740" y="46.8" text-anchor="middle">Capacity A</text>
+<text class="t-s" x="740" y="61.6" text-anchor="middle">inherits the tenant selection</text>
+<rect class="box orange" x="620" y="105" width="240" height="60" rx="10"/>
+<text class="t-b" x="740" y="131.8" text-anchor="middle">Capacity B</text>
+<text class="t-s" x="740" y="146.6" text-anchor="middle">override: enabled for its own group</text>
+<rect class="box red" x="620" y="190" width="240" height="60" rx="10"/>
+<text class="t-b" x="740" y="216.8" text-anchor="middle">Capacity C</text>
+<text class="t-s" x="740" y="231.6" text-anchor="middle">override: disabled</text>
+<path class="ln blue" d="M540 140L580 140L580 50L618 50" marker-end="url(#fig-items-a-blue)"/>
+<path class="ln blue" d="M580 140L618 140" marker-end="url(#fig-items-a-blue)"/>
+<path class="ln blue" d="M580 140L580 220L618 220" marker-end="url(#fig-items-a-blue)"/>
+</svg>
+<figcaption><b>Capacity override of Fabric item creation.</b> The tenant selection is a default for capacities, not a hard limit. Decide who may override and monitor the capacity-level overrides.</figcaption>
+</figure>
+<h3 id="s-fabric-items">Users can create Fabric items</h3>
+<dl class="kv">
+<dt>Where</dt><dd>Microsoft Fabric</dd>
+<dt>Default</dt><dd>Not stated</dd>
+<dt>Typical posture</dt><dd><strong>Enable for specific groups</strong> — Controls who can create governed data assets at all.</dd>
+<dt>Scope and delegation</dt><dd>Supports specific security groups and exceptions. Automatically delegated to capacity admins.</dd>
+<dt>What it controls</dt><dd>Lets users use production-ready Fabric features to create Fabric items (lakehouses, warehouses, notebooks and more). Turning it off does not affect the ability to create Power BI items. It requires a capacity that supports Fabric workloads.</dd>
+<dt>Risk or benefit</dt><dd>Unrestricted creation spreads unmanaged compute, storage and data. Disabled users can still view Fabric items they have read access to.</dd>
+<dt>Notes</dt><dd>Capacity admins can override the tenant choice for their capacity (Delegated tenant settings, Override tenant admin selection), so a tenant restriction is a recommendation to capacities. Related switches, including Git integration, depend on this one for Fabric item types.</dd>
+</dl>
+<table class="tight">
+<thead><tr><th>Setting</th><th>Default</th><th>Typical posture</th><th>What it controls; risk or benefit</th><th>Notes</th></tr></thead>
+<tbody>
+<tr id="s-create-workspaces"><td><strong>Create workspaces</strong></td><td>Not stated</td><td class="maybe">Enable for specific groups</td><td>Decides which users can create app workspaces. Anyone, no one or specific groups. A workspace is still created when a template app is installed, even if this is off.</td><td>Tie membership to workspace provisioning standards; also needed to branch out to a new workspace in Git integration.</td></tr>
+</tbody></table>
+<h3 id="s-block-myworkspace">Block users from reassigning personal workspaces (My Workspace)</h3>
+<dl class="kv">
+<dt>Where</dt><dd>Workspace settings</dd>
+<dt>Default</dt><dd>Not stated</dd>
+<dt>Typical posture</dt><dd><strong>Enable for all</strong> — Keeps personal content on the capacity you chose.</dd>
+<dt>Scope and delegation</dt><dd>Applies to the entire organization only; groups cannot be selected.</dd>
+<dt>What it controls</dt><dd>Stops My workspace owners from changing the capacity assignment of their personal workspace. By default owners can reassign it, for example back from a Premium or Fabric capacity to shared capacity.</dd>
+<dt>Risk or benefit</dt><dd>Reassignment can break data-residency commitments and circumvent capacity cost and monitoring decisions made by admins, such as a designated preferred capacity for My workspaces.</dd>
+<dt>Notes</dt><dd>Org-wide only. Pair it with a default capacity designated for My workspaces in capacity settings and a periodic review of My workspace content through the admin APIs; workspace retention keeps deleted My workspaces for 30 days.</dd>
+</dl>
+<h3 id="recovery">Retention and recovery</h3>
+<p>Two settings define how long a deleted workspace or item can be restored. Retention is the safety net for mistakes, and also for malicious deletion.</p>
+<table class="tight">
+<thead><tr><th>Setting</th><th>Default</th><th>Typical posture</th><th>What it controls; risk or benefit</th><th>Notes</th></tr></thead>
+<tbody>
+<tr id="s-retention"><td><strong>Define workspace retention period</strong></td><td>Not stated</td><td class="yes">Enable for all</td><td>Sets how long a deleted collaborative workspace can be restored before permanent deletion. The minimum is 7 days, My workspaces are kept 30 days automatically and other workspaces can be kept up to 90 days.</td><td>Pick 30 to 90 days so end-of-period mistakes can still be recovered, and document who may restore a workspace.</td></tr>
+<tr id="s-item-recovery"><td><strong>Fabric item recovery</strong></td><td>On <em>Minimum retention 3 days, maximum 90.</em></td><td class="yes">Enable for all</td><td>Retains deleted Fabric items so they can be recovered; admins choose the retention period (3 to 90 days). Some items do not support recovery. Turning it off makes deletion permanent.</td><td>Leave on and set a retention that matches your recovery objectives.</td></tr>
+</tbody></table>
+<div class="callout tip"><p class="callout-title">Document who may restore</p>
+<p>Restoring a deleted workspace is itself a privileged action. Record who may run it, how requests are made, and which retention period you promised to teams.</p></div>
+
+<h2 id="git">Git integration</h2>
+<p>Git integration connects a workspace to a repository so item definitions can be committed, reviewed and deployed. Four tenant switches plus two supporting settings decide whether a user can do it.</p>
+<figure class="diagram">
+<svg class="dg" viewBox="0 0 880 310" role="img" aria-label="Git integration dependencies: Azure DevOps sync needs the base Git switch; GitHub sync needs the base switch and the GitHub switch; Fabric items also need the Fabric items setting; branching out to a new workspace needs Create workspaces">
+<defs><marker id="fig-git-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker><marker id="fig-git-a-blue" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar blue" d="M0 0L10 5L0 10z"/></marker><marker id="fig-git-a-purple" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar purple" d="M0 0L10 5L0 10z"/></marker></defs>
+<rect class="box purple" x="20" y="20" width="250" height="56" rx="10"/>
+<text class="t-b" x="145" y="44.8" text-anchor="middle">Base Git switch</text>
+<text class="t-s" x="145" y="59.6" text-anchor="middle">Azure DevOps and GitHub</text>
+<rect class="box purple" x="20" y="90" width="250" height="56" rx="10"/>
+<text class="t-b" x="145" y="114.8" text-anchor="middle">GitHub switch</text>
+<text class="t-s" x="145" y="129.6" text-anchor="middle">Sync with GitHub repositories</text>
+<rect class="box blue" x="20" y="160" width="250" height="56" rx="10"/>
+<text class="t-b" x="145" y="184.8" text-anchor="middle">Create Fabric items</text>
+<text class="t-s" x="145" y="199.6" text-anchor="middle">for Fabric item types</text>
+<rect class="box blue" x="20" y="230" width="250" height="56" rx="10"/>
+<text class="t-b" x="145" y="254.8" text-anchor="middle">Create workspaces</text>
+<text class="t-s" x="145" y="269.6" text-anchor="middle">to branch out to a new workspace</text>
+<rect class="box green" x="560" y="40" width="300" height="56" rx="10"/>
+<text class="t-b" x="710" y="64.8" text-anchor="middle">Sync with Azure DevOps</text>
+<text class="t-s" x="710" y="79.6" text-anchor="middle">commit and update</text>
+<rect class="box green" x="560" y="130" width="300" height="56" rx="10"/>
+<text class="t-b" x="710" y="154.8" text-anchor="middle">Sync with GitHub</text>
+<text class="t-s" x="710" y="169.6" text-anchor="middle">commit and update</text>
+<rect class="box teal" x="560" y="220" width="300" height="56" rx="10"/>
+<text class="t-b" x="710" y="244.8" text-anchor="middle">Branch out to a new workspace</text>
+<text class="t-s" x="710" y="259.6" text-anchor="middle">feature-branch workflow</text>
+<path class="ln purple" d="M270 48L558 62" marker-end="url(#fig-git-a-purple)"/>
+<path class="ln purple" d="M270 48L558 146" marker-end="url(#fig-git-a-purple)"/>
+<path class="ln purple" d="M270 118L558 158" marker-end="url(#fig-git-a-purple)"/>
+<path class="ln dash blue" d="M270 188L558 76" marker-end="url(#fig-git-a-blue)"/>
+<path class="ln dash blue" d="M270 188L558 172" marker-end="url(#fig-git-a-blue)"/>
+<path class="ln blue" d="M270 258L558 248" marker-end="url(#fig-git-a-blue)"/>
+</svg>
+<figcaption><b>Git setting dependencies.</b> Solid lines are required; dashed lines apply to Fabric item types. Turning the base switch off also stops GitHub because GitHub needs both.</figcaption>
+</figure>
+<h3 id="s-git-ado">Users can synchronize workspace items with their Git repositories</h3>
+<dl class="kv">
+<dt>Where</dt><dd>Git integration</dd>
+<dt>Default</dt><dd>On</dd>
+<dt>Typical posture</dt><dd><strong>Enable for specific groups</strong> — Source control is desirable but should follow an approved repository standard.</dd>
+<dt>Scope and delegation</dt><dd>Supports specific security groups and exceptions. Capacity admins and workspace admins (delegation options in the portal).</dd>
+<dt>What it controls</dt><dd>Lets users sync workspace items with an Azure DevOps Git repository, commit workspace changes and update workspaces from the repository. It is the base switch for Git integration, including GitHub.</dd>
+<dt>Risk or benefit</dt><dd>Without scoping, any workspace admin can connect a workspace to any repository they can reach, which can move item definitions (code, queries, model metadata) outside governed repositories.</dd>
+<dt>Notes</dt><dd>Enable for the engineering groups that run source control. The setting is evaluated for the Fabric user who performs the Git operation. Disabling it also stops GitHub-based integration because GitHub needs both switches. Needs the Fabric switch on for Fabric items. See the GitHub integration playbook.</dd>
+</dl>
+<h3 id="s-git-github">Users can sync workspace items with GitHub repositories</h3>
+<dl class="kv">
+<dt>Where</dt><dd>Git integration</dd>
+<dt>Default</dt><dd>Off</dd>
+<dt>Typical posture</dt><dd><strong>Enable for specific groups</strong> — Enabled only for groups that follow the approved repository model.</dd>
+<dt>Scope and delegation</dt><dd>Supports specific security groups and exceptions. Capacity admins and workspace admins (delegation options in the portal).</dd>
+<dt>What it controls</dt><dd>Lets users pick GitHub as their Git provider and sync workspace items with GitHub repositories.</dd>
+<dt>Risk or benefit</dt><dd>Developers can link workspaces to personal or unapproved GitHub accounts and organizations, which can leak code, queries and dataset references.</dd>
+<dt>Notes</dt><dd>For GitHub, both this switch and the base Git switch must be on for the user. Enable for the engineering group and constrain repositories with GitHub-side controls such as organization policies and branch protection. See the GitHub integration playbook.</dd>
+</dl>
+<table class="tight">
+<thead><tr><th>Setting</th><th>Default</th><th>Typical posture</th><th>What it controls; risk or benefit</th><th>Notes</th></tr></thead>
+<tbody>
+<tr id="s-git-geo"><td><strong>Users can export items to Git repositories in other geographical locations</strong></td><td>Not stated</td><td class="no">Disable</td><td>Lets users commit item metadata to a repository in a different geography than the workspace capacity. Only item metadata is exported, not data or user information. GitHub does not support enforcement of this switch.</td><td>Disable unless a documented exception exists. It supports data-residency policy, but GitHub does not enforce it. <em>Capacity admins and workspace admins (delegation options in the portal).</em></td></tr>
+<tr id="s-git-labels"><td><strong>Users can export workspace items with applied sensitivity labels to Git repositories</strong></td><td>Not stated</td><td class="no">Disable</td><td>Sensitivity labels are not included in exported item definitions. This setting decides whether items that carry a label can be exported to Git anyway.</td><td>Disable for labeled items unless the repository has equivalent protection; the label is lost on export. <em>Capacity admins and workspace admins (delegation options in the portal).</em></td></tr>
+</tbody></table>
+<table>
+  <thead><tr><th>You want to allow</th><th>Needed</th></tr></thead>
+  <tbody>
+    <tr><td>Sync with Azure DevOps</td><td>The base Git switch for the user.</td></tr>
+    <tr><td>Sync with GitHub</td><td>The base Git switch <strong>and</strong> the GitHub switch for the user.</td></tr>
+    <tr><td>Sync Fabric items (not only Power BI items)</td><td><a href="workspace-git-onelake.html#s-fabric-items">Users can create Fabric items</a> for the user.</td></tr>
+    <tr><td>Branch out to a new workspace</td><td><a href="workspace-git-onelake.html#s-create-workspaces">Create workspaces</a> for the user.</td></tr>
+  </tbody>
+</table>
+<div class="callout note"><p class="callout-title">Delegation and workspace-only settings</p>
+<p>When delegation is turned on for a Git switch, a capacity admin can override the tenant choice for the capacity, and a workspace admin can override both for the workspace. The switches belong to Fabric: for Fabric items they depend on <em>Users can create Fabric items</em>, while workspaces that hold only Power BI items can still use Git when it is off. The option that lets Contributors and above change the connected Git branch is a workspace-level setting rather than a tenant one. For repository design, branching and security hardening, see <a href="../05-github-integration/index.html">GitHub Integration and Branching</a>.</p></div>
+<div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p>
+<p>The cross-geography switch cannot be enforced when the provider is GitHub, and the sensitivity-label switch exists because labels are not included in exported item definitions. Read <a href="https://learn.microsoft.com/fabric/admin/git-integration-admin-settings">Git integration tenant settings</a> before you rely on either one for compliance.</p></div>
+
+<h2 id="onelake">OneLake access</h2>
+<p>OneLake is where Fabric data lives. Tenant settings decide whether people can reach it with tools outside Fabric; workspace roles, item permissions and OneLake security decide what they can read once they are in.</p>
+<figure class="diagram">
+<svg class="dg" viewBox="0 0 880 320" role="img" aria-label="Access to OneLake data from outside Fabric passes tenant gates before workspace roles, item permissions and OneLake security decide what is readable: external apps, short-lived SAS tokens and OneLake File Explorer each have their own setting; diagnostics provide the audit trail">
+<defs><marker id="fig-ol-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker><marker id="fig-ol-a-gray" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar gray" d="M0 0L10 5L0 10z"/></marker></defs>
+<rect class="box blue" x="20" y="20" width="240" height="56" rx="10"/>
+<text class="t-b" x="140" y="44.8" text-anchor="middle">Fabric engines</text>
+<text class="t-s" x="140" y="59.6" text-anchor="middle">Spark, SQL, Power BI</text>
+<rect class="box gray" x="320" y="20" width="250" height="56" rx="10"/>
+<text class="t-b" x="445" y="44.8" text-anchor="middle">No extra tenant gate</text>
+<text class="t-s" x="445" y="59.6" text-anchor="middle">permissions still apply</text>
+<path class="ln" d="M260 48L318 48" marker-end="url(#fig-ol-a)"/>
+<path class="ln" d="M570 48L608 48"/>
+<rect class="box blue" x="20" y="92" width="240" height="56" rx="10"/>
+<text class="t-b" x="140" y="116.8" text-anchor="middle">External apps</text>
+<text class="t-s" x="140" y="131.6" text-anchor="middle">ADLS APIs, Databricks</text>
+<rect class="box purple" x="320" y="92" width="250" height="56" rx="10"/>
+<text class="t-b" x="445" y="116.8" text-anchor="middle">External apps setting</text>
+<text class="t-s" x="445" y="131.6" text-anchor="middle">Enabled for specific groups</text>
+<path class="ln" d="M260 120L318 120" marker-end="url(#fig-ol-a)"/>
+<path class="ln" d="M570 120L608 120"/>
+<rect class="box blue" x="20" y="164" width="240" height="56" rx="10"/>
+<text class="t-b" x="140" y="188.8" text-anchor="middle">SAS-based apps</text>
+<text class="t-s" x="140" y="203.6" text-anchor="middle">short-lived tokens</text>
+<rect class="box purple" x="320" y="164" width="250" height="56" rx="10"/>
+<text class="t-b" x="445" y="188.8" text-anchor="middle">Two SAS settings</text>
+<text class="t-s" x="445" y="203.6" text-anchor="middle">delegation key, then token auth</text>
+<path class="ln" d="M260 192L318 192" marker-end="url(#fig-ol-a)"/>
+<path class="ln" d="M570 192L608 192"/>
+<rect class="box blue" x="20" y="236" width="240" height="56" rx="10"/>
+<text class="t-b" x="140" y="260.8" text-anchor="middle">OneLake File Explorer</text>
+<text class="t-s" x="140" y="275.6" text-anchor="middle">Windows sync app</text>
+<rect class="box purple" x="320" y="236" width="250" height="56" rx="10"/>
+<text class="t-b" x="445" y="260.8" text-anchor="middle">File Explorer setting</text>
+<text class="t-s" x="445" y="275.6" text-anchor="middle">org-wide switch</text>
+<path class="ln" d="M260 264L318 264" marker-end="url(#fig-ol-a)"/>
+<path class="ln" d="M570 264L608 264"/>
+<path class="ln" d="M608 48L608 264"/>
+<path class="ln" d="M608 110L648 110" marker-end="url(#fig-ol-a)"/>
+<rect class="box accent" x="650" y="60" width="210" height="100" rx="10"/>
+<text class="t-h" x="755" y="92.7" text-anchor="middle">OneLake</text>
+<text class="t-s" x="755" y="108.1" text-anchor="middle">workspace roles, item</text>
+<text class="t-s" x="755" y="122.6" text-anchor="middle">permissions and OneLake</text>
+<text class="t-s" x="755" y="137.1" text-anchor="middle">security decide access</text>
+<rect class="box gray" x="650" y="196" width="210" height="80" rx="10"/>
+<text class="t-h" x="755" y="226" text-anchor="middle">Audit</text>
+<text class="t-s" x="755" y="241.4" text-anchor="middle">OneLake diagnostics</text>
+<text class="t-s" x="755" y="255.9" text-anchor="middle">Fabric audit log</text>
+<path class="ln dash gray" d="M755 160L755 194" marker-end="url(#fig-ol-a-gray)"/>
+</svg>
+<figcaption><b>OneLake access gates.</b> Tenant settings decide whether a path is open; roles and OneLake security decide what travels through it. Diagnostics cover the data plane, while the Fabric audit log covers control-plane changes.</figcaption>
+</figure>
+<h3 id="s-onelake-external">Users can access data stored in OneLake with apps external to Fabric</h3>
+<dl class="kv">
+<dt>Where</dt><dd>OneLake settings</dd>
+<dt>Default</dt><dd>Not stated</dd>
+<dt>Typical posture</dt><dd><strong>Enable for specific groups</strong> — External engines are a legitimate but separately governed access path.</dd>
+<dt>Scope and delegation</dt><dd>Supports specific security groups and exceptions.</dd>
+<dt>What it controls</dt><dd>Lets users reach OneLake data with applications outside Fabric, such as custom ADLS API apps, OneLake file explorer and Databricks. Internal engines such as Spark, Data Engineering and Data Warehouse are not affected.</dd>
+<dt>Risk or benefit</dt><dd>External access moves reads and writes to tools you do not host. It gives engineers flexibility and creates an exfiltration path if unscoped. It must also be on to use shortcuts with OneLake security.</dd>
+<dt>Notes</dt><dd>Scope to data engineering groups that need external tools. Use OneLake diagnostics to audit access and the Fabric audit log for control-plane changes. OneLake security roles and workspace roles still decide what each identity can read.</dd>
+</dl>
+<h3 id="s-onelake-file-explorer">Users can sync data in OneLake with the OneLake File Explorer app</h3>
+<dl class="kv">
+<dt>Where</dt><dd>OneLake settings</dd>
+<dt>Default</dt><dd>Not stated</dd>
+<dt>Typical posture</dt><dd><strong>Disable</strong> — File-level sync outside the ingestion pattern.</dd>
+<dt>Scope and delegation</dt><dd>Applies to the entire organization only; groups cannot be selected.</dd>
+<dt>What it controls</dt><dd>Lets users run the OneLake File Explorer Windows app to browse OneLake items as folders and drag files in and out, similar to OneDrive.</dd>
+<dt>Risk or benefit</dt><dd>Users can move files in and out of OneLake from their desktops without ingestion pipelines, which can create ungoverned file copies on endpoints. Activity is harder to attribute than pipeline loads.</dd>
+<dt>Notes</dt><dd>Org-wide only. Disable by default; if data engineers need it, enable it knowingly and rely on workspace roles and OneLake diagnostics. Learn lists OneLake file explorer as an example of an app external to Fabric, so review it together with the external-apps setting.</dd>
+</dl>
+<table class="tight">
+<thead><tr><th>Setting</th><th>Default</th><th>Typical posture</th><th>What it controls; risk or benefit</th><th>Notes</th></tr></thead>
+<tbody>
+<tr id="s-onelake-sas"><td><strong>Use short-lived user-delegated SAS tokens</strong></td><td>Not stated</td><td class="no">Disable</td><td>Lets users request OneLake user delegation keys to sign short-lived SAS tokens based on their Entra identity. Permissions can be limited and a token cannot exceed one hour.</td><td>Enable only for the applications that need SAS access. Must be on before the next setting can work.</td></tr>
+<tr id="s-onelake-sas-auth"><td><strong>Authenticate with OneLake user-delegated SAS tokens</strong></td><td>Not stated</td><td class="no">Disable</td><td>Lets applications authenticate with a OneLake SAS token. The delegation-key setting above must be on, and lifetimes cannot exceed one hour.</td><td>Because workspace admins can override it by default, check overrides with the workspace-overrides API. <em>Delegated to workspace admins by default.</em></td></tr>
+<tr id="s-onelake-euii"><td><strong>Include end-user identifiers in OneLake diagnostic logs</strong></td><td>Not stated</td><td class="yes">Enable for all</td><td>Controls whether OneLake diagnostic logs record end-user identifiable information such as e-mail and IP address. When off, those fields are redacted in new events.</td><td>Keep on for security investigations unless privacy policy requires redaction; align with your log-retention rules.</td></tr>
+</tbody></table>
+<div class="callout tip"><p class="callout-title">Audit both planes</p>
+<p>Use OneLake diagnostics to capture data-plane access (who read or wrote what through any path) and the Fabric audit log for control-plane changes. Diagnostics records can include end-user identifiers; the setting above controls whether those fields are redacted.</p></div>
+
+<h2 id="network">Networking and encryption</h2>
+<p>Network controls change how users, gateways and services reach the tenant. They are strong, and they can lock you out. Treat them as projects, not toggles.</p>
+<figure class="diagram">
+<svg class="dg" viewBox="0 0 880 310" role="img" aria-label="Network controls nest from the tenant inward: tenant Private Link and Block Public Internet Access, then workspace inbound rules, then workspace outbound protection around the items. Workspace IP firewall rules are an exception route for approved addresses">
+<defs><marker id="fig-net-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker><marker id="fig-net-a-green" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker><marker id="fig-net-a-orange" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar orange" d="M0 0L10 5L0 10z"/></marker><marker id="fig-net-a-red" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar red" d="M0 0L10 5L0 10z"/></marker></defs>
+<rect class="zone purple" x="20" y="20" width="600" height="270" rx="12"/>
+<text class="t-s" x="34" y="39">Tenant: Private Link and Block Public Internet Access</text>
+<rect class="zone blue" x="60" y="70" width="520" height="200" rx="12"/>
+<text class="t-s" x="74" y="89">Workspace: inbound rules</text>
+<rect class="zone teal" x="100" y="115" width="440" height="140" rx="12"/>
+<text class="t-s" x="114" y="134">Workspace: outbound access protection</text>
+<rect class="box accent" x="140" y="150" width="360" height="70" rx="10"/>
+<text class="t-h" x="320" y="182.2" text-anchor="middle">Workspace items and data</text>
+<text class="t-s" x="320" y="197.6" text-anchor="middle">lakehouses, warehouses, models</text>
+<rect class="box green" x="680" y="30" width="190" height="66" rx="10"/>
+<text class="t-b" x="775" y="59.8" text-anchor="middle">Private network users</text>
+<text class="t-s" x="775" y="74.6" text-anchor="middle">reach the tenant</text>
+<rect class="box red" x="680" y="120" width="190" height="66" rx="10"/>
+<text class="t-b" x="775" y="149.8" text-anchor="middle">Public internet users</text>
+<text class="t-s" x="775" y="164.6" text-anchor="middle">blocked if public access off</text>
+<rect class="box orange" x="680" y="210" width="190" height="66" rx="10"/>
+<text class="t-b" x="775" y="239.8" text-anchor="middle">Approved IP ranges</text>
+<text class="t-s" x="775" y="254.6" text-anchor="middle">workspace IP firewall rules</text>
+<path class="ln green" d="M680 63L622 63" marker-end="url(#fig-net-a-green)"/>
+<path class="ln dash red" d="M680 153L622 153" marker-end="url(#fig-net-a-red)"/>
+<path class="ln orange" d="M680 243L582 243" marker-end="url(#fig-net-a-orange)"/>
+</svg>
+<figcaption><b>Network layers.</b> Controls tighten from the outside in. Blocking public access is the highest-impact switch: enable it only after Private Link is proven for every user population and background service.</figcaption>
+</figure>
+<h3 id="s-private-link">Tenant-level Private Link</h3>
+<dl class="kv">
+<dt>Where</dt><dd>Advanced networking</dd>
+<dt>Default</dt><dd>Not stated</dd>
+<dt>Typical posture</dt><dd><strong>Decide per organization</strong> — Depends on your network strategy; do not enable without a pilot.</dd>
+<dt>Scope and delegation</dt><dd>Group scoping is not stated in the reference; check the setting panel.</dd>
+<dt>What it controls</dt><dd>Lets people use Azure Private Link to reach your Fabric tenant. Someone must complete the setup in Azure; the setting can grant permission to the right person or group.</dd>
+<dt>Risk or benefit</dt><dd>Private Link moves access from the public internet to private endpoints, with considerations and limitations that affect some features and user experiences.</dd>
+<dt>Notes</dt><dd>Decide per network strategy. Review the considerations and limitations before enabling and test with a pilot subnet. Block Public Internet Access is the companion switch.</dd>
+</dl>
+<h3 id="s-block-public">Block Public Internet Access</h3>
+<dl class="kv">
+<dt>Where</dt><dd>Advanced networking</dd>
+<dt>Default</dt><dd>Not stated</dd>
+<dt>Typical posture</dt><dd><strong>Decide per organization</strong> — High impact; enable only after a successful private-link pilot.</dd>
+<dt>Scope and delegation</dt><dd>Group scoping is not stated in the reference; check the setting panel.</dd>
+<dt>What it controls</dt><dd>Blocks access to your Fabric tenant over the public internet. People without Private Link access cannot connect. It can take 10 to 20 minutes to take effect.</dd>
+<dt>Risk or benefit</dt><dd>A strong perimeter control, and an easy way to lock out users, services and tools that are not on the private network.</dd>
+<dt>Notes</dt><dd>Turn on only after Private Link is proven for all user populations and for background services. Plan an emergency path for the Fabric admins.</dd>
+</dl>
+<table class="tight">
+<thead><tr><th>Setting</th><th>Default</th><th>Typical posture</th><th>What it controls; risk or benefit</th><th>Notes</th></tr></thead>
+<tbody>
+<tr id="s-ws-inbound"><td><strong>Configure workspace-level inbound network rules</strong></td><td>Not stated</td><td>Decide per organization</td><td>Lets workspace admins restrict inbound private-link access in workspace settings. Once a workspace restricts inbound access, existing tenant-level private links can no longer connect to it. Turning the setting off reverts all workspaces to their previous configuration.</td><td>Enable for workspaces with strict isolation needs.</td></tr>
+<tr id="s-ws-outbound"><td><strong>Configure workspace-level outbound network rules</strong></td><td>Not stated</td><td>Decide per organization</td><td>Lets workspace admins configure outbound access protection. Turning the tenant setting off also turns off outbound protection in every workspace.</td><td>Powerful for exfiltration control; do not toggle casually.</td></tr>
+<tr id="s-ws-firewall"><td><strong>Configure workspace IP firewall rules</strong> <span class="badge preview">Preview</span></td><td>Not stated</td><td>Decide per organization</td><td>Lets workspace admins configure IP firewall rules, which can allow access from specific IP ranges even when the tenant blocks public access. Learn's index names it Configure workspace-level IP firewall rules and trusted resource instances.</td><td>Labeled preview on the networking page; confirm status on Learn.</td></tr>
+<tr id="s-cmk"><td><strong>Apply customer-managed keys</strong></td><td>Not stated</td><td>Decide per organization</td><td>Lets users configure workspace-level encryption with customer-managed keys. When off, Microsoft-managed keys are used.</td><td>Enable when policy requires key control; it adds key-lifecycle responsibilities.</td></tr>
+</tbody></table>
+<h3 id="network-steps">Safe sequence</h3>
+<ol class="steps">
+  <li><strong>Read the considerations</strong><p>Review the Private Link considerations and limitations; some features and tools behave differently over private endpoints.</p></li>
+  <li><strong>Enable tenant-level Private Link</strong><p>Complete the Azure side (private endpoints, name resolution) and test with a pilot subnet and users.</p></li>
+  <li><strong>Prove every population</strong><p>Test desktop users, Power BI Desktop, gateways, pipelines, notebooks and background services over the private path.</p></li>
+  <li><strong>Block public access last</strong><p>Turn it on in a change window, allow 10 to 20 minutes for it to take effect, and keep an emergency path for the administrators.</p></li>
+  <li><strong>Add workspace controls where isolation is needed</strong><p>Use inbound and outbound workspace rules for sensitive workspaces. Remember that turning the tenant setting off reverts the workspace protections.</p></li>
+</ol>
+
+<h2 id="workspace-identity">Workspace identity</h2>
+<p>A workspace identity is a Microsoft Entra service principal that belongs to a workspace, so the workspace can authenticate to data sources without a person's credentials. It is generally available, created by workspace admins, and not available in My workspace.</p>
+<ul>
+  <li><strong>Review.</strong> Fabric administrators can see identities under <em>Govern</em>, <em>Configurations</em>, <em>Fabric identities</em>.</li>
+  <li><strong>Limit.</strong> The tenant setting <a href="integration-api.html#s-max-identities">Define maximum number of Fabric identities in a tenant</a> caps how many can be created. If the setting is disabled, the default limit is 10,000.</li>
+  <li><strong>Audit.</strong> Look for the Purview audit friendly names <em>Created Fabric Identity for Workspace</em>, <em>Retrieved Fabric Identity for Workspace</em> and <em>Deleted Fabric Identity for Workspace</em>, and the <code>CreateWorkspaceIdentityViaApi</code> operation.</li>
+</ul>
+
+<h2 id="delegation">Capacity and domain delegation in practice</h2>
+<p>Delegation hands a decision to the people closest to the workload. It works best for settings where the right answer differs by workload and where the delegate has context you lack.</p>
+<table>
+  <thead><tr><th>Setting</th><th>Delegation</th><th>Why delegate</th></tr></thead>
+  <tbody>
+    <tr><td><a href="workspace-git-onelake.html#s-fabric-items">Users can create Fabric items</a></td><td>Delegated to capacity admins automatically.</td><td>Capacities host different teams; sandbox capacities can allow creation while production capacities stay restricted.</td></tr>
+    <tr><td><a href="ai-preview-other.html#s-copilot-main">Users can use Copilot and other features powered by Azure OpenAI</a></td><td>Tenant and capacity.</td><td>Place Copilot users on a dedicated capacity for cost and risk control.</td></tr>
+    <tr><td><a href="workspace-git-onelake.html#s-git-ado">Users can synchronize workspace items with their Git repositories</a> and <a href="workspace-git-onelake.html#s-git-github">Users can sync workspace items with GitHub repositories</a></td><td>Tenant, capacity and workspace.</td><td>Allow Git only where teams follow a repository standard.</td></tr>
+    <tr><td><a href="export-sharing.html#s-certification">Certification</a> and <a href="content-models.html#s-label-domain-default">Domain admins can set default sensitivity labels for their domains</a></td><td>Domain.</td><td>Domain owners know which content deserves certification and which default label fits.</td></tr>
+    <tr><td><a href="ai-preview-other.html#s-copilot-approved">Only show approved items in the standalone Copilot in Power BI experience</a> and <a href="workspace-git-onelake.html#s-onelake-sas-auth">Authenticate with OneLake user-delegated SAS tokens</a></td><td>Workspace admins by default.</td><td>Check overrides: a workspace can differ from the tenant choice.</td></tr>
+  </tbody>
+</table>
+<h3 id="domain-assignment">Domain assignment</h3>
+<p>Domains group workspaces for ownership and delegation. One preview setting controls whether administrators can move workspaces between domains.</p>
+<table class="tight">
+<thead><tr><th>Setting</th><th>Default</th><th>Typical posture</th><th>What it controls; risk or benefit</th><th>Notes</th></tr></thead>
+<tbody>
+<tr id="s-domain-override"><td><strong>Allow tenant and domain admins to override workspace assignments</strong> <span class="badge preview">Preview</span></td><td>Not stated</td><td>Decide per organization</td><td>Lets tenant and domain admins reassign workspaces that were previously assigned to another domain.</td><td>Useful during a domain reorganization; otherwise leave off to protect assignments.</td></tr>
+</tbody></table>
+<div class="callout warning"><p class="callout-title">Keep a list of overrides</p>
+<p>An override can make a capacity or workspace more permissive than the tenant. Use the list-overrides operations of the administration API to enumerate capacity, domain and workspace overrides, and compare them to your standard each quarter.</p></div>
+
+<h2 id="workloads-help">Additional workloads, trial and help</h2>
+<p>Additional workloads are partner-built workloads that send user data and access tokens to the publisher, and that sensitivity labels and encryption do not cover. Keep them off until the platform team has approved a publisher.</p>
+<table class="tight">
+<thead><tr><th>Setting</th><th>Default</th><th>Typical posture</th><th>What it controls; risk or benefit</th><th>Notes</th></tr></thead>
+<tbody>
+<tr id="s-workloads-ws"><td><strong>Workspace admins can add and remove additional workloads</strong> <span class="badge preview">Preview</span></td><td>Not stated</td><td class="no">Disable</td><td>Lets workspace admins add and remove partner workloads. Data and access tokens, including name and e-mail, are sent to the publisher; labels and encryption are not applied to those items.</td><td>Disable unless the platform team approves a publisher.</td></tr>
+<tr id="s-workloads-capacity"><td><strong>Capacity admins and contributors can add and remove additional workloads</strong></td><td>Not stated</td><td class="no">Disable</td><td>Lets capacity admins and contributors add and remove workloads on capacities. Existing workloads keep working when turned off.</td><td>Same exposure as above, at capacity scope.</td></tr>
+<tr id="s-workloads-develop"><td><strong>Workspace admins can develop partner workloads</strong></td><td>Not stated</td><td class="no">Disable</td><td>Lets workspace admins develop partner workloads from a local development environment.</td><td>Enable for the workload-development team only.</td></tr>
+<tr id="s-workloads-unvalidated"><td><strong>Users can see and work with additional workloads not validated by Microsoft</strong></td><td>Not stated</td><td class="no">Disable</td><td>Lets users see and use workloads that Microsoft has not validated. Add only publishers you trust.</td><td>Keep off.</td></tr>
+</tbody></table>
+<h3 id="trial-help">Trial, alerts and help</h3>
+<table class="tight">
+<thead><tr><th>Setting</th><th>Default</th><th>Typical posture</th><th>What it controls; risk or benefit</th><th>Notes</th></tr></thead>
+<tbody>
+<tr id="s-try-paid"><td><strong>Users can try Microsoft Fabric paid features</strong></td><td>Not stated</td><td class="maybe">Enable for specific groups</td><td>Lets users start a Fabric trial to try paid features for a limited period.</td><td>Trial capacities can create unmanaged data assets; restrict to a sandbox group or disable.</td></tr>
+<tr id="s-set-alert"><td><strong>All Power BI users can see "Set alert" button to create Fabric Activator alerts</strong></td><td>Not stated</td><td class="yes">Enable for all</td><td>Shows the Set alert button to all Power BI users, but only users with permission to create Fabric items can create Activator alerts.</td><td>Visibility only.</td></tr>
+<tr id="s-get-help"><td><strong>Publish "Get Help" information</strong></td><td>Not stated</td><td class="yes">Enable for all</td><td>Lets you publish internal help and support resources in the Power BI help menu.</td><td>Point it at your internal Fabric support page.</td></tr>
+<tr id="s-publish-message"><td><strong>Show a custom message before publishing reports</strong></td><td>Not stated</td><td class="yes">Enable for all</td><td>Shows users a custom message when they publish a report.</td><td>Use it to link the publishing standard and labeling rules.</td></tr>
+<tr id="s-outage-notify"><td><strong>Receive email and Teams notifications for service outages or incidents, and Receive In-product notifications for service outages or incidents</strong></td><td>Not stated</td><td class="yes">Enable for all</td><td>Sends outage and incident notifications to mail-enabled security groups you name.</td><td>Point at the platform operations group.</td></tr>
+</tbody></table>
+
+<div class="takeaways"><p class="tk-title">Key takeaways</p>
+<ul>
+  <li>Scope Fabric item creation to groups, and remember that capacity admins can override the tenant choice.</li>
+  <li>For GitHub you need two switches plus the Fabric switch for Fabric items; disabling the base Git switch also stops GitHub.</li>
+  <li>Scope OneLake access from outside Fabric to engineering groups, keep OneLake File Explorer off, and turn on OneLake diagnostics for audit.</li>
+  <li>Prove Private Link for every population before you block public access.</li>
+  <li>Treat delegation as a review obligation: list overrides on a schedule.</li>
+</ul></div>
+
+<section class="refs">
+  <h2 id="refs">References</h2>
+  <ul>
+    <li><a href="https://learn.microsoft.com/fabric/admin/fabric-switch">Enable Microsoft Fabric for your organization</a></li>
+    <li><a href="https://learn.microsoft.com/fabric/admin/portal-workspace">Workspace tenant settings</a></li>
+    <li><a href="https://learn.microsoft.com/fabric/admin/workspace-retention">Workspace retention</a></li>
+    <li><a href="https://learn.microsoft.com/fabric/admin/git-integration-admin-settings">Git integration tenant settings</a></li>
+    <li><a href="https://learn.microsoft.com/fabric/admin/service-admin-portal-onelake">OneLake tenant settings</a></li>
+    <li><a href="https://learn.microsoft.com/fabric/onelake/security/get-started-security">OneLake security</a></li>
+    <li><a href="https://learn.microsoft.com/fabric/admin/service-admin-portal-advanced-networking">Advanced networking tenant settings</a></li>
+    <li><a href="https://learn.microsoft.com/fabric/security/security-private-links-overview">Private links for Fabric tenants</a></li>
+    <li><a href="https://learn.microsoft.com/fabric/security/security-workspace-level-private-links-overview">Private links for Fabric workspaces</a></li>
+    <li><a href="https://learn.microsoft.com/fabric/security/workspace-identity">Workspace identity</a></li>
+    <li><a href="https://learn.microsoft.com/fabric/admin/capacity-settings">Manage your Fabric capacity</a></li>
+  </ul>
+</section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

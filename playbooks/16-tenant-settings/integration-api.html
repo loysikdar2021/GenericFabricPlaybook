@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Integration, developer and APIs · Tenant Settings</title>
+<meta name="description" content="Reference for XMLA, Execute Queries, service principal and admin API settings, maps, single sign-on and streaming authentication.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="16-tenant-settings" data-page="integration-api.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 16 · Tenant Settings</p>
+      <h1>Integration, developer and APIs</h1>
+      <p class="lede">Settings that open programmatic and tool-based access to data: XMLA endpoints, the Execute Queries API, service principals and admin APIs, maps, single sign-on to third-party sources, OneDrive and SharePoint integration, and streaming authentication.</p>
+      <ul class="chips"><li><b>Portal groups</b> Integration, Developer, Admin API</li><li><b>Default stance</b> Specific groups, owners named</li><li><b>Key risk</b> Non-human identities and bulk extraction</li></ul>
+    </header>
+<h2 id="xmla">XMLA endpoints, Analyze in Excel and Execute Queries</h2>
+<p>Three tenant settings decide which tools and APIs can read semantic models directly. They do not replace permissions: each path still needs <strong>Build</strong> permission on the model, and row-level security applies on every path.</p>
+<figure class="diagram">
+<svg class="dg" viewBox="0 0 880 280" role="img" aria-label="Three independent gates control model connectivity: the Excel live-connection setting allows Analyze in Excel, the XMLA setting allows client tools, and the capacity XMLA mode decides read or read-write. Build permission is required for each">
+<defs><marker id="fig-xmla-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker></defs>
+<rect class="box purple" x="20" y="20" width="300" height="72" rx="10"/>
+<text class="t-b" x="170" y="45.5" text-anchor="middle">Tenant: Excel live connection</text>
+<text class="t-s" x="170" y="60.4" text-anchor="middle">Users can work with semantic</text>
+<text class="t-s" x="170" y="74.9" text-anchor="middle">models in Excel using a live connection</text>
+<rect class="box blue" x="390" y="20" width="170" height="72" rx="10"/>
+<text class="t-b" x="475" y="52.8" text-anchor="middle">Build permission</text>
+<text class="t-s" x="475" y="67.6" text-anchor="middle">on the model</text>
+<rect class="box green" x="630" y="20" width="230" height="72" rx="10"/>
+<text class="t-b" x="745" y="52.8" text-anchor="middle">Analyze in Excel</text>
+<text class="t-s" x="745" y="67.6" text-anchor="middle">live connection works</text>
+<path class="ln" d="M320 56L388 56" marker-end="url(#fig-xmla-a)"/>
+<path class="ln" d="M560 56L628 56" marker-end="url(#fig-xmla-a)"/>
+<rect class="box purple" x="20" y="100" width="300" height="72" rx="10"/>
+<text class="t-b" x="170" y="125.5" text-anchor="middle">Tenant: XMLA setting</text>
+<text class="t-s" x="170" y="140.4" text-anchor="middle">Allow XMLA endpoints and</text>
+<text class="t-s" x="170" y="154.9" text-anchor="middle">Analyze in Excel with on-premises models</text>
+<rect class="box blue" x="390" y="100" width="170" height="72" rx="10"/>
+<text class="t-b" x="475" y="132.8" text-anchor="middle">Build permission</text>
+<text class="t-s" x="475" y="147.6" text-anchor="middle">on the model</text>
+<rect class="box green" x="630" y="100" width="230" height="72" rx="10"/>
+<text class="t-b" x="745" y="132.8" text-anchor="middle">XMLA read</text>
+<text class="t-s" x="745" y="147.6" text-anchor="middle">client tools connect and query</text>
+<path class="ln" d="M320 136L388 136" marker-end="url(#fig-xmla-a)"/>
+<path class="ln" d="M560 136L628 136" marker-end="url(#fig-xmla-a)"/>
+<rect class="box blue" x="20" y="180" width="300" height="72" rx="10"/>
+<text class="t-b" x="170" y="205.5" text-anchor="middle">Capacity: XMLA endpoint</text>
+<text class="t-s" x="170" y="220.4" text-anchor="middle">Read Only by default;</text>
+<text class="t-s" x="170" y="234.9" text-anchor="middle">Read Write set per capacity</text>
+<rect class="box blue" x="390" y="180" width="170" height="72" rx="10"/>
+<text class="t-b" x="475" y="212.8" text-anchor="middle">Build permission</text>
+<text class="t-s" x="475" y="227.6" text-anchor="middle">plus a write-capable role</text>
+<rect class="box orange" x="630" y="180" width="230" height="72" rx="10"/>
+<text class="t-b" x="745" y="212.8" text-anchor="middle">XMLA write</text>
+<text class="t-s" x="745" y="227.6" text-anchor="middle">deploy, edit, refresh with TMSL</text>
+<path class="ln" d="M320 216L388 216" marker-end="url(#fig-xmla-a)"/>
+<path class="ln" d="M560 216L628 216" marker-end="url(#fig-xmla-a)"/>
+</svg>
+<figcaption><b>Connectivity gates.</b> Read the rows independently. A tenant setting opens the door; the capacity mode and Build permission decide what a connected user can do.</figcaption>
+</figure>
+<h3 id="s-xmla">Allow XMLA endpoints and Analyze in Excel with on-premises semantic models</h3>
+<dl class="kv">
+<dt>Where</dt><dd>Integration settings</dd>
+<dt>Default</dt><dd>On</dd>
+<dt>Typical posture</dt><dd><strong>Enable for specific groups</strong> — Developer tools need it, but it is an open data path.</dd>
+<dt>Scope and delegation</dt><dd>Supports specific security groups and exceptions.</dd>
+<dt>What it controls</dt><dd>Lets client tools connect to semantic models through XMLA endpoints (Excel, SSMS, DAX Studio, Tabular Editor, ALM Toolkit, third-party tools and scripts) and allows Analyze in Excel. Despite the wording, it governs connectivity to models hosted in the service; the on-premises phrase is a legacy label.</dd>
+<dt>Risk or benefit</dt><dd>XMLA is an open-protocol data path. Build permission is still required and row-level security applies, but a connected tool can issue heavy queries, and with read-write enabled on the capacity, client tools can modify models and run TMSL scripts for users with enough workspace permission.</dd>
+<dt>Notes</dt><dd>Also needs the capacity XMLA Endpoint property: read-only by default, read-write set by the capacity admin. Works with the Excel live-connection setting (truth table on this page). Audit with ConnectFromExternalApplication and related operations.</dd>
+</dl>
+<h3 id="xmla-truth">How the two tenant settings combine</h3>
+<table>
+  <thead><tr><th>XMLA setting</th><th>Excel live-connection setting</th><th>XMLA client tools</th><th>Analyze in Excel</th></tr></thead>
+  <tbody>
+    <tr><td>Off</td><td>Off</td><td class="no">Not allowed</td><td class="no">Not allowed</td></tr>
+    <tr><td>Off</td><td>On</td><td class="no">Not allowed</td><td class="yes">Allowed</td></tr>
+    <tr><td>On</td><td>Off</td><td class="yes">Allowed</td><td class="no">Not allowed</td></tr>
+    <tr><td>On</td><td>On</td><td class="yes">Allowed</td><td class="yes">Allowed</td></tr>
+  </tbody>
+</table>
+<p>Both tenant settings are documented as on by default. The capacity-level <em>XMLA endpoint</em> property is a third gate: it is read-only by default, and a capacity admin must set it to read-write before client tools can write to models, deploy or run TMSL scripts. The Excel live-connection setting itself is described in the <a href="export-sharing.html#s-excel-live">export and sharing</a> reference.</p>
+<div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p>
+<p>The setting is named <em>Allow XMLA endpoints and Analyze in Excel with on-premises semantic models</em>. The "on-premises" wording is a legacy label: the setting governs client connectivity to models hosted in the service. Learn describes the mechanics in <a href="https://learn.microsoft.com/power-bi/enterprise/service-premium-connect-tools">Semantic model connectivity with the XMLA endpoint</a>.</p></div>
+
+<h3 id="s-execute-queries">Semantic Model Execute Queries REST API</h3>
+<dl class="kv">
+<dt>Where</dt><dd>Integration settings</dd>
+<dt>Default</dt><dd>Not stated</dd>
+<dt>Typical posture</dt><dd><strong>Enable for specific groups</strong> — Valuable for automation, but a data egress channel that needs ownership.</dd>
+<dt>Scope and delegation</dt><dd>Supports specific security groups and exceptions.</dd>
+<dt>What it controls</dt><dd>Lets users query semantic models with DAX through the Power BI REST API (executeQueries). Also described in the API reference as the Dataset Execute Queries REST API setting.</dd>
+<dt>Risk or benefit</dt><dd>It is a programmatic data channel: scripts, Azure Functions, notebooks, CI/CD jobs and AI agents can pull governed data. The API honors the caller's Read and Build permission, but service principals are not supported for models with row-level security or SSO.</dd>
+<dt>Notes</dt><dd>Enable for automation and integration groups, require OAuth with conditional access, monitor in the Capacity Metrics app and audit logs, and treat it like any other data API. Limits are listed below the card.</dd>
+</dl>
+<dl class="kv">
+  <dt>Query shape</dt><dd>One query per call, DAX only, one table in the result.</dd>
+  <dt>Size limits</dt><dd>Up to 100,000 rows or 1,000,000 values per query (whichever is hit first), 15 MB per query.</dd>
+  <dt>Rate limit</dt><dd>120 requests per minute per user.</dd>
+  <dt>Permissions</dt><dd>Read and Build on the semantic model. Service principals are not supported for models with row-level security or single sign-on.</dd>
+</dl>
+<pre data-title="Smoke-test the Execute Queries API (Python, placeholders)"><code class="language-python">import requests
+
+token = "&lt;access-token&gt;"  # acquire with your approved app or user flow
+workspace = "00000000-0000-0000-0000-000000000000"
+model = "00000000-0000-0000-0000-000000000000"
+url = f"https://api.powerbi.com/v1.0/myorg/groups/{workspace}/datasets/{model}/executeQueries"
+body = {"queries": [{"query": "EVALUATE ROW(\"ok\", 1)"}]}
+r = requests.post(url, headers={"Authorization": f"Bearer {token}"}, json=body, timeout=60)
+print(r.status_code, r.text[:200])</code></pre>
+<div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p>
+<p>The Execute Queries article still refers to a service-principal setting called <em>Allow service principals to use Power BI APIs</em>. The Developer settings group lists <em>Service principals can call Fabric public APIs</em>. Confirm which switch your tenant needs for the service principal you plan to use, and test in a non-production tenant first.</p></div>
+<table class="tight">
+<thead><tr><th>Setting</th><th>Default</th><th>Typical posture</th><th>What it controls; risk or benefit</th><th>Notes</th></tr></thead>
+<tbody>
+<tr id="s-mcp-endpoint"><td><strong>Users can use the Power BI Model Context Protocol server endpoint</strong> <span class="badge preview">Preview</span></td><td>Not stated</td><td class="maybe">Enable for specific groups</td><td>Lets users connect MCP clients to Power BI to use MCP tools over the Power BI artifacts they are permitted to access. GitHub Copilot in Visual Studio works by default; other clients use service principals, which also requires Service principals can call Fabric public APIs.</td><td>An AI integration surface; pilot with a developer group and review how clients store prompts and responses.</td></tr>
+</tbody></table>
+
+<h2 id="service-principals">Service principals and admin APIs</h2>
+<p>Service principals are non-human identities. They are the right way to automate, but each switch below hands a program power over tenant metadata or workspace creation, so these are the settings that most need an owner, a dedicated security group and a credential lifecycle.</p>
+<figure class="diagram">
+<svg class="dg" viewBox="0 0 880 330" role="img" aria-label="A service principal for automation is an app registration with a certificate or federated credential, placed in a dedicated security group, listed in the relevant tenant settings, and given least-privilege workspace roles">
+<defs><marker id="fig-sp-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker></defs>
+<rect class="box gray" x="20" y="120" width="140" height="76" rx="10"/>
+<text class="t-b" x="90" y="147.5" text-anchor="middle">App registration</text>
+<text class="t-s" x="90" y="162.4" text-anchor="middle">certificate or</text>
+<text class="t-s" x="90" y="176.9" text-anchor="middle">federated credential</text>
+<rect class="box purple" x="220" y="120" width="150" height="76" rx="10"/>
+<text class="t-b" x="295" y="147.5" text-anchor="middle">Security group</text>
+<text class="t-s" x="295" y="162.4" text-anchor="middle">SG-FAB-SP-Automation</text>
+<text class="t-s" x="295" y="176.9" text-anchor="middle">owner and review</text>
+<rect class="box blue" x="430" y="50" width="220" height="196" rx="10"/>
+<text class="t-h" x="540" y="109" text-anchor="middle">Tenant switches</text>
+<text class="t-s" x="540" y="124.4" text-anchor="middle">Service principals can call</text>
+<text class="t-s" x="540" y="138.9" text-anchor="middle">Fabric public APIs</text>
+<text class="t-s" x="540" y="153.4" text-anchor="middle">Create workspaces,</text>
+<text class="t-s" x="540" y="167.9" text-anchor="middle">connections, pipelines</text>
+<text class="t-s" x="540" y="182.4" text-anchor="middle">Admin APIs: read-only</text>
+<text class="t-s" x="540" y="196.9" text-anchor="middle">Admin APIs: used for updates</text>
+<rect class="box green" x="710" y="120" width="150" height="76" rx="10"/>
+<text class="t-b" x="785" y="147.5" text-anchor="middle">Workspace roles</text>
+<text class="t-s" x="785" y="162.4" text-anchor="middle">least privilege,</text>
+<text class="t-s" x="785" y="176.9" text-anchor="middle">per workspace</text>
+<path class="ln" d="M160 158L218 158" marker-end="url(#fig-sp-a)"/>
+<rect class="pill-bg" x="165" y="132" width="50" height="15"/>
+<text class="t-s" x="190" y="143.5" text-anchor="middle">member</text>
+<path class="ln" d="M370 158L428 158" marker-end="url(#fig-sp-a)"/>
+<rect class="pill-bg" x="371" y="132" width="56" height="15"/>
+<text class="t-s" x="399" y="143.5" text-anchor="middle">allowed</text>
+<path class="ln" d="M650 158L708 158" marker-end="url(#fig-sp-a)"/>
+<rect class="pill-bg" x="660" y="132" width="38" height="15"/>
+<text class="t-s" x="679" y="143.5" text-anchor="middle">plus</text>
+<rect class="box orange dashed" x="220" y="276" width="640" height="40" rx="10"/>
+<text class="t-b" x="540" y="300" text-anchor="middle">Admin API switches expose names and e-mail addresses: never enable for the whole org</text>
+</svg>
+<figcaption><b>Service principal automation pattern.</b> Three separate decisions: which group may call which APIs (tenant settings), which workspaces it may touch (roles), and how its credential is protected. Never enable these settings for the whole organization.</figcaption>
+</figure>
+<h3 id="sp-gates">Which switch gates which API family</h3>
+<table>
+  <thead><tr><th>API family</th><th>Gated by</th></tr></thead>
+  <tbody>
+    <tr><td><strong>Fabric public APIs with a permission model</strong> (create, read, update and delete items)</td><td><a href="integration-api.html#s-sp-public-apis">Service principals can call Fabric public APIs</a></td></tr>
+    <tr><td><strong>Create workspace, connection and deployment pipeline</strong>, which have no item-level permission model</td><td><a href="integration-api.html#s-sp-create-workspaces">Service principals can create workspaces, connections, and deployment pipelines</a></td></tr>
+    <tr><td><strong>Read-only admin APIs</strong> such as metadata scanning and activity events</td><td><a href="integration-api.html#s-sp-readonly-admin">Service principals can access read-only admin APIs</a></td></tr>
+    <tr><td><strong>Admin APIs used for updates</strong> such as Restore Workspace</td><td><a href="integration-api.html#s-sp-admin-updates">Service principals can access admin APIs used for updates</a></td></tr>
+    <tr><td><strong>Extra detail in scan results</strong> (table and column names; DAX and mashup expressions)</td><td><a href="integration-api.html#s-admin-meta">Enhance admin APIs responses with detailed metadata</a> and <a href="integration-api.html#s-admin-dax">Enhance admin APIs responses with DAX and mashup expressions</a>, plus the read-only switch when the caller is a service principal</td></tr>
+    <tr><td><strong>Embedded multi-tenancy profiles</strong></td><td><a href="integration-api.html#s-sp-profiles">Allow service principals to create and use profiles</a></td></tr>
+  </tbody>
+</table>
+<h3 id="s-sp-public-apis">Service principals can call Fabric public APIs</h3>
+<dl class="kv">
+<dt>Where</dt><dd>Developer settings</dd>
+<dt>Default</dt><dd>On — For new customers.</dd>
+<dt>Typical posture</dt><dd><strong>Enable for specific groups</strong> — Automation identities should be enumerated, not implied.</dd>
+<dt>Scope and delegation</dt><dd>Supports specific security groups and exceptions.</dd>
+<dt>What it controls</dt><dd>Lets service principals with suitable roles and item permissions call Fabric public APIs that do create, read, update and delete operations and are protected by a Fabric permission model.</dd>
+<dt>Risk or benefit</dt><dd>A service principal acts without a human, with whatever workspace roles it was given. Enabled for the entire tenant, any app registration with permissions becomes an automation identity.</dd>
+<dt>Notes</dt><dd>Scope to a dedicated security group of approved service principals, grant them workspace roles like any other identity, and prefer certificate or federated credentials. Required for the MCP server endpoint with non-GitHub clients.</dd>
+</dl>
+<h3 id="s-sp-create-workspaces">Service principals can create workspaces, connections, and deployment pipelines</h3>
+<dl class="kv">
+<dt>Where</dt><dd>Developer settings</dd>
+<dt>Default</dt><dd>Off — For new customers.</dd>
+<dt>Typical posture</dt><dd><strong>Enable for specific groups</strong> — No item-level permission model protects these APIs.</dd>
+<dt>Scope and delegation</dt><dd>Supports specific security groups and exceptions.</dd>
+<dt>What it controls</dt><dd>Lets service principals call the Create Workspace, Create Connection and Create Deployment Pipeline APIs, which are not protected by a Fabric permission model.</dd>
+<dt>Risk or benefit</dt><dd>Because these calls have no item-level permission model, only the tenant setting limits who can create them. Unrestricted, an identity can create workspaces and connections at will.</dd>
+<dt>Notes</dt><dd>Enable for the one or two automation identities that provision environments, such as a platform provisioning pipeline, and nothing else.</dd>
+</dl>
+<h3 id="s-sp-admin-updates">Service principals can access admin APIs used for updates</h3>
+<dl class="kv">
+<dt>Where</dt><dd>Admin API settings</dd>
+<dt>Default</dt><dd>Not stated</dd>
+<dt>Typical posture</dt><dd><strong>Enable for specific groups</strong> — Least-privilege automation identities with a review cycle.</dd>
+<dt>Scope and delegation</dt><dd>Supports specific security groups and exceptions.</dd>
+<dt>What it controls</dt><dd>Lets service principals in allowed security groups call Fabric admin APIs used for updates, such as Workspaces - Restore Workspace. Service principals in allowed groups have full access to the information those APIs expose, including users' names and e-mail addresses and detailed item metadata.</dd>
+<dt>Risk or benefit</dt><dd>This is one of the most privileged non-human identities in the tenant. It needs the same discipline as a Fabric admin account, plus a secret or certificate lifecycle.</dd>
+<dt>Notes</dt><dd>Do not enable for the entire organization. Create a dedicated group, add only approved service principals tied to automation, record approvals and review membership regularly. The app must not hold Power BI permissions that need admin consent. Prefer federated credentials; rotate certificates or secrets. Also required for Purview DSPM for AI data risk assessments.</dd>
+</dl>
+<table class="tight">
+<thead><tr><th>Setting</th><th>Default</th><th>Typical posture</th><th>What it controls; risk or benefit</th><th>Notes</th></tr></thead>
+<tbody>
+<tr id="s-sp-readonly-admin"><td><strong>Service principals can access read-only admin APIs</strong></td><td>Not stated</td><td class="maybe">Enable for specific groups</td><td>Lets service principals in allowed groups use read-only admin APIs (metadata scanning, activity events and more) without a signed-in user. Members get read access to everything those APIs expose, including user names and e-mail addresses.</td><td>Scope to the governance and monitoring identities. Required for Purview DSPM for AI data risk assessments.</td></tr>
+<tr id="s-admin-meta"><td><strong>Enhance admin APIs responses with detailed metadata</strong></td><td>Not stated</td><td class="maybe">Enable for specific groups</td><td>Lets users and service principals that can call admin APIs receive table and column names in scan results. For service principals the read-only admin API setting must also be on.</td><td>Needed for catalog and lineage tooling; scope to the governance team.</td></tr>
+<tr id="s-admin-dax"><td><strong>Enhance admin APIs responses with DAX and mashup expressions</strong></td><td>Not stated</td><td class="maybe">Enable for specific groups</td><td>Includes DAX and Power Query (mashup) expressions in scan results. Exposes intellectual property and sometimes embedded values.</td><td>Enable only for governance identities with a need to scan logic.</td></tr>
+<tr id="s-sp-profiles"><td><strong>Allow service principals to create and use profiles</strong></td><td>Not stated</td><td class="no">Disable</td><td>Lets service principals create and use profiles, a multitenancy feature for embedded analytics isolating customer data.</td><td>Disable unless you run an embed-for-your-customers application, then scope to that app's identity.</td></tr>
+<tr id="s-embed-content"><td><strong>Embed content in apps</strong></td><td>Not stated</td><td class="maybe">Enable for specific groups</td><td>Lets users embed Power BI dashboards and reports in applications through the REST APIs (embed for your customers).</td><td>Scope to the developer group building embedded applications.</td></tr>
+<tr id="s-block-resourcekey"><td><strong>Block ResourceKey Authentication</strong></td><td>Not stated</td><td class="yes">Enable for all</td><td>Blocks resource-key authentication for streaming and push datasets, so users cannot send data to them with a resource key. Applies to the entire organization.</td><td>Enable the block unless a legacy streaming scenario still depends on keys. Learn words the effect as If disabled, users aren't allowed to send data with a resource key, which reads the opposite way to the setting name; test with a streaming dataset in a non-production workspace before you change it. <em>Org-wide only.</em></td></tr>
+<tr id="s-max-identities"><td><strong>Define maximum number of Fabric identities in a tenant</strong></td><td>Not stated <em>If the setting is disabled, up to 10,000 identities can be created.</em></td><td>Decide per organization</td><td>Sets the maximum number of Fabric (workspace) identities that can be created. Fabric does not validate the value against your Entra limits.</td><td>Set a ceiling sized to your expected workspace count to prevent identity sprawl.</td></tr>
+</tbody></table>
+<h3 id="sp-practice">Operating service principals safely</h3>
+<ol class="steps">
+  <li><strong>Create a group per purpose</strong><p>For example <code>SG-FAB-SP-Provisioning</code> and <code>SG-FAB-SP-Governance</code>. List only those groups in the tenant settings.</p></li>
+  <li><strong>Choose strong credentials</strong><p>Prefer a federated credential or a certificate to a client secret. Record where the credential lives and who rotates it.</p></li>
+  <li><strong>Keep the app registration clean</strong><p>The app must not hold Power BI permissions that need admin consent when it is used for admin APIs. Grant access through workspace roles and item permissions instead.</p></li>
+  <li><strong>Grant the least workspace role</strong><p>Add the service principal to workspaces with the lowest role that works, and remove it when the automation ends.</p></li>
+  <li><strong>Monitor</strong><p>Audit workspace and item creation events by the principal and review group membership on the standard cadence.</p></li>
+</ol>
+<div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p>
+<p>The Get Tenant Settings API supports service principals, but the documentation does not say which admin-API switch must list the principal. Test with a non-production principal, and add it only to the groups that your test shows are required.</p></div>
+
+<h2 id="maps">Maps and location services</h2>
+<p>Map visuals send location data to a mapping service. The decision is who processes it: Microsoft (Azure Maps) or a third party (Esri). Both settings apply to the whole organization.</p>
+<h3 id="s-arcgis">Use ArcGIS Maps for Power BI</h3>
+<dl class="kv">
+<dt>Where</dt><dd>Integration settings</dd>
+<dt>Default</dt><dd>Not stated</dd>
+<dt>Typical posture</dt><dd><strong>Disable</strong> — Third-party processing with no group scoping.</dd>
+<dt>Scope and delegation</dt><dd>Applies to the entire organization only; groups cannot be selected.</dd>
+<dt>What it controls</dt><dd>Enables the ArcGIS Maps for Power BI visual provided by Esri. The visual is a third-party service: data used by the visual is sent to Esri, processed under Esri's terms, and may sit outside your tenant's geographic region or compliance boundary. The portal shows that it applies to the entire organization.</dd>
+<dt>Risk or benefit</dt><dd>Location data leaves the Microsoft boundary and is handled by a third-party processor. If locations are sensitive (addresses of people, facilities with regulatory status) this is a real exposure; otherwise it adds rich geospatial analysis.</dd>
+<dt>Notes</dt><dd>Org-wide only, so scoping to a group is not possible. Enable only after a data-protection review and record Esri as a processor; teach report authors what location data may be used.</dd>
+</dl>
+<h3 id="s-azure-maps-visual">Users can use the Azure Maps visual</h3>
+<dl class="kv">
+<dt>Where</dt><dd>Integration settings</dd>
+<dt>Default</dt><dd>Not stated</dd>
+<dt>Typical posture</dt><dd><strong>Enable for all</strong> — Stays inside Microsoft's boundary; review the two companion data-residency settings.</dd>
+<dt>Scope and delegation</dt><dd>Applies to the entire organization only; groups cannot be selected.</dd>
+<dt>What it controls</dt><dd>Lets users create and view reports that use the Azure Maps visual. Microsoft temporarily stores and processes the data for essential services such as translating location names into coordinates. Two companion settings control processing outside your tenant's region (Data sent to Azure Maps can be processed outside your tenant's geographic region, compliance boundary, or national cloud instance) and processing by Microsoft Online Services subprocessors.</dd>
+<dt>Risk or benefit</dt><dd>Data is processed by Microsoft rather than a third-party provider, but location text is still sent to a mapping service. Where Azure Maps is unavailable in your region, the processing-outside-region setting decides whether data may be processed elsewhere.</dd>
+<dt>Notes</dt><dd>Org-wide only. Leave the two companion settings off unless your region or features require them, and classify reports that contain address-level data. A separate Azure Maps services group (Users can use Azure Maps services) governs other Azure Maps powered features.</dd>
+</dl>
+<table class="tight">
+<thead><tr><th>Setting</th><th>Default</th><th>Typical posture</th><th>What it controls; risk or benefit</th><th>Notes</th></tr></thead>
+<tbody>
+<tr id="s-map-filled"><td><strong>Map and filled map visuals</strong></td><td>Not stated</td><td class="yes">Enable for all</td><td>Lets people use the map and filled map visuals. Learn notes a plan to deprecate older map visuals and migrate reports to Azure Maps.</td><td>Keep on during migration; plan the move to Azure Maps.</td></tr>
+<tr id="s-geoanalytics"><td><strong>ArcGIS GeoAnalytics for Fabric Runtime</strong></td><td>Not stated</td><td class="no">Disable</td><td>Lets users use Esri's ArcGIS GeoAnalytics in Fabric Spark runtime. Review Esri terms before enabling.</td><td>Enable only for the geospatial team.</td></tr>
+</tbody></table>
+<p>The separate <em>Azure Maps services</em> group, which governs other Azure Maps powered features and weather data, is covered on the <a href="ai-preview-other.html#s-azure-maps-services">AI, preview and experimental</a> page.</p>
+
+<h2 id="sso">Single sign-on and data sources</h2>
+<p>Each single sign-on setting approves sending the signed-in user's token information, including name and e-mail address, to a data source. Leave them off until a source is actually in use and its owner agrees.</p>
+<table class="tight">
+<thead><tr><th>Setting</th><th>Default</th><th>Typical posture</th><th>What it controls; risk or benefit</th><th>Notes</th></tr></thead>
+<tbody>
+<tr id="s-sso-third-party"><td><strong>SSO for third-party sources: Dremio SSO, Snowflake SSO, Redshift SSO, Google BigQuery SSO, Enable Denodo SSO, Enable Starburst SSO</strong></td><td>Not stated</td><td class="no">Disable</td><td>Each setting approves sending a user's Entra token information (including name and e-mail) to that data source for single sign-on. Snowflake SSO, for example, must be on before semantic-model owners can enable SSO for DirectQuery connections to Snowflake.</td><td>Leave off until the source is in use and the data owner agrees; then enable per source and document the approval.</td></tr>
+<tr id="s-sso-gateway"><td><strong>Microsoft Entra single sign-on for data gateway, and for virtual network (VNet) data gateway</strong></td><td>Off <em>For on-premises gateways.</em></td><td class="maybe">Enable for specific groups</td><td>Lets users authenticate to data sources through on-premises and VNet data gateways with Entra SSO. Gateway owners control their gateways, so a malicious owner could in theory intercept SSO tokens; a VNet owner has a comparable network-layer exposure.</td><td>Restrict who can deploy gateways and who owns the underlying virtual networks before enabling, then enable for the groups that need DirectQuery SSO. The settings index lists two entries; the integration page covers both under Microsoft Entra single sign-on (SSO) for Gateway.</td></tr>
+</tbody></table>
+
+<h2 id="onedrive">OneDrive and SharePoint</h2>
+<p>These two preview settings move .pbix files into a permission model that Fabric administrators do not control. Both apply to the whole organization.</p>
+<h3 id="s-onedrive-view">Users can view Power BI files saved in OneDrive and SharePoint</h3>
+<dl class="kv">
+<dt>Where</dt><dd>Integration settings</dd>
+<dt>Status</dt><dd><span class="badge preview">Preview</span> Labeled preview on Microsoft Learn.</dd>
+<dt>Default</dt><dd>On — Applies to all users when enabled.</dd>
+<dt>Typical posture</dt><dd><strong>Disable</strong> — Moves data into a permission model Fabric admins do not control.</dd>
+<dt>Scope and delegation</dt><dd>Applies to the entire organization only; groups cannot be selected.</dd>
+<dt>What it controls</dt><dd>Lets users view .pbix files stored in OneDrive for Business or SharePoint document libraries in the browser, without downloading them. Permissions come from OneDrive and SharePoint rather than from Fabric workspace roles.</dd>
+<dt>Risk or benefit</dt><dd>Anyone with library access can open the file; model-level security inside the file still applies, but a fully imported .pbix with no row-level security exposes all its data to that audience. Files accumulate outside Fabric lineage and governance.</dd>
+<dt>Notes</dt><dd>Org-wide only. Disable until SharePoint libraries that hold .pbix files are governed (restricted membership, sensitivity labels, no external sharing, compliant-device policy). Publish production content to workspaces instead.</dd>
+</dl>
+<h3 id="s-onedrive-share">Users can share links to Power BI files stored in OneDrive and SharePoint through Power BI Desktop</h3>
+<dl class="kv">
+<dt>Where</dt><dd>Integration settings</dd>
+<dt>Status</dt><dd><span class="badge preview">Preview</span> Labeled preview on Microsoft Learn.</dd>
+<dt>Default</dt><dd>Not stated</dd>
+<dt>Typical posture</dt><dd><strong>Disable</strong> — Ungoverned file distribution.</dd>
+<dt>Scope and delegation</dt><dd>Applies to the entire organization only; groups cannot be selected.</dd>
+<dt>What it controls</dt><dd>Lets users share links to .pbix files in OneDrive or SharePoint from Power BI Desktop. Sharing uses standard OneDrive and SharePoint functionality and applies to all users when enabled. If disabled, the Share button still appears in Desktop but tells the user the capability is off.</dd>
+<dt>Risk or benefit</dt><dd>File sharing, not publishing: recipients' permissions come from SharePoint, no governed artifact is created and the file may contain imported data.</dd>
+<dt>Notes</dt><dd>Org-wide only. Disable; move collaboration to PBIP with Git integration and distribution to workspaces and apps.</dd>
+</dl>
+<table class="tight">
+<thead><tr><th>Setting</th><th>Default</th><th>Typical posture</th><th>What it controls; risk or benefit</th><th>Notes</th></tr></thead>
+<tbody>
+<tr id="s-sharepoint-lists"><td><strong>Integration with SharePoint and Microsoft Lists</strong></td><td>On</td><td class="yes">Enable for all</td><td>Lets users create Fabric reports from SharePoint lists and Microsoft Lists and publish them back. If off, users who select Visualize the list see an error page naming the admin policy.</td><td>Low risk; list permissions still apply.</td></tr>
+</tbody></table>
+
+<h2 id="streaming">Streaming authentication</h2>
+<h3 id="s-eventstream-key-auth">Allow non-Entra ID auth in Eventstream</h3>
+<dl class="kv">
+<dt>Where</dt><dd>Integration settings</dd>
+<dt>Default</dt><dd>Not stated</dd>
+<dt>Typical posture</dt><dd><strong>Disable</strong> — Key-based streaming cannot be attributed or revoked per identity.</dd>
+<dt>Scope and delegation</dt><dd>Applies to the entire organization only; groups cannot be selected.</dd>
+<dt>What it controls</dt><dd>Controls whether Eventstream custom endpoints can use key-based authentication alongside Microsoft Entra ID. When off, only Entra ID authentication is allowed. Learn names the setting Allow non-Microsoft Entra ID auth in Eventstream on one page and Allow non-Entra ID auth in Eventstream in the index.</dd>
+<dt>Risk or benefit</dt><dd>Keys can leak and activity cannot be attributed to a specific Entra principal, so logs are weaker. Entra authentication lets a user or service principal produce and consume events with auditable identity.</dd>
+<dt>Notes</dt><dd>Org-wide only. Inventory custom endpoints that still use keys, migrate producers to Entra ID, then disable. Require a documented exception for any key-based endpoint that must remain.</dd>
+</dl>
+
+<h2 id="other-integration">Other integration settings</h2>
+<table class="tight">
+<thead><tr><th>Setting</th><th>Default</th><th>Typical posture</th><th>What it controls; risk or benefit</th><th>Notes</th></tr></thead>
+<tbody>
+<tr id="s-global-search"><td><strong>Use global search for Power BI</strong></td><td>Not stated</td><td class="yes">Enable for all</td><td>Lets users use the global search bar, which relies on external Azure Search features.</td><td>Respects item permissions.</td></tr>
+<tr id="s-adbc"><td><strong>Users can connect to data sources by using Apache Arrow database connectivity (ADBC)</strong></td><td>Not stated</td><td>Decide per organization</td><td>When on, data connections to supported sources use ADBC by default, which Learn describes as offering better performance, security and reliability than legacy options.</td><td>Pilot with a small group and compare refresh behavior before widening.</td></tr>
+</tbody></table>
+
+<div class="takeaways"><p class="tk-title">Key takeaways</p>
+<ul>
+  <li>XMLA, Analyze in Excel and Execute Queries are three separate gates; decide them with the export settings as one family.</li>
+  <li>Never enable the admin-API service principal switches for the whole organization; use a dedicated, change-controlled group per purpose.</li>
+  <li>Use federated credentials or certificates for service principals, and keep admin-consent-required permissions off the app.</li>
+  <li>Keep third-party processing (Esri), third-party SSO and key-based streaming authentication off until a use case and owner exist.</li>
+  <li>Keep OneDrive and SharePoint viewing and Desktop link-sharing off until libraries holding .pbix files are governed.</li>
+</ul></div>
+
+<section class="refs">
+  <h2 id="refs">References</h2>
+  <ul>
+    <li><a href="https://learn.microsoft.com/fabric/admin/service-admin-portal-integration">Integration tenant settings</a></li>
+    <li><a href="https://learn.microsoft.com/fabric/admin/service-admin-portal-developer">Developer tenant settings</a></li>
+    <li><a href="https://learn.microsoft.com/fabric/admin/service-admin-portal-admin-api-settings">Admin API tenant settings</a></li>
+    <li><a href="https://learn.microsoft.com/fabric/admin/enable-service-principal-admin-apis">Enable service principal authentication for admin APIs</a></li>
+    <li><a href="https://learn.microsoft.com/rest/api/power-bi/datasets/execute-queries">Datasets: Execute Queries</a></li>
+    <li><a href="https://learn.microsoft.com/power-bi/enterprise/service-premium-connect-tools">Semantic model connectivity with the XMLA endpoint</a></li>
+    <li><a href="https://learn.microsoft.com/power-bi/visuals/power-bi-visualizations-arcgis">ArcGIS Maps for Power BI</a></li>
+    <li><a href="https://learn.microsoft.com/azure/azure-maps/power-bi-visual-get-started">Get started with Azure Maps Power BI visual</a></li>
+  </ul>
+</section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Collaboration, endorsement and QA · Report Dev Standards</title>
+<meta name="description" content="Shared semantic models with thin reports, endorsement and certification, the Git and deployment pipeline flow, change management for shared models and the pre-publish QA checklist.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="12-power-bi-report-development" data-page="collaboration-qa.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+
+    <header class="page-header">
+      <p class="eyebrow">Playbook 12 · Power BI Report Development Standards</p>
+      <h1>Collaboration, endorsement and QA</h1>
+      <p class="lede">The earlier pages describe a good model and a good report. This page covers what keeps them good once several people depend on them: where shared models live, who may build on them, how a change travels to production, how you signal trust, and the checklist every release passes before it is published.</p>
+    </header>
+
+    <h2 id="shared-models">Shared semantic models and thin reports</h2>
+    <p>The default pattern is one governed semantic model per subject area, owned by the data team, with many thin reports built on it by whoever needs a view. A thin report has no model of its own: it connects live to a shared model, or at most adds report-level measures or a small local measures table as described on <a href="rebinding.html#manual">the rebinding page</a>. The benefits are a single definition of every measure, one refresh to schedule and secure, and a place to apply row-level security once.</p>
+
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 300" role="img" aria-label="Topology: the Gold layer feeds shared semantic models in a consumption workspace; thin reports in delivery workspaces connect to them using Build permission; reports reach consumers through apps">
+        <defs>
+          <marker id="fig-co-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-co-1-ag" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box gold" x="20" y="110" width="110" height="80" rx="10"/>
+        <text class="t-b" x="75" y="146" text-anchor="middle">Gold layer</text>
+        <text class="t-s" x="75" y="164" text-anchor="middle">curated tables</text>
+        <rect class="zone" x="170" y="24" width="250" height="252" rx="12"/>
+        <text class="t-h" x="186" y="48">PRD_SALES_CNSM</text>
+        <rect class="box blue" x="186" y="72" width="218" height="56" rx="10"/>
+        <text class="t-b" x="295" y="96" text-anchor="middle">SM_SALES_CNSM_Core</text>
+        <text class="t-s" x="295" y="114" text-anchor="middle">Direct Lake, shared</text>
+        <rect class="box blue" x="186" y="140" width="218" height="56" rx="10"/>
+        <text class="t-b" x="295" y="164" text-anchor="middle">SM_HR_CNSM_Core</text>
+        <text class="t-s" x="295" y="182" text-anchor="middle">Direct Lake, shared</text>
+        <text class="t-s" x="295" y="232" text-anchor="middle">Owned by the data team</text>
+        <text class="t-s" x="295" y="250" text-anchor="middle">Change control applies</text>
+        <rect class="zone green" x="480" y="24" width="280" height="252" rx="12"/>
+        <text class="t-h" x="496" y="48">PRD_SALES_DLV and PRD_HR_DLV</text>
+        <rect class="box green" x="496" y="72" width="248" height="56" rx="10"/>
+        <text class="t-b" x="620" y="96" text-anchor="middle">RPT_SALES_DLV_Executive</text>
+        <text class="t-s" x="620" y="114" text-anchor="middle">thin report</text>
+        <rect class="box green" x="496" y="140" width="248" height="56" rx="10"/>
+        <text class="t-b" x="620" y="164" text-anchor="middle">RPT_SALES_DLV_Regional</text>
+        <text class="t-s" x="620" y="182" text-anchor="middle">thin report</text>
+        <rect class="box green" x="496" y="208" width="248" height="56" rx="10"/>
+        <text class="t-b" x="620" y="232" text-anchor="middle">RPT_HR_DLV_Headcount</text>
+        <text class="t-s" x="620" y="250" text-anchor="middle">thin report</text>
+        <rect class="box gray" x="800" y="110" width="80" height="80" rx="10"/>
+        <text class="t-b" x="840" y="146" text-anchor="middle">Apps</text>
+        <text class="t-s" x="840" y="164" text-anchor="middle">consumers</text>
+        <path class="ln" d="M130 150H168" marker-end="url(#fig-co-1-a)"/>
+        <path class="ln thick green" d="M420 150H478" marker-end="url(#fig-co-1-ag)"/>
+        <text class="t-s c-green" x="449" y="140" text-anchor="middle">Build</text>
+        <path class="ln" d="M760 150H798" marker-end="url(#fig-co-1-a)"/>
+      </svg>
+      <figcaption><b>Models in one workspace, reports in another.</b> Report authors need Build permission on a model, not a role in the model's workspace. Consumers receive reports through apps and never touch the model workspace.</figcaption>
+    </figure>
+
+    <h3 id="who-needs-what">Who needs what</h3>
+    <table>
+      <thead><tr><th>Person</th><th>Needs</th><th>How it is granted</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Model owner</strong></td><td>Contributor or higher on the model workspace</td><td>Workspace role. A Contributor or higher also has Build on the models in that workspace.</td></tr>
+        <tr><td><strong>Report author</strong></td><td>Build permission on the shared model, and Contributor or higher on the workspace where the report is saved</td><td>The model owner assigns Build to a user or a group under <strong>Manage permissions</strong>; an app can also grant Build to its audiences.</td></tr>
+        <tr><td><strong>Consumer</strong></td><td>Access to the report or app</td><td>App audience or report sharing. A user who loses Build can still view the report but can no longer edit it or export underlying data.</td></tr>
+      </tbody>
+    </table>
+    <ul>
+      <li><strong>Grant Build to groups, not individuals.</strong> Use one group per model (for example, a group of everyone authorised to build on <code>SM_SALES_CNSM_Core</code>) so access follows team membership.</li>
+      <li><strong>Make the model discoverable.</strong> Name it by the house convention, fill in its description and endorse it, so authors find it instead of building a private copy.</li>
+      <li><strong>Configure the access request.</strong> In the model's settings you can send Build requests to an owner mailbox or show instructions for your own process.</li>
+      <li><strong>Do not delete a model that other workspaces use.</strong> Power BI blocks deleting a semantic model while a report outside its workspace uses it, which is a reason to find dependents before you retire anything.</li>
+      <li><strong>Treat a composite pattern as an exception.</strong> A report with a local table plus a shared model is valid, but it depends on a tenant setting and on the shared model staying stable. See the notes on <a href="rebinding.html#manual">rebinding</a>.</li>
+    </ul>
+    <p>The workspace layout behind these names (<code>&lt;ENV&gt;_&lt;DOMAIN&gt;_CNSM</code> for models, <code>_DLV</code> for delivery) follows the reference architecture; see <a href="../../reference-architecture.html">the reference architecture</a> and <a href="../03-medallion-architecture/index.html">Medallion architecture</a>. To package reports for a business audience, use <a href="../11-org-apps/index.html">Organizational apps</a>.</p>
+
+    <h2 id="endorsement">Endorsement and certification</h2>
+    <p>Endorsement tells people which content is safe to reuse. Items with a badge are labelled in the interface and, in some lists, shown first. A badge is a promise, so it has to be backed by the checklist at the end of this page.</p>
+    <table>
+      <thead><tr><th>Badge</th><th>Meaning</th><th>Who can apply it</th><th>Use it for</th></tr></thead>
+      <tbody>
+        <tr><td><span class="badge info">Promoted</span></td><td>The creators consider the item ready for sharing and reuse.</td><td>Any user with write permission on the item.</td><td>Reports that passed review; shared models in early use.</td></tr>
+        <tr><td><span class="badge ga">Certified</span></td><td>An organization-authorized reviewer confirmed the item meets quality standards and is reliable and authoritative.</td><td>Only reviewers specified by a Fabric administrator. Anyone can request certification.</td><td>Production shared models and the flagship reports built on them.</td></tr>
+        <tr><td><span class="badge neutral">Master data</span></td><td>The item holds a core, authoritative source for a kind of business data.</td><td>Only users specified by a Fabric administrator.</td><td>Gold tables and the models that expose reference entities. Applies to items that contain data.</td></tr>
+      </tbody>
+    </table>
+    <p>Certification and master data are available only if a Fabric administrator has enabled them for your organization, and certification enablement can be delegated to domain administrators, which allows a different reviewer group per domain. Dashboards cannot be endorsed. The tenant switches are covered in <a href="../16-tenant-settings/index.html">Tenant settings</a>.</p>
+    <ul>
+      <li><strong>Certify in production only.</strong> A badge on a Dev or Test copy dilutes the signal.</li>
+      <li><strong>Re-apply after deployment.</strong> Deployment pipelines do not copy endorsement settings to the target stage, so set the badge in the stage where it applies.</li>
+      <li><strong>Tie certification to the checklist.</strong> A reviewer certifies when the checklist below is complete and attached to the request, and withdraws the badge when the model is later changed in a way the checklist would catch.</li>
+      <li><strong>Describe the endorsed item.</strong> Fill in the description with the owner, the refresh pattern and the contact route, since the badge itself says nothing about those.</li>
+    </ul>
+
+    <h2 id="release-flow">From change to production</h2>
+    <p>A report or model change follows the same route as any other asset: author in a project, review a pull request, sync to Development, promote through the pipeline stages, and publish only after sign-off. The mechanics are in the dedicated playbooks; this page fixes the order and the gates.</p>
+
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 220" role="img" aria-label="Release flow: author in a project, review a pull request, sync to Development, deploy to Test, sign off with the checklist, deploy to Production; the workspaces for the last stages are named underneath">
+        <defs>
+          <marker id="fig-co-2-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <text class="t-m" x="20" y="30">Source control</text>
+        <text class="t-m" x="324" y="30">Fabric workspaces</text>
+        <rect class="box blue" x="20" y="44" width="130" height="64" rx="10"/>
+        <text class="t-b" x="85" y="72" text-anchor="middle">Author</text>
+        <text class="t-s" x="85" y="90" text-anchor="middle">PBIP in Desktop</text>
+        <rect class="box purple" x="168" y="44" width="130" height="64" rx="10"/>
+        <text class="t-b" x="233" y="72" text-anchor="middle">Review</text>
+        <text class="t-s" x="233" y="90" text-anchor="middle">branch and PR</text>
+        <rect class="box teal" x="324" y="44" width="130" height="64" rx="10"/>
+        <text class="t-b" x="389" y="72" text-anchor="middle">Sync to DEV</text>
+        <text class="t-s" x="389" y="90" text-anchor="middle">merge, Git sync</text>
+        <rect class="box teal" x="472" y="44" width="130" height="64" rx="10"/>
+        <text class="t-b" x="537" y="72" text-anchor="middle">Deploy to TST</text>
+        <text class="t-s" x="537" y="90" text-anchor="middle">pipeline</text>
+        <rect class="box orange" x="620" y="44" width="130" height="64" rx="10"/>
+        <text class="t-b" x="685" y="72" text-anchor="middle">Sign-off</text>
+        <text class="t-s" x="685" y="90" text-anchor="middle">QA checklist</text>
+        <rect class="box green" x="768" y="44" width="112" height="64" rx="10"/>
+        <text class="t-b" x="824" y="72" text-anchor="middle">To PRD</text>
+        <text class="t-s" x="824" y="90" text-anchor="middle">pipeline</text>
+        <path class="ln" d="M150 76H166" marker-end="url(#fig-co-2-a)"/>
+        <path class="ln" d="M298 76H322" marker-end="url(#fig-co-2-a)"/>
+        <path class="ln" d="M454 76H470" marker-end="url(#fig-co-2-a)"/>
+        <path class="ln" d="M602 76H618" marker-end="url(#fig-co-2-a)"/>
+        <path class="ln" d="M750 76H766" marker-end="url(#fig-co-2-a)"/>
+        <rect class="box gray dashed" x="20" y="136" width="130" height="30" rx="8"/>
+        <text class="t-s" x="85" y="156" text-anchor="middle">local machine</text>
+        <rect class="box gray dashed" x="168" y="136" width="130" height="30" rx="8"/>
+        <text class="t-s" x="233" y="156" text-anchor="middle">repository</text>
+        <rect class="box gray dashed" x="324" y="136" width="130" height="30" rx="8"/>
+        <text class="t-s" x="389" y="156" text-anchor="middle">DEV_SALES_DLV</text>
+        <rect class="box gray dashed" x="472" y="136" width="130" height="30" rx="8"/>
+        <text class="t-s" x="537" y="156" text-anchor="middle">TST_SALES_DLV</text>
+        <rect class="box gray dashed" x="768" y="136" width="112" height="30" rx="8"/>
+        <text class="t-s" x="824" y="156" text-anchor="middle">PRD_SALES_DLV</text>
+        <text class="t-s" x="450" y="196" text-anchor="middle">A failed sign-off returns to the author as a new commit; the repository history is the rollback point.</text>
+      </svg>
+      <figcaption><b>One route to production.</b> Nothing reaches Production without passing through the repository, a reviewed pull request, a Test stage and the checklist.</figcaption>
+    </figure>
+
+    <ol class="steps">
+      <li><strong>Author in a project</strong><p>Save the work as a Power BI project so models and reports are text files. See <a href="semantic-model.html#projects">Projects, TMDL and Git</a>.</p></li>
+      <li><strong>Review through a pull request</strong><p>Use a feature branch, require a reviewer from the owning team, and route notifications by path. The branching model is in <a href="../05-github-integration/index.html">GitHub integration</a>; reviewer routing is in <a href="../17-pr-notifications-codeowners/index.html">Pull-request notifications with CODEOWNERS</a>.</p></li>
+      <li><strong>Sync and promote</strong><p>Merge, sync the Development workspace from the branch, then promote with a deployment pipeline (<code>DPLY_SALES_DLV</code>). See <a href="../07-deployment/index.html">Deployment pipelines</a> and the <a href="../14-deployment-checklist/index.html">Deployment checklist</a>.</p></li>
+      <li><strong>Sign off in Test</strong><p>Run the checklist below against the Test copy, with production-like data, and attach the result to the pull request or change record. Automated checks are covered in <a href="../15-qa-validation/index.html">QA validation frameworks</a>.</p></li>
+      <li><strong>Promote and finish the stage-specific setup</strong><p>Apply the post-deployment setup in the next table, then update any app that exposes the report.</p></li>
+    </ol>
+
+    <h3 id="deployment-carries">What a deployment carries and what it does not</h3>
+    <p>Deployment pipelines copy metadata, not data or the settings that belong to a stage. Plan the follow-up work for every first deployment and after every change that touches these items.</p>
+    <table>
+      <thead><tr><th>Item</th><th>Copied by deployment</th><th>What you do in the target stage</th></tr></thead>
+      <tbody>
+        <tr><td>Report pages and visuals, model metadata, relationships</td><td class="yes">Yes</td><td>Nothing; verify the deployment compare view.</td></tr>
+        <tr><td>Data in the model</td><td class="no">No</td><td>Refresh the model after deployment.</td></tr>
+        <tr><td>Data source credentials and refresh schedule</td><td class="no">No</td><td>Set credentials and the schedule in the target stage.</td></tr>
+        <tr><td>Row-level security role assignments</td><td class="no">No</td><td>Assign members to roles in the target stage, then test with View as.</td></tr>
+        <tr><td>Endorsement settings</td><td class="no">No</td><td>Promote or certify in the stage where it applies (Production).</td></tr>
+        <tr><td>Permissions, URLs, item IDs</td><td class="no">No</td><td>Grant Build and report access in the target stage.</td></tr>
+        <tr><td>App content and settings</td><td class="no">No</td><td>Update the app manually.</td></tr>
+        <tr><td>Data source and parameter values</td><td class="maybe">With rules</td><td>Configure rules in the target stage so each stage points to its own sources.</td></tr>
+      </tbody>
+    </table>
+    <ul>
+      <li><strong>Ownership.</strong> The user who deploys a semantic model for the first time becomes its owner. Use a dedicated account or service principal for deployments so ownership does not tie a model to a person.</li>
+      <li><strong>Models and reports in separate pipelines.</strong> Deployment pipelines autobind items that are connected across pipelines when they sit in the same stage position. Both pipelines must have the same number of stages. A report deployment fails if the model it depends on is not in the matching stage of the model pipeline, so deploy the model first.</li>
+      <li><strong>Direct Lake.</strong> A Direct Lake model does not automatically bind to the lakehouse in the target stage. Set the binding with data source rules as described in <a href="../07-deployment/index.html">Deployment pipelines</a>.</li>
+      <li><strong>Auto date/time.</strong> A semantic model in DirectQuery or composite mode that uses auto date/time or variation tables is not supported by deployment pipelines, one more reason to turn that setting off, as on <a href="semantic-model.html#auto-date-time">the model page</a>.</li>
+    </ul>
+    <div class="callout learn"><p class="callout-title">Verify before you standardise on PBIR with pipelines</p>
+      <p>Learn's limitation list for deployment pipelines states that PBIR reports aren't supported, while new reports created in the service use PBIR by default. Both statements can change, so test a deployment of one PBIR report through a sandbox pipeline before you make it a standard, and read <a href="https://learn.microsoft.com/fabric/cicd/deployment-pipelines/understand-the-deployment-process">The Fabric deployment pipelines process</a> for the current list.</p></div>
+
+    <h2 id="change-management">Changing a shared model safely</h2>
+    <p>Every column, measure and table name in a shared model is a contract with every report that uses it, because report visuals, filters and bookmarks refer to fields by name. Changing the contract without a process is how a single rename breaks a dozen reports.</p>
+    <table>
+      <thead><tr><th>Change</th><th>Effect on reports</th><th>Rule</th></tr></thead>
+      <tbody>
+        <tr><td>Add a column, measure or table</td><td>None</td><td>Release freely after review.</td></tr>
+        <tr><td>Hide a field</td><td>Existing visuals keep working; new use is discouraged</td><td>Use hiding as the first step of any retirement.</td></tr>
+        <tr><td>Rename a field</td><td>Breaks every visual and filter that refers to it</td><td>Do not rename in place. Add the new name, keep the old one hidden, retire the old one after usage ends.</td></tr>
+        <tr><td>Delete a field</td><td>Breaks every dependent visual</td><td>Only after lineage shows no dependents and the owners agree.</td></tr>
+        <tr><td>Change a data type or grain</td><td>May not error but can change numbers silently</td><td>Treat as a breaking change; compare totals before and after.</td></tr>
+        <tr><td>Change a relationship or filter direction</td><td>Changes which rows reach a measure</td><td>Review with the report owners; test the headline visuals.</td></tr>
+        <tr><td>Change a measure definition</td><td>Changes numbers in every report</td><td>Announce, get sign-off from the business owner, and record the change.</td></tr>
+      </tbody>
+    </table>
+    <ul>
+      <li><strong>Find the dependents first.</strong> Use the item's <strong>View lineage</strong> option in the workspace to see which reports and models depend on it, and remember that Excel connections and models built on top of yours will not appear in your own workspace.</li>
+      <li><strong>Announce on a schedule.</strong> Publish a change note for each release listing added, hidden and retired fields, and give report owners a notice period before anything is removed.</li>
+      <li><strong>Version through Git.</strong> The commit history of the model project is the version history and the rollback point. Tag production releases.</li>
+      <li><strong>Prefer additive evolution.</strong> If a model needs a breaking redesign, create a new model, move reports with the <a href="rebinding.html">rebind process</a>, and retire the old one when usage reaches zero.</li>
+    </ul>
+
+    <h2 id="checklist">Pre-publish QA checklist</h2>
+    <p>Every model and report passes this list before its first publish to Production and after any material change. The reviewer records the result with the change. Items already covered in detail on earlier pages link back to them.</p>
+
+    <h3 id="qa-model">Semantic model</h3>
+    <ul class="checklist">
+      <li>Auto date/time and auto relationship detection are off; the date table is marked and covers the needed range. <a href="semantic-model.html#settings">Settings</a></li>
+      <li>Star schema with single-direction relationships; no ambiguous paths; no bi-directional filtering without a recorded reason. <a href="semantic-model.html#star-schema">Star schema</a></li>
+      <li>Storage mode chosen and documented, including the Direct Lake variant. <a href="semantic-model.html#storage-mode">Storage mode</a></li>
+      <li>Keys, foreign keys, technical columns and unused columns are hidden; descriptions exist on tables and measures. <a href="semantic-model.html#expose">What to expose</a></li>
+      <li>Format strings and sort-by columns are set; summarization is none for numeric keys and attributes.</li>
+      <li>Model and report items follow the naming convention. <a href="naming-dax.html">Naming</a></li>
+    </ul>
+
+    <h3 id="qa-dax">DAX and measures</h3>
+    <ul class="checklist">
+      <li>Measures live in a dedicated measures table, grouped in display folders, none in dimension or fact tables. <a href="naming-dax.html#measures-table">Measures table</a></li>
+      <li>Variables used for repeated expressions; <code>DIVIDE</code> for ratios; no unnecessary iterators or <code>FILTER</code> over whole tables. <a href="naming-dax.html#dax">DAX guidance</a></li>
+      <li>Headline measures reconciled to a source figure or to the previous report, using fixed filters.</li>
+    </ul>
+
+    <h3 id="qa-design">Report design</h3>
+    <ul class="checklist">
+      <li>Shared theme applied; one grid; consistent slicer placement; titles state the question the visual answers. <a href="report-design.html#layout">Layout</a></li>
+      <li>Alt text, contrast, tab order and keyboard operation checked. <a href="report-design.html#accessibility">Accessibility</a></li>
+      <li>Mobile layout curated where the report is used on phones. <a href="report-design.html#mobile">Mobile layout</a></li>
+      <li>Drillthrough and tooltip pages work from every source visual; bookmarks hold no sensitive selections. <a href="report-design.html#interaction">Interaction</a></li>
+    </ul>
+
+    <h3 id="qa-performance">Performance</h3>
+    <ul class="checklist">
+      <li>Visual budget respected on every page; tables and matrices are filtered or Top N by default. <a href="report-design.html#visual-budget">Visual budget</a></li>
+      <li>Performance Analyzer log reviewed for the busiest page, with no unexplained DAX query bucket. <a href="report-design.html#performance-analyzer">Performance Analyzer</a></li>
+      <li>Query reduction options set, with Apply all slicers where pages carry many slicers. <a href="report-design.html#query-reduction">Query reduction</a></li>
+      <li>For Direct Lake models, no fallback to DirectQuery and no guardrail failure at production data volume. <a href="semantic-model.html#direct-lake-notes">Direct Lake notes</a></li>
+    </ul>
+
+    <h3 id="qa-security">Security and governance</h3>
+    <ul class="checklist">
+      <li>Row-level security roles defined in the model, members assigned in the target stage, and tested with View as for each role.</li>
+      <li>Sensitivity label applied; no personal or client data in filter values, bookmarks or alt text stored in the project.</li>
+      <li>Build permission granted to the authorised group only; the model description names an owner and a support route.</li>
+      <li>Refresh schedule, credentials and failure notification set in the target stage.</li>
+    </ul>
+
+    <h3 id="qa-publishing">Publishing</h3>
+    <ul class="checklist">
+      <li>Item names, workspace and endorsement match the plan; certification requested for shared production models.</li>
+      <li>App updated where an app exposes the report; the audience list matches the intended consumers. <a href="../11-org-apps/index.html">Organizational apps</a></li>
+      <li>Change note published, and the rollback point (the commit or tag) recorded.</li>
+    </ul>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p>
+      <ul>
+        <li>Keep models in a consumption workspace and reports in delivery workspaces; grant Build to groups.</li>
+        <li>Promote for "ready to reuse", certify for "reviewed and authoritative", and re-apply badges after each deployment because pipelines do not copy them.</li>
+        <li>Deploy through a repository, a pull request and a pipeline. Credentials, schedules, role members and endorsement are stage-specific and need setting after deployment.</li>
+        <li>Treat field names in a shared model as a contract: add, hide, then retire; never rename in place.</li>
+        <li>No publish to Production without the checklist and a recorded rollback point.</li>
+      </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/power-bi/connect-data/service-datasets-build-permissions">Build permission for shared semantic models</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/governance/endorsement-overview">Endorsement overview</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/cicd/deployment-pipelines/understand-the-deployment-process">The Microsoft Fabric deployment pipelines process</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/cicd/git-integration/intro-to-git-integration">Overview of Fabric Git integration</a></li>
+        <li><a href="https://learn.microsoft.com/power-bi/developer/projects/projects-overview">Power BI Desktop projects</a></li>
+        <li><a href="https://learn.microsoft.com/power-bi/guidance/power-bi-optimization">Optimization guide for Power BI</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

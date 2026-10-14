@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Harness and core checks · QA Validation</title>
+<meta name="description" content="Copy-ready notebook harness for SQL-first validation plus the row count, transformation, schema and freshness checks, with success criteria, example output and a T-SQL variant.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="15-qa-validation" data-page="core-checks.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 15 · QA Validation</p>
+      <h1>Harness and core checks</h1>
+      <p class="lede">The notebook skeleton that every framework shares, followed by the four checks that give the broadest coverage for the least effort: row count, transformation, schema and freshness. Each check has its purpose, copy-ready code, success criteria and example output. Paste the cells into a notebook in order and they run as a complete standard suite.</p>
+    </header>
+
+    <div class="callout note"><p class="callout-title">Before you paste</p><p>The cells use a Contoso retail example (<code>DEV_SALES_SLV</code> to <code>DEV_SALES_GLD</code>). Attach a schema-enabled results lakehouse as the notebook's default lakehouse, create the tables from <a href="results-model.html#schema">Results model and tolerances</a>, and replace the workspace, lakehouse and table names in the configuration cell. The code targets Fabric Runtime 1.3 and later and does not depend on ANSI mode.</p></div>
+
+    <h2 id="harness">The notebook harness</h2>
+    <p>Six cells, in this order. Cells 1 to 3 are the same in every framework; cell 4 holds the checks and is where frameworks differ; cells 5 and 6 run the suite, write results and return the exit value.</p>
+
+    <h3 id="cell-parameters">Cell 1: parameters</h3>
+    <p>Mark this cell with <strong>Toggle parameter cell</strong> in the cell menu. A pipeline's Notebook activity overrides these values through its base parameters; the notebook runs with the defaults when you execute it interactively. Parameters support simple types (string, int, float, bool), which is why anything structured is passed as JSON text.</p>
+<pre data-title="Cell 1 (PySpark): parameters"><code class="language-python">env             = "DEV"        # DEV | TST | PRD, used to build workspace names
+suite           = "standard"   # which configuration rows to run
+run_id          = ""           # pipeline passes @pipeline().RunId; generated when empty
+as_of_date      = ""           # YYYY-MM-DD; empty means today (UTC)
+max_workers     = 4            # concurrent checks; 1 runs them one at a time
+results_schema  = "qa"         # schema of the results tables in the default lakehouse
+fail_on_blocker = False        # True: raise at the end so the pipeline activity fails</code></pre>
+
+    <h3 id="cell-helpers">Cell 2: helpers, result type and evaluator</h3>
+<pre data-title="Cell 2 (PySpark): helpers"><code class="language-python">import json, re, time, uuid
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from typing import Optional
+
+from pyspark.sql import functions as F
+from pyspark.sql.types import (DateType, DoubleType, IntegerType, StringType,
+                               StructField, StructType, TimestampType)
+
+FRAMEWORK_VERSION = "1.0.0"
+
+started_at = datetime.now(timezone.utc)
+run_id = run_id or str(uuid.uuid4())
+as_of_date = as_of_date or started_at.date().isoformat()
+if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", as_of_date):
+    raise ValueError(f"as_of_date must be YYYY-MM-DD, got {as_of_date!r}")
+AS_OF = f"DATE'{as_of_date}'"   # SQL literal for 'today' in every check that needs one
+
+
+# ---- identifiers: configuration may only contain plain names ----------------------
+_OBJECT_PART = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_\- ]*")
+_COLUMN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
+def quote_name(name: str) -> str:
+    """'ws.lakehouse.schema.table' -> '`ws`.`lakehouse`.`schema`.`table`'."""
+    parts = [p.strip().strip("`") for p in name.split(".")]
+    if not 1 &lt;= len(parts) &lt;= 4 or not all(_OBJECT_PART.fullmatch(p) for p in parts):
+        raise ValueError(f"Unsafe or malformed object name: {name!r}")
+    return ".".join(f"`{p}`" for p in parts)
+
+def col(name: str) -> str:
+    if not _COLUMN.fullmatch(name):
+        raise ValueError(f"Unsafe column name: {name!r}")
+    return f"`{name}`"
+
+
+# ---- temporary views: unique names, always dropped ---------------------------------
+@contextmanager
+def temp_views(**selects: str):
+    """Create session-scoped temp views from SELECT statements; yield their names."""
+    suffix = uuid.uuid4().hex[:10]
+    names = {alias: f"qa_{alias}_{suffix}" for alias in selects}
+    try:
+        for alias, select_sql in selects.items():
+            spark.sql(f"CREATE OR REPLACE TEMPORARY VIEW {names[alias]} AS {select_sql}")
+        yield names
+    finally:
+        for name in names.values():
+            spark.catalog.dropTempView(name)
+
+def one_row(sql: str) -&gt; dict:
+    return spark.sql(sql).first().asDict()
+
+def num(x) -&gt; Optional[float]:
+    return None if x is None else float(x)
+
+
+# ---- result type and evaluator --------------------------------------------------------
+@dataclass
+class Result:
+    test_name: str
+    check_type: str
+    status: str = "ERROR"
+    severity: str = "blocker"          # blocker | warning | info
+    source_object: Optional[str] = None
+    target_object: Optional[str] = None
+    rule: str = "eq"                   # eq | le | ge
+    expected: Optional[float] = None
+    actual: Optional[float] = None
+    variance: Optional[float] = None
+    variance_pct: Optional[float] = None
+    tolerance: float = 0.0
+    tolerance_type: str = "absolute"   # absolute | percent
+    fail_threshold: Optional[float] = None
+    message: str = ""
+    detail: Optional[str] = None       # JSON text: samples, column lists
+    duration_s: Optional[float] = None
+
+def evaluate(r: Result) -&gt; Result:
+    """Fill variance and status from expected, actual, rule and tolerances."""
+    if r.expected is None or r.actual is None:
+        r.status, r.message = "ERROR", r.message or "expected or actual value is missing"
+        return r
+    r.variance = r.actual - r.expected
+    r.variance_pct = None if r.expected == 0 else 100.0 * r.variance / abs(r.expected)
+    breach = {"eq": abs(r.variance), "le": max(r.variance, 0.0), "ge": max(-r.variance, 0.0)}[r.rule]
+    if r.tolerance_type == "percent":
+        breach = breach / abs(r.expected) * 100.0 if r.expected else (0.0 if breach == 0 else float("inf"))
+    if breach &lt;= r.tolerance:
+        r.status = "PASS"
+    elif r.fail_threshold is not None and breach &lt;= r.fail_threshold:
+        r.status = "WARN"
+    else:
+        r.status = "FAIL"
+    return r</code></pre>
+
+    <h3 id="cell-registry">Cell 3: check registry and runner</h3>
+    <p>A check is a function that takes one configuration dictionary and returns a <code>Result</code> or a list of them. The decorator registers it under its <code>check_type</code>. The runner turns any exception into an <code>ERROR</code> result, runs independent checks in parallel, and runs checks that declare <code>depends_on</code> only if the check they depend on passed (one level of dependency is supported).</p>
+<pre data-title="Cell 3 (PySpark): registry and runner"><code class="language-python">CHECKS = {}
+
+def check(check_type: str):
+    def register(fn):
+        CHECKS[check_type] = fn
+        return fn
+    return register
+
+def new_result(cfg: dict, **values) -&gt; Result:
+    fields = dict(
+        test_name=cfg.get("test_name", "&lt;unnamed&gt;"), check_type=cfg.get("check_type", "&lt;unknown&gt;"),
+        severity=cfg.get("severity", "blocker"),
+        source_object=cfg.get("source"), target_object=cfg.get("target"),
+        rule=cfg.get("rule", "eq"), tolerance=float(cfg.get("tolerance", 0.0)),
+        tolerance_type=cfg.get("tolerance_type", "absolute"),
+        fail_threshold=None if cfg.get("fail_threshold") is None else float(cfg["fail_threshold"]),
+    )
+    fields.update(values)
+    return Result(**fields)
+
+def run_check(cfg: dict) -&gt; list:
+    started = time.time()
+    try:
+        out = CHECKS[cfg["check_type"]](cfg)
+        results = out if isinstance(out, list) else [out]
+    except Exception as exc:     # a check that cannot run is an ERROR, never a PASS
+        results = [new_result(cfg, status="ERROR", message=f"{type(exc).__name__}: {str(exc)[:400]}")]
+    elapsed = round(time.time() - started, 2)
+    for r in results:
+        r.duration_s = elapsed
+    return results
+
+def run_parallel(configs: list) -&gt; list:
+    if not configs:
+        return []
+    if max_workers &gt; 1:
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            batches = list(pool.map(run_check, configs))
+    else:
+        batches = [run_check(c) for c in configs]
+    return [r for batch in batches for r in batch]
+
+def run_suite(selected: list) -&gt; list:
+    independent = [c for c in selected if not c.get("depends_on")]
+    dependent = [c for c in selected if c.get("depends_on")]
+    results = run_parallel(independent)
+    status_of = {r.test_name: r.status for r in results}
+    runnable = []
+    for cfg in dependent:
+        dep_status = status_of.get(cfg["depends_on"], "MISSING")
+        if dep_status not in ("PASS", "WARN"):
+            results.append(new_result(cfg, status="SKIPPED",
+                                      message=f"dependency {cfg['depends_on']} is {dep_status}"))
+        else:
+            runnable.append(cfg)
+    return results + run_parallel(runnable)</code></pre>
+
+    <h3 id="config">Cell 4a: configuration</h3>
+    <p>Configuration is a list of dictionaries. Fully qualified names are built from <code>env</code>, so the same notebook runs in every environment. Keys common to all checks are <code>suite</code>, <code>test_name</code>, <code>check_type</code>, <code>source</code> and <code>target</code>; optional keys are <code>severity</code>, <code>rule</code>, <code>tolerance</code>, <code>tolerance_type</code>, <code>fail_threshold</code>, <code>enabled</code> and <code>depends_on</code>. Everything else is specific to the check type.</p>
+<pre data-title="Cell 4a (PySpark): configuration for the standard suite"><code class="language-python">SLV = f"{env}_SALES_SLV.LH_SALES_SLV.dbo"    # Silver: workspace.lakehouse.schema
+GLD = f"{env}_SALES_GLD.LH_SALES_GLD.dbo"    # Gold
+
+CONFIG = [
+    {"suite": "standard", "test_name": "dim_customer.rowcount", "check_type": "rowcount",
+     "source": f"{SLV}.customers", "target": f"{GLD}.dim_customer", "min_rows": 1},
+
+    {"suite": "standard", "test_name": "fact_orders.rowcount", "check_type": "rowcount",
+     "source": f"{SLV}.orders", "target": f"{GLD}.fact_orders",
+     "source_filter": "order_status &lt;&gt; 'VOID'",            # rows the pipeline is meant to drop
+     "min_rows": 1},
+
+    {"suite": "standard", "test_name": "dim_customer.label", "check_type": "transformation",
+     "source": f"{SLV}.customers", "target": f"{GLD}.dim_customer",
+     "key": ["customer_id"],
+     "expected_expr": "concat(customer_code, ' - ', customer_name)",
+     "target_column": "customer_label"},
+
+    {"suite": "standard", "test_name": "dim_customer.schema", "check_type": "schema",
+     "target": f"{GLD}.dim_customer", "strict": False,
+     "columns": [{"name": "customer_id", "type": "bigint"},
+                 {"name": "customer_code", "type": "string"},
+                 {"name": "customer_label", "type": "string"}]},
+
+    {"suite": "standard", "test_name": "fact_orders.freshness", "check_type": "freshness",
+     "target": f"{GLD}.fact_orders", "timestamp_column": "loaded_at",
+     "max_age_hours": 6, "fail_threshold": 6},      # WARN from 6 h, FAIL beyond 12 h
+]</code></pre>
+    <table>
+      <thead><tr><th>Where the configuration lives</th><th>Choose it when</th><th>Trade-off</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Python list in the notebook</strong></td><td>The suite is small, developers own it, and changes should go through the same pull request as the code.</td><td>Self-contained and reviewable; every change is a notebook deployment.</td></tr>
+        <tr><td><strong>Control table (<code>qa.validation_config</code>)</strong></td><td>Many checks, non-developers toggle them, environments differ, or checks are generated from metadata (see <a href="../10-control-table-pipelines/index.html">Control-Table-Driven Pipelines</a>).</td><td>Changes bypass code review unless the table is governed; needs an owner, an audit trail and write access limited to the framework owners.</td></tr>
+      </tbody>
+    </table>
+<pre data-title="PySpark: the same configuration loaded from the control table"><code class="language-python">def load_config_from_table(suite_name: str) -&gt; list:
+    rows = (spark.table(f"{results_schema}.validation_config")
+                 .where(F.col("enabled") &amp; (F.col("suite") == suite_name))
+                 .collect())
+    configs = []
+    for r in rows:
+        cfg = {k: v for k, v in r.asDict().items() if v is not None and k != "params"}
+        cfg.update(json.loads(r["params"] or "{}"))
+        for key in ("source", "target"):          # names are stored with an {env} token
+            if key in cfg:
+                cfg[key] = cfg[key].replace("{env}", env)
+        configs.append(cfg)
+    return configs</code></pre>
+    <div class="callout caution"><p class="callout-title">Configuration is executable</p><p>Filters and expressions in the configuration are inserted into SQL as written. <code>quote_name</code> and <code>col</code> constrain object and column names, but a filter such as <code>order_status &lt;&gt; 'VOID'</code> is trusted SQL. Treat the configuration (and especially the control table) like code: restrict who can change it, review changes and keep an audit trail.</p></div>
+
+    <h2 id="rowcount">Row count validation</h2>
+    <h3 id="rowcount-purpose">Purpose</h3>
+    <p>Confirm that the target holds exactly the rows the transformation is supposed to keep. It is the cheapest check, catches the largest class of defects (truncated loads, failed merges, join fan-out and fan-in, unintended filters) and should be on every table.</p>
+    <h3 id="rowcount-impl">Implementation</h3>
+    <p>Both sides are defined as temporary views so that optional filters apply to each relation once. One statement counts both, so the two numbers come from one planning step. The <code>min_rows</code> guard exists because <code>0 = 0</code> passes an equality check: an empty source and an empty target are consistent and almost always wrong.</p>
+<pre data-title="Cell 4b (PySpark): row count check"><code class="language-python">@check("rowcount")
+def rowcount(cfg):
+    with temp_views(
+        src=f"SELECT * FROM {quote_name(cfg['source'])} WHERE {cfg.get('source_filter', 'TRUE')}",
+        tgt=f"SELECT * FROM {quote_name(cfg['target'])} WHERE {cfg.get('target_filter', 'TRUE')}",
+    ) as v:
+        row = one_row(f"""
+            SELECT (SELECT COUNT(*) FROM {v['src']}) AS expected,
+                   (SELECT COUNT(*) FROM {v['tgt']}) AS actual""")
+    r = evaluate(new_result(cfg, expected=num(row["expected"]), actual=num(row["actual"]),
+                            message=f"source={row['expected']:,} target={row['actual']:,}"))
+    min_rows = cfg.get("min_rows")
+    if min_rows is not None and r.expected is not None and r.expected &lt; min_rows:
+        r.status, r.message = "FAIL", r.message + f" (fewer than min_rows={min_rows})"
+    return r</code></pre>
+    <h3 id="rowcount-criteria">Success criteria</h3>
+    <ul class="checklist">
+      <li>Target count equals the source count after the stated filters (or the tolerance in the configuration).</li>
+      <li>Both relations have at least <code>min_rows</code> rows when the guard is set.</li>
+      <li>No technical error reading either table.</li>
+    </ul>
+    <h3 id="rowcount-output">Example output</h3>
+<pre data-title="results rows"><code class="language-text">test_name               status  expected  actual  variance  message
+dim_customer.rowcount   PASS    18204     18204   0         source=18,204 target=18,204
+fact_orders.rowcount    FAIL    1204331   1204299 -32       source=1,204,331 target=1,204,299</code></pre>
+    <div class="callout tip"><p class="callout-title">When the count is off, find the rows</p><p>A failing count is a symptom. Put a second, dependent check behind it that anti-joins on the business key (<code>LEFT ANTI JOIN</code> in Spark SQL) and stores a sample of missing keys in <code>detail</code>. <a href="operations.html#troubleshooting">Troubleshooting</a> has the diagnostic queries.</p></div>
+
+    <h2 id="transformation">Transformation validation</h2>
+    <h3 id="transformation-purpose">Purpose</h3>
+    <p>Prove that a derived column in the target equals the expression applied to the source, for every row. Typical cases are concatenated labels, code-to-description mappings, trimmed or case-normalized text, and simple arithmetic.</p>
+    <h3 id="transformation-impl">Implementation</h3>
+    <p>The check restates the transformation as a SQL expression over the source, then joins the result to the target on the business key and counts three kinds of disagreement. Casting both sides to text makes the comparison independent of numeric types; use the <a href="advanced-checks.html#metric">metric reconciliation</a> check when you need tolerance on numbers.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 290" role="img" aria-label="The source table and expression become a source view with expected value; the target table becomes a target view with actual value; a full outer join on the key splits rows into match, missing in target, missing in source and value mismatch">
+        <defs>
+          <marker id="fig-core-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-core-1-ag" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-core-1-ar" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar red" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box silver" x="20" y="40" width="150" height="60" rx="10"/>
+        <text class="t-h" x="95" y="66" text-anchor="middle">Silver table</text>
+        <text class="t-s" x="95" y="84" text-anchor="middle">customers</text>
+        <rect class="box gold" x="20" y="190" width="150" height="60" rx="10"/>
+        <text class="t-h" x="95" y="216" text-anchor="middle">Gold table</text>
+        <text class="t-s" x="95" y="234" text-anchor="middle">dim_customer</text>
+        <rect class="box blue" x="225" y="35" width="215" height="70" rx="10"/>
+        <text class="t-h" x="332" y="60" text-anchor="middle">src view</text>
+        <text class="t-s" x="332" y="78" text-anchor="middle">key, expected_value =</text>
+        <text class="t-s" x="332" y="93" text-anchor="middle">expression(source)</text>
+        <rect class="box blue" x="225" y="185" width="215" height="70" rx="10"/>
+        <text class="t-h" x="332" y="210" text-anchor="middle">tgt view</text>
+        <text class="t-s" x="332" y="228" text-anchor="middle">key, actual_value =</text>
+        <text class="t-s" x="332" y="243" text-anchor="middle">target column</text>
+        <rect class="box accent" x="485" y="100" width="150" height="90" rx="12"/>
+        <text class="t-h t-w" x="560" y="136" text-anchor="middle">Full outer join</text>
+        <text class="t-s t-w" x="560" y="156" text-anchor="middle">on key, null-safe</text>
+        <rect class="box green" x="700" y="25" width="180" height="40" rx="8"/>
+        <text class="t-b" x="790" y="50" text-anchor="middle">Match</text>
+        <rect class="box red" x="700" y="80" width="180" height="40" rx="8"/>
+        <text class="t-b" x="790" y="105" text-anchor="middle">Missing in target</text>
+        <rect class="box red" x="700" y="135" width="180" height="40" rx="8"/>
+        <text class="t-b" x="790" y="160" text-anchor="middle">Missing in source</text>
+        <rect class="box red" x="700" y="190" width="180" height="40" rx="8"/>
+        <text class="t-b" x="790" y="215" text-anchor="middle">Value mismatch</text>
+        <path class="ln" d="M170 70H223" marker-end="url(#fig-core-1-a)"/>
+        <path class="ln" d="M170 220H223" marker-end="url(#fig-core-1-a)"/>
+        <path class="ln" d="M440 70H460V125H483" marker-end="url(#fig-core-1-a)"/>
+        <path class="ln" d="M440 220H460V165H483" marker-end="url(#fig-core-1-a)"/>
+        <path class="ln thin" d="M635 145H667"/>
+        <path class="ln thin" d="M667 45V210"/>
+        <path class="ln green" d="M667 45H698" marker-end="url(#fig-core-1-ag)"/>
+        <path class="ln red" d="M667 100H698" marker-end="url(#fig-core-1-ar)"/>
+        <path class="ln red" d="M667 155H698" marker-end="url(#fig-core-1-ar)"/>
+        <path class="ln red" d="M667 210H698" marker-end="url(#fig-core-1-ar)"/>
+        <text class="t-s" x="880" y="256" text-anchor="end">violations = sum of the three red buckets</text>
+        <text class="t-s" x="880" y="272" text-anchor="end">expected = 0</text>
+      </svg>
+      <figcaption><b>Keyed comparison.</b> Every row ends in exactly one bucket. Because the join is keyed, the failure is a list of business keys, not just a count. Run a key uniqueness check first: duplicate keys multiply rows in a join and inflate every bucket.</figcaption>
+    </figure>
+<pre data-title="Cell 4c (PySpark): keyed transformation check"><code class="language-python">@check("transformation")
+def transformation(cfg):
+    keys = [col(k) for k in cfg["key"]]
+    key_list = ", ".join(keys)
+    key_select = ", ".join(f"coalesce(s.{k}, t.{k}) AS {k}" for k in keys)
+    on = " AND ".join(f"s.{k} &lt;=&gt; t.{k}" for k in keys)
+    target_col = col(cfg["target_column"])
+    with temp_views(
+        src=(f"SELECT {key_list}, 1 AS _present, CAST(({cfg['expected_expr']}) AS STRING) AS expected_value "
+             f"FROM {quote_name(cfg['source'])} WHERE {cfg.get('source_filter', 'TRUE')}"),
+        tgt=(f"SELECT {key_list}, 1 AS _present, CAST({target_col} AS STRING) AS actual_value "
+             f"FROM {quote_name(cfg['target'])} WHERE {cfg.get('target_filter', 'TRUE')}"),
+    ) as v:
+        join = f"FROM {v['src']} s FULL OUTER JOIN {v['tgt']} t ON {on}"
+        c = one_row(f"""
+            SELECT count_if(t._present IS NULL) AS missing_in_target,
+                   count_if(s._present IS NULL) AS missing_in_source,
+                   count_if(s._present IS NOT NULL AND t._present IS NOT NULL
+                            AND NOT (s.expected_value &lt;=&gt; t.actual_value)) AS value_mismatches,
+                   count_if(t._present IS NOT NULL AND t.actual_value IS NULL) AS null_targets
+            {join}""")
+        violations = int(c["missing_in_target"] + c["missing_in_source"] + c["value_mismatches"])
+        sample = []
+        if violations:                       # views are dropped on exit, so sample inside the block
+            sample = [row.asDict() for row in spark.sql(f"""
+                SELECT {key_select}, s.expected_value, t.actual_value {join}
+                WHERE t._present IS NULL OR s._present IS NULL
+                   OR NOT (s.expected_value &lt;=&gt; t.actual_value)
+                LIMIT 5""").collect()]
+    return evaluate(new_result(
+        cfg, expected=0.0, actual=float(violations),
+        message=(f"missing_in_target={c['missing_in_target']} missing_in_source={c['missing_in_source']} "
+                 f"value_mismatches={c['value_mismatches']} null_targets={c['null_targets']}"),
+        detail=json.dumps({"counts": c, "sample": sample}, default=str)))</code></pre>
+    <p>When a table has no usable business key (a small reference table, for example), compare the expected and actual values as multisets instead. <code>EXCEPT ALL</code> keeps duplicates, so a value that appears twice in the expectation and once in the target is reported. This is also the cheapest way to debug a failing keyed check by hand.</p>
+<pre data-title="Spark SQL: keyless comparison with EXCEPT ALL"><code class="language-sql">-- rows the transformation should have produced but the target does not contain
+SELECT concat(customer_code, ' - ', customer_name) AS v
+FROM `DEV_SALES_SLV`.`LH_SALES_SLV`.`dbo`.`customers`
+EXCEPT ALL
+SELECT customer_label AS v
+FROM `DEV_SALES_GLD`.`LH_SALES_GLD`.`dbo`.`dim_customer`;
+
+-- rows in the target that no source row explains: swap the two SELECTs</code></pre>
+    <h3 id="transformation-criteria">Success criteria</h3>
+    <ul class="checklist">
+      <li>The target column exists (a missing column surfaces as an <code>ERROR</code>, and the schema check says which one).</li>
+      <li>No key is missing on either side and no value differs.</li>
+      <li>The target column has no unexpected NULLs: <code>null_targets</code> is reported so a NULL that the expression would not produce is visible.</li>
+      <li>The expression in the configuration matches the specification, not the implementation. If you copy the pipeline's own code into the check you are testing the pipeline against itself.</li>
+    </ul>
+    <h3 id="transformation-output">Example output</h3>
+<pre data-title="results row"><code class="language-text">test_name           status  expected  actual  message
+dim_customer.label  PASS    0         0       missing_in_target=0 missing_in_source=0 value_mismatches=0 null_targets=0
+dim_customer.label  FAIL    0         5       missing_in_target=2 missing_in_source=0 value_mismatches=3 null_targets=0</code></pre>
+
+    <h2 id="schema">Schema validation</h2>
+    <h3 id="schema-purpose">Purpose</h3>
+    <p>Confirm that the columns downstream consumers depend on are present with the expected types. A renamed or retyped column breaks semantic models and reports without touching a single row count, so this is the check that catches contract drift between teams.</p>
+    <h3 id="schema-impl">Implementation</h3>
+    <p>The check reads the table's schema from the catalog and Delta log, so it does not scan data and costs almost nothing. Names are compared case-insensitively. Types are compared when the configuration states one. With <code>strict</code> set, columns that are not in the contract are reported too; leave it off for tables that are allowed to grow.</p>
+<pre data-title="Cell 4d (PySpark): schema contract check"><code class="language-python">@check("schema")
+def schema_contract(cfg):
+    expected = {c["name"].lower(): (c.get("type") or "").lower() for c in cfg["columns"]}
+    fields = spark.table(quote_name(cfg["target"])).schema.fields      # metadata only
+    actual = {f.name.lower(): f.dataType.simpleString().lower() for f in fields}
+    missing = sorted(set(expected) - set(actual))
+    mistyped = {c: {"expected": t, "actual": actual[c]}
+                for c, t in expected.items() if t and c in actual and actual[c] != t}
+    unexpected = sorted(set(actual) - set(expected)) if cfg.get("strict") else []
+    violations = len(missing) + len(mistyped) + len(unexpected)
+    return evaluate(new_result(
+        cfg, expected=0.0, actual=float(violations),
+        message=f"{len(expected)} columns in contract, {violations} violation(s)",
+        detail=json.dumps({"missing": missing, "mistyped": mistyped, "unexpected": unexpected})))</code></pre>
+    <h3 id="schema-criteria">Success criteria</h3>
+    <ul class="checklist">
+      <li>Every contracted column exists in the target.</li>
+      <li>Every contracted type matches (when stated).</li>
+      <li>With <code>strict</code>, no uncontracted columns exist.</li>
+      <li>Derived columns that were added by transformation logic (flags, labels, sort keys) are part of the contract, not an afterthought.</li>
+    </ul>
+    <h3 id="schema-output">Example output</h3>
+<pre data-title="results row"><code class="language-text">test_name            status  expected  actual  message                                  detail
+dim_customer.schema  FAIL    0         2       3 columns in contract, 2 violation(s)    {"missing": ["customer_label"], "mistyped": {"customer_id": {"expected": "bigint", "actual": "int"}}, "unexpected": []}</code></pre>
+    <div class="callout tip"><p class="callout-title">Generate contracts, do not type them</p><p>For wide tables, generate the column list once from the approved table (<code>spark.table(...).schema</code>), review it, and commit it. Typing 35 column names by hand introduces its own defects. If a semantic model reads the table, the contract is the list of columns the model uses.</p></div>
+
+    <h2 id="freshness">Freshness validation</h2>
+    <h3 id="freshness-purpose">Purpose</h3>
+    <p>Confirm that data arrived on time. A pipeline can succeed, counts can match and the data can still be a day old because a source stopped delivering. Freshness is also the check that turns &quot;the load ran&quot; into &quot;the data is current&quot;.</p>
+    <h3 id="freshness-impl">Implementation</h3>
+    <p>The check computes the age of the newest value in a timestamp column, in hours, and compares it with a limit. It is a <code>le</code> check: expected is the allowed age, actual is the observed age, and only an older table breaches. A <code>fail_threshold</code> adds a WARN band so that the team hears about a late load before consumers do.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 250" role="img" aria-label="Timeline from a source row change through Bronze load and Gold write to the QA run; age measured from the source timestamp covers the whole path, age measured from loaded_at covers only the pipeline">
+        <defs>
+          <marker id="fig-core-2-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <path class="ln thick" d="M40 125H860" marker-end="url(#fig-core-2-a)"/>
+        <circle class="dot" cx="100" cy="125" r="6"/>
+        <circle class="dot" cx="330" cy="125" r="6"/>
+        <circle class="dot" cx="560" cy="125" r="6"/>
+        <circle class="dot red" cx="780" cy="125" r="6"/>
+        <text class="t-b" x="100" y="148" text-anchor="middle">Source row changes</text>
+        <text class="t-s" x="100" y="163" text-anchor="middle">source_updated_at</text>
+        <text class="t-b" x="330" y="148" text-anchor="middle">Bronze load</text>
+        <text class="t-s" x="330" y="163" text-anchor="middle">ingested_at</text>
+        <text class="t-b" x="560" y="148" text-anchor="middle">Gold written</text>
+        <text class="t-s" x="560" y="163" text-anchor="middle">loaded_at</text>
+        <text class="t-b" x="780" y="148" text-anchor="middle">QA run</text>
+        <text class="t-s" x="780" y="163" text-anchor="middle">now</text>
+        <path class="ln green" d="M100 100V90H780V100"/>
+        <rect class="pill-bg" x="290" y="82" width="290" height="16"/>
+        <text class="t-s c-green" x="435" y="94" text-anchor="middle">age by source_updated_at: end to end</text>
+        <path class="ln orange" d="M560 186V196H780V186"/>
+        <rect class="pill-bg" x="570" y="188" width="200" height="16"/>
+        <text class="t-s c-orange" x="670" y="200" text-anchor="middle">age by loaded_at: pipeline only</text>
+        <text class="t-s" x="450" y="236" text-anchor="middle">loaded_at stays fresh when the source stops delivering; only source-side timestamps notice</text>
+      </svg>
+      <figcaption><b>Which timestamp?</b> A column the pipeline stamps (<code>loaded_at</code>) proves the pipeline ran. A column carried from the source proves the source delivered. Use the source-side timestamp for a business SLA and the pipeline timestamp to isolate who is late.</figcaption>
+    </figure>
+<pre data-title="Cell 4e (PySpark): freshness check"><code class="language-python">@check("freshness")
+def freshness(cfg):
+    ts = col(cfg["timestamp_column"])
+    row = one_row(f"""
+        SELECT timestampdiff(MINUTE, MAX({ts}), current_timestamp()) / 60.0 AS age_hours,
+               count_if({ts} IS NULL)                                      AS null_timestamps,
+               COUNT(*)                                                    AS row_count
+        FROM {quote_name(cfg['target'])}""")
+    if row["age_hours"] is None:
+        return new_result(cfg, status="ERROR",
+                          message=f"no timestamps in {cfg['timestamp_column']} ({row['row_count']} rows)")
+    limit = float(cfg["max_age_hours"])
+    r = new_result(cfg, rule="le", expected=limit, actual=float(row["age_hours"]),
+                   message=f"newest row is {float(row['age_hours']):.1f} h old (limit {limit:g} h)",
+                   detail=json.dumps({"null_timestamps": row["null_timestamps"], "rows": row["row_count"]}))
+    return evaluate(r)</code></pre>
+    <h3 id="freshness-criteria">Success criteria</h3>
+    <ul class="checklist">
+      <li>The newest timestamp is within <code>max_age_hours</code> of the run (PASS), or within the WARN band (WARN).</li>
+      <li>The column has at least one non-NULL value; an all-NULL or empty column is an <code>ERROR</code>, not a pass.</li>
+      <li>NULL timestamps are counted and reported in <code>detail</code>; add a completeness check if any NULL is unacceptable.</li>
+    </ul>
+    <h3 id="freshness-output">Example output</h3>
+<pre data-title="results rows"><code class="language-text">test_name              status  rule  expected  actual  message
+fact_orders.freshness  PASS    le    6         1.4     newest row is 1.4 h old (limit 6 h)
+fact_orders.freshness  WARN    le    6         8.2     newest row is 8.2 h old (limit 6 h)</code></pre>
+    <h3 id="freshness-pitfalls">Freshness pitfalls</h3>
+    <ul>
+      <li><strong>Time zones.</strong> <code>current_timestamp()</code> is an instant, and Spark compares instants. The risk is a column that stores local wall-clock time as if it were UTC. Store timestamps as UTC, and if a legacy column cannot be changed, document the offset next to the check.</li>
+      <li><strong>Calendars.</strong> A 6-hour limit fails every weekend for a source that does not deliver on weekends. Pass <code>max_age_hours</code> from the pipeline, vary it by day, or schedule the suite only on delivery days.</li>
+      <li><strong>Partial refreshes.</strong> A table can have fresh rows for one region and none for another. If that matters, group the freshness query by the partition-like column and report the stalest group.</li>
+    </ul>
+
+    <h2 id="run">Run, write and exit</h2>
+    <p>Cell 5 selects the suite, runs it and writes both tables. Cell 6 hands a compact summary to the pipeline, and is deliberately its own cell because <code>notebookutils.notebook.exit</code> overwrites that cell's output and ends the run.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 260" role="img" aria-label="Phase one runs independent checks in parallel; if the check a dependent check depends on did not fail, phase two runs the dependent checks; otherwise they are recorded as SKIPPED with a reason">
+        <defs>
+          <marker id="fig-core-3-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="zone teal" x="20" y="25" width="290" height="210" rx="12"/>
+        <text class="t-s" x="34" y="45">Phase 1: independent checks, in parallel</text>
+        <rect class="box teal" x="40" y="60" width="250" height="34" rx="8"/><text class="t-b" x="165" y="82" text-anchor="middle">Key uniqueness</text>
+        <rect class="box teal" x="40" y="102" width="250" height="34" rx="8"/><text class="t-b" x="165" y="124" text-anchor="middle">Row counts</text>
+        <rect class="box teal" x="40" y="144" width="250" height="34" rx="8"/><text class="t-b" x="165" y="166" text-anchor="middle">Schema contracts</text>
+        <rect class="box teal" x="40" y="186" width="250" height="34" rx="8"/><text class="t-b" x="165" y="208" text-anchor="middle">Freshness</text>
+        <rect class="box purple" x="355" y="105" width="190" height="56" rx="28"/>
+        <text class="t-b" x="450" y="138" text-anchor="middle">Dependency passed?</text>
+        <rect class="zone green" x="610" y="25" width="270" height="130" rx="12"/>
+        <text class="t-s" x="624" y="45">Phase 2: dependent checks</text>
+        <rect class="box green" x="630" y="60" width="230" height="34" rx="8"/><text class="t-b" x="745" y="82" text-anchor="middle">Keyed transformation</text>
+        <rect class="box green" x="630" y="102" width="230" height="34" rx="8"/><text class="t-b" x="745" y="124" text-anchor="middle">Metric reconciliation</text>
+        <rect class="box gray" x="355" y="195" width="190" height="42" rx="10"/>
+        <text class="t-b" x="450" y="213" text-anchor="middle">SKIPPED</text>
+        <text class="t-s" x="450" y="229" text-anchor="middle">reason recorded</text>
+        <path class="ln" d="M310 133H353" marker-end="url(#fig-core-3-a)"/>
+        <path class="ln green" d="M545 133H608" marker-end="url(#fig-core-3-a)"/>
+        <path class="ln" d="M450 161V193" marker-end="url(#fig-core-3-a)"/>
+        <text class="t-s c-green" x="577" y="125" text-anchor="middle">yes</text>
+        <text class="t-s c-red" x="462" y="180">no</text>
+      </svg>
+      <figcaption><b>Dependencies keep failures honest.</b> A keyed comparison on a table with duplicate keys fails in confusing ways. Running the uniqueness check first, and skipping the dependent check with a recorded reason, makes the root cause the only red result.</figcaption>
+    </figure>
+<pre data-title="Cell 5 (PySpark): select, run, write"><code class="language-python">RESULT_SCHEMA = StructType([
+    StructField("run_id", StringType()), StructField("suite", StringType()),
+    StructField("environment", StringType()), StructField("test_name", StringType()),
+    StructField("check_type", StringType()), StructField("severity", StringType()),
+    StructField("status", StringType()), StructField("source_object", StringType()),
+    StructField("target_object", StringType()), StructField("rule", StringType()),
+    StructField("expected", DoubleType()), StructField("actual", DoubleType()),
+    StructField("variance", DoubleType()), StructField("variance_pct", DoubleType()),
+    StructField("tolerance", DoubleType()), StructField("tolerance_type", StringType()),
+    StructField("fail_threshold", DoubleType()), StructField("message", StringType()),
+    StructField("detail", StringType()), StructField("duration_s", DoubleType()),
+    StructField("run_ts", TimestampType()),
+])
+RUN_SCHEMA = StructType([
+    StructField("run_id", StringType()), StructField("suite", StringType()),
+    StructField("environment", StringType()), StructField("framework_version", StringType()),
+    StructField("as_of_date", DateType()), StructField("started_at", TimestampType()),
+    StructField("finished_at", TimestampType()), StructField("total_checks", IntegerType()),
+    StructField("passed", IntegerType()), StructField("warned", IntegerType()),
+    StructField("failed", IntegerType()), StructField("errored", IntegerType()),
+    StructField("skipped", IntegerType()), StructField("blocking_failures", IntegerType()),
+    StructField("gate", StringType()),
+])
+
+selected = [c for c in CONFIG if c.get("enabled", True) and c["suite"] == suite]
+if not selected:
+    raise ValueError(f"Suite {suite!r} has no enabled checks; an empty suite must not pass silently")
+
+results = run_suite(selected)
+finished_at = datetime.now(timezone.utc)
+
+counts = {s: sum(r.status == s for r in results) for s in ("PASS", "WARN", "FAIL", "ERROR", "SKIPPED")}
+blocking = sum(1 for r in results if r.status in ("FAIL", "ERROR") and r.severity == "blocker")
+gate = "BLOCKED" if blocking else "OPEN"
+
+rows = [(run_id, suite, env, r.test_name, r.check_type, r.severity, r.status, r.source_object,
+         r.target_object, r.rule, r.expected, r.actual, r.variance, r.variance_pct, r.tolerance,
+         r.tolerance_type, r.fail_threshold, r.message, r.detail, r.duration_s, finished_at)
+        for r in results]
+(spark.createDataFrame(rows, RESULT_SCHEMA)
+      .write.format("delta").mode("append").saveAsTable(f"{results_schema}.validation_results"))
+
+run_row = [(run_id, suite, env, FRAMEWORK_VERSION, datetime.strptime(as_of_date, "%Y-%m-%d").date(),
+            started_at, finished_at, len(results), counts["PASS"], counts["WARN"], counts["FAIL"],
+            counts["ERROR"], counts["SKIPPED"], blocking, gate)]
+(spark.createDataFrame(run_row, RUN_SCHEMA)
+      .write.format("delta").mode("append").saveAsTable(f"{results_schema}.validation_runs"))
+
+display(spark.table(f"{results_schema}.validation_results")
+             .where(F.col("run_id") == run_id)
+             .select("test_name", "status", "severity", "expected", "actual", "variance", "message"))</code></pre>
+<pre data-title="Cell 6 (PySpark): exit value (keep this in its own cell)"><code class="language-python">summary = {"run_id": run_id, "suite": suite, "environment": env, "gate": gate, "total": len(results),
+           "passed": counts["PASS"], "warned": counts["WARN"], "failed": counts["FAIL"],
+           "errored": counts["ERROR"], "skipped": counts["SKIPPED"], "blocking_failures": blocking}
+
+if fail_on_blocker and blocking:
+    raise RuntimeError(f"QA gate BLOCKED: {blocking} blocking failure(s) in run {run_id}")
+
+notebookutils.notebook.exit(json.dumps(summary))</code></pre>
+    <p>The exit value is a small JSON document with counts and the gate. Do not put per-check detail in it; the details are in the results table. <a href="orchestration.html#gate">Orchestration, gating and reporting</a> shows how the pipeline reads it.</p>
+
+    <h2 id="tsql">T-SQL variant for a Warehouse</h2>
+    <p>When the target is a Warehouse table, the same checks can run in the warehouse itself with T-SQL, for example from a Script activity or a T-SQL notebook. Three-part names work within one workspace; expose Silver tables from other workspaces through a OneLake shortcut first. Writing the results to a warehouse table is an <code>INSERT</code>; a lakehouse results table remains the better default because it feeds Direct Lake directly.</p>
+<pre data-title="T-SQL (Warehouse query editor): row count and freshness"><code class="language-sql">-- Row count: expected from a shortcut-backed lakehouse table, actual from the warehouse
+SELECT (SELECT COUNT_BIG(*) FROM LH_HR_SLV.dbo.employees)     AS expected,
+       (SELECT COUNT_BIG(*) FROM WH_HR_GLD.dbo.dim_employee)  AS actual;
+
+-- Freshness: age in hours of the newest row (loaded_at stored as UTC datetime2)
+SELECT DATEDIFF(MINUTE, MAX(loaded_at), SYSUTCDATETIME()) / 60.0 AS age_hours
+FROM WH_HR_GLD.dbo.fact_workforce_fte;
+
+-- Transformation: keyed comparison without EXCEPT ALL
+SELECT COUNT_BIG(*) AS value_mismatches
+FROM LH_HR_SLV.dbo.employees AS s
+JOIN WH_HR_GLD.dbo.dim_employee AS t ON t.employee_id = s.employee_id
+WHERE t.employee_label &lt;&gt; CONCAT(s.employee_code, ' - ', s.employee_name);</code></pre>
+    <div class="callout warning"><p class="callout-title">Collation changes string comparisons</p><p>A new Warehouse defaults to a case-sensitive collation, as does a lakehouse SQL analytics endpoint, and Spark compares strings case-sensitively. A transformation that lower-cases text can pass in one engine and fail in the other if the collations differ. Compare in the engine that produced the target, or apply an explicit <code>COLLATE</code> in the check.</p></div>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p><ul>
+      <li>One small harness (parameters, helpers, registry, configuration, runner, writer, exit) serves every framework; only the checks differ.</li>
+      <li>Row count, keyed transformation, schema contract and freshness cover most defects at low cost; give every table a row count, schema and freshness check.</li>
+      <li>Use a minimum-rows guard, a keyed comparison and a source-side timestamp so that checks cannot pass on empty, duplicated or stale data.</li>
+      <li>Treat configuration as executable code, and run uniqueness before keyed comparisons so failures point at the root cause.</li>
+      <li>Keep the exit value to a compact summary and the evidence in the results table.</li>
+    </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/author-execute-notebook">Develop, execute, and manage notebooks</a> (parameter cell, reference runs)</li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/notebook-utilities">NotebookUtils for Fabric</a> (<code>notebook.exit</code>, <code>runMultiple</code>)</li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/lakehouse-schemas">What are lakehouse schemas?</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-warehouse/query-warehouse">Query the warehouse or SQL analytics endpoint</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-warehouse/collation">Data Warehouse collation</a></li>
+        <li><a href="https://spark.apache.org/docs/latest/sql-ref.html">Spark SQL reference</a></li>
+        <li><a href="https://spark.apache.org/docs/latest/api/python/">PySpark API reference</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

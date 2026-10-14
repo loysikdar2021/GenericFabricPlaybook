@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Prerequisites and governance · Org Apps</title>
+<meta name="description" content="Tenant settings, workspace types, capacity, per-user licenses and workspace roles needed to create and consume Fabric org apps, the write-and-reshare rule, and a pre-flight checklist with a smoke test.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="11-org-apps" data-page="prerequisites.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 11 · Organizational Apps</p>
+      <h1>Prerequisites and governance</h1>
+      <p class="lede">Creating and distributing an org app depends on five layers, from the tenant down to the permissions on each included item. A gap in any layer fails late and confusingly, usually when someone tries to save or share. This page names each layer, who owns it, and how to prove it works before you build.</p>
+    </header>
+
+    <h2 id="layers">The five layers</h2>
+    <p>Control narrows as you go down: a Fabric administrator opens the platform-wide gates, a capacity administrator provides the capacity, a workspace administrator decides who builds, and the people who own the items decide who can reshare them. That layering supports delegated administration. Central IT sets policy; domain teams create and run their own apps inside it.</p>
+
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 880 312" role="img" aria-label="Five layers narrow from tenant settings through capacity, workspace type and workspace role down to item and model permissions, each with an owner">
+        <rect class="box purple" x="20" y="16" width="720" height="48" rx="8"/>
+        <text class="t-b" x="36" y="36">1 · Tenant settings</text>
+        <text class="t-s" x="36" y="53">Org app setting on for creators; Fabric items setting for non-Power BI items</text>
+        <rect class="box blue" x="20" y="74" width="650" height="48" rx="8"/>
+        <text class="t-b" x="36" y="94">2 · Capacity</text>
+        <text class="t-s" x="36" y="111">Fabric (F), Premium (P) or trial capacity assigned; F64 or larger for free-license viewing</text>
+        <rect class="box blue" x="20" y="132" width="580" height="48" rx="8"/>
+        <text class="t-b" x="36" y="152">3 · Workspace type</text>
+        <text class="t-s" x="36" y="169">Pro, trial, Premium or Fabric capacity; notebooks and real-time items need Fabric or trial</text>
+        <rect class="box purple" x="20" y="190" width="510" height="48" rx="8"/>
+        <text class="t-b" x="36" y="210">4 · Workspace role</text>
+        <text class="t-s" x="36" y="227">Contributor, Member or Admin to create; write and reshare to change access</text>
+        <rect class="box orange" x="20" y="248" width="440" height="48" rx="8"/>
+        <text class="t-b" x="36" y="268">5 · Item and model permissions</text>
+        <text class="t-s" x="36" y="285">Write + reshare on included items and their models</text>
+        <path class="ln thin dash gray" d="M740 40H764"/>
+        <path class="ln thin dash gray" d="M670 98H764"/>
+        <path class="ln thin dash gray" d="M600 156H764"/>
+        <path class="ln thin dash gray" d="M530 214H764"/>
+        <path class="ln thin dash gray" d="M460 272H764"/>
+        <text class="t-s" x="772" y="44">Fabric admin</text>
+        <text class="t-s" x="772" y="102">Capacity admin</text>
+        <text class="t-s" x="772" y="160">Workspace admin</text>
+        <text class="t-s" x="772" y="218">Workspace admin</text>
+        <text class="t-s" x="772" y="276">Item owners</text>
+      </svg>
+      <figcaption><b>Governance funnel.</b> Layers 1 to 4 are configuration you can verify once. Layer 5 is per item and per model, which is where access drift and late save failures come from.</figcaption>
+    </figure>
+
+    <h2 id="tenant">Tenant settings</h2>
+    <p>The settings below are the ones that matter for org apps. Names are given as Microsoft Learn documents them and can change, so confirm each one in your admin portal.</p>
+    <table>
+      <thead><tr><th>Setting (documented label)</th><th>What it does</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Users can discover and create org apps (preview)</strong></td><td>Lets users create org apps as items; users with access can view them. If it is turned off, org app items are hidden until it is turned on again. Workspace apps remain available.</td><td>The label can keep "(preview)" after the item is GA. Scope it to a security group for a phased rollout, as with other tenant settings.</td></tr>
+        <tr><td><strong>Users can create Fabric items</strong></td><td>Lets users create non-Power BI Fabric items such as lakehouses, notebooks and eventhouses. Turning it off does not affect Power BI items. Managed at tenant and capacity level.</td><td>Needed by the authors of notebooks and Real-Time Dashboards. Org apps are classed as Power BI items in the licensing article, so this should not be what blocks app creation; confirm with a test user.</td></tr>
+        <tr><td><strong>Real-Time Dashboard creation</strong></td><td>A tenant setting that must be on for users to create Real-Time Dashboards, according to Learn tutorials.</td><td>The exact label is not confirmed in the tenant settings reference; see the callout below.</td></tr>
+        <tr><td><strong>Enable Fabric App Items (preview)</strong></td><td>Lets users create Fabric Apps. Only needed if you include Fabric Apps in an org app.</td><td>Learn shows the label differently on two pages (Fabric Apps (preview) in the overview). Region availability also applies.</td></tr>
+        <tr><td><strong>Users with read or write permission can download data from notebooks</strong></td><td>Controls whether people with Read can download or export data from tables in notebook outputs.</td><td>Relevant because an org app grants Read on included notebooks and notebook outputs can contain data.</td></tr>
+        <tr><td><strong>Create template organizational apps, Push apps to end users, Publish apps to the entire organization</strong></td><td>App settings that govern template apps and workspace apps.</td><td>The org app article does not reference them. Do not assume they control org apps; test.</td></tr>
+      </tbody>
+    </table>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p>
+      <p>Two things to confirm in your tenant. First, the exact name and location of the org app setting and of the Real-Time Dashboard creation setting: the Get started article lists workspace type and role as prerequisites and does not name a tenant setting, while the <a href="https://learn.microsoft.com/fabric/admin/service-admin-portal-microsoft-fabric-tenant-settings">Fabric tenant settings reference</a> documents the org app setting. Second, how to reach tenant settings: Learn describes the Admin portal and the Govern area of the OneLake catalog. Cross-check against the <a href="../16-tenant-settings/index.html">Tenant Settings Reference</a> playbook and the <a href="https://learn.microsoft.com/fabric/admin/tenant-settings-index">tenant settings index</a>.</p></div>
+    <div class="callout tip"><p class="callout-title">Scope settings with groups</p>
+      <p>Enable the org app setting for a named Entra security group such as <code>sg-fabric-orgapp-creators</code>, start with a pilot team, and add groups as the operating model matures. A tenant-wide switch is rarely the right starting point for a feature that creates distribution paths to data.</p></div>
+
+    <h2 id="capacity">Capacity and workspace type</h2>
+    <p>Org apps live in workspaces, and the workspace has to be one of four types: Pro, Fabric trial, Premium capacity or Fabric capacity. Learn calls this setting the <em>workspace type</em>; older material calls it the license mode. You change it in <strong>Workspace settings</strong>, on the <strong>License info</strong> tab or the <strong>Premium</strong> tab depending on your tenant, with <strong>Edit</strong>.</p>
+    <table>
+      <thead><tr><th>Workspace type</th><th>Power BI items</th><th>Non-Power BI Fabric items</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Pro</strong></td><td class="yes">Yes</td><td class="no">No</td><td>Reports and semantic models only; no notebooks, Real-Time Dashboards or Maps in this workspace</td></tr>
+        <tr><td><strong>Fabric trial</strong></td><td class="yes">Yes</td><td class="yes">Yes</td><td>A 60-day trial with F64-equivalent capacity, suitable for evaluation and proof of concept</td></tr>
+        <tr><td><strong>Premium capacity (P)</strong></td><td class="yes">Yes</td><td class="maybe">If Fabric is enabled</td><td>Learn notes that P SKUs are being retired in favor of F SKUs; plan new purchases around F</td></tr>
+        <tr><td><strong>Fabric capacity (F)</strong></td><td class="yes">Yes</td><td class="yes">Yes</td><td>F64 or larger allows free-license users with a viewer role to view Power BI content</td></tr>
+        <tr><td><strong>Premium Per User (PPU)</strong></td><td class="yes">Yes</td><td class="no">No</td><td>Not in the list of workspace types that Get started with org apps accepts; do not assume it works</td></tr>
+      </tbody>
+    </table>
+    <p>The practical consequence is easy to miss. Org apps work in Pro workspaces, which broadens who can use them, but a Pro workspace cannot hold a notebook or a Real-Time Dashboard. If you want those item types in the app, the workspace must be on a Fabric or trial capacity.</p>
+    <table>
+      <thead><tr><th>Item you want in the app</th><th>Workspace requirement</th></tr></thead>
+      <tbody>
+        <tr><td>Power BI report, semantic model</td><td>Any of the four supported workspace types</td></tr>
+        <tr><td>Paginated report</td><td>Check the paginated report requirements; plan for a capacity-backed workspace</td></tr>
+        <tr><td>Notebook, Real-Time Dashboard, Map</td><td>Fabric or trial capacity workspace; Real-Time Dashboards also need a KQL database</td></tr>
+        <tr><td>Fabric App (preview)</td><td>Fabric capacity assigned, the tenant setting on, and a supported region</td></tr>
+      </tbody>
+    </table>
+    <p>When your tenant has Fabric trials turned on and the workspace is not on a capacity, a user who creates an org app is prompted to start a trial. Decide in advance whether that is acceptable, because a trial workspace is not a production home for a business-critical app.</p>
+
+    <h2 id="licenses">Per-user licenses</h2>
+    <p>Licensing has two sides. Creators need a license that lets them manage Power BI items. Consumers need a license that depends on the capacity behind the workspace.</p>
+    <table>
+      <thead><tr><th>Person</th><th>License needed</th><th>Why</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Creator or editor</strong></td><td>Power BI Pro or Premium Per User</td><td>Org apps are Power BI items, and a Free license cannot create, update, delete or manage Power BI items outside My workspace</td></tr>
+        <tr><td><strong>Consumer, workspace on F64 or larger, P or trial capacity</strong></td><td>Fabric (Free) can view Power BI content</td><td>The licensing article ties this to a viewer role; validate for org app consumers (see the callout)</td></tr>
+        <tr><td><strong>Consumer, workspace on F SKU below F64 or a Pro workspace</strong></td><td>Pro or Premium Per User</td><td>Each viewer of Power BI content needs one</td></tr>
+        <tr><td><strong>Author of a notebook or Real-Time Dashboard</strong></td><td>Free is enough to create non-Power BI items on F or trial capacity</td><td>These are non-Power BI Fabric items</td></tr>
+      </tbody>
+    </table>
+
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 880 292" role="img" aria-label="Consumers on F64 or larger, P or trial capacity can use a free license, others need Pro or PPU; creators always need Pro or PPU because org apps are Power BI items">
+        <defs>
+          <marker id="fig-pre-2-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box gray" x="20" y="70" width="160" height="56" rx="8"/>
+        <text class="t-b" x="100" y="94" text-anchor="middle">Consumer</text>
+        <text class="t-s" x="100" y="112" text-anchor="middle">opens an org app</text>
+        <rect class="box purple" x="240" y="66" width="250" height="64" rx="32"/>
+        <text class="t-b" x="365" y="94" text-anchor="middle">Capacity is F64 or larger,</text>
+        <text class="t-b" x="365" y="112" text-anchor="middle">P SKU or trial?</text>
+        <rect class="box green" x="560" y="20" width="300" height="64" rx="10"/>
+        <text class="t-b" x="710" y="44" text-anchor="middle">Free license can view</text>
+        <text class="t-s" x="710" y="60" text-anchor="middle">licensing article ties this to a viewer role;</text>
+        <text class="t-s" x="710" y="74" text-anchor="middle">test with a free account</text>
+        <rect class="box orange" x="560" y="116" width="300" height="64" rx="10"/>
+        <text class="t-b" x="710" y="140" text-anchor="middle">Pro or PPU per consumer</text>
+        <text class="t-s" x="710" y="158" text-anchor="middle">F SKUs below F64 and Pro workspaces</text>
+        <path class="ln" d="M180 98H238" marker-end="url(#fig-pre-2-a)"/>
+        <path class="ln" d="M490 98H524V52H558" marker-end="url(#fig-pre-2-a)"/>
+        <path class="ln" d="M490 98H524V148H558" marker-end="url(#fig-pre-2-a)"/>
+        <text class="t-s c-green" x="530" y="48">yes</text>
+        <text class="t-s c-red" x="530" y="168">no</text>
+        <rect class="box gray" x="20" y="216" width="160" height="56" rx="8"/>
+        <text class="t-b" x="100" y="240" text-anchor="middle">Creator or editor</text>
+        <text class="t-s" x="100" y="258" text-anchor="middle">builds or changes the app</text>
+        <rect class="box blue" x="240" y="216" width="340" height="56" rx="8"/>
+        <text class="t-b" x="410" y="240" text-anchor="middle">Pro or PPU in every case</text>
+        <text class="t-s" x="410" y="258" text-anchor="middle">org apps are Power BI items</text>
+        <path class="ln" d="M180 244H238" marker-end="url(#fig-pre-2-a)"/>
+      </svg>
+      <figcaption><b>Who needs which license.</b> Consumer licensing is decided by the capacity behind the workspace; creator licensing is decided by the item type.</figcaption>
+    </figure>
+
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p>
+      <p>The free-license rule in the <a href="https://learn.microsoft.com/fabric/enterprise/licenses">licensing article</a> is phrased around a workspace viewer role. Consumers of an org app normally have no workspace role at all; they have access to the app item. The org app article does not restate a consumer license rule. Before you promise broad free-license consumption, run the smoke test below with a free-licensed account that holds no workspace role.</p></div>
+
+    <h2 id="roles">Workspace roles and the write-and-reshare rule</h2>
+    <p>Even with the right tenant setting, capacity and license, what a person can do in a given workspace depends on their role. Users with the Admin, Member or Contributor role can create org app items; a Viewer cannot create items.</p>
+    <p>Creating the item is the easy part. Anything that changes who has access is stricter. When you add or remove an item, change audience visibility or otherwise affect access management, you need write and reshare permissions on the org app item, on every included item, and on the underlying semantic models that the app grants or revokes access to, in the same workspace or another one. In practice only workspace Admins and Members hold those permissions on everything.</p>
+    <table>
+      <thead><tr><th>Role</th><th>Create an org app item</th><th>Edit without changing access</th><th>Add or remove items, change audiences or access</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Admin</strong></td><td class="yes">Yes</td><td class="yes">Yes</td><td class="yes">Yes, typically</td></tr>
+        <tr><td><strong>Member</strong></td><td class="yes">Yes</td><td class="yes">Yes</td><td class="yes">Yes, typically</td></tr>
+        <tr><td><strong>Contributor</strong></td><td class="yes">Yes</td><td class="yes">Yes</td><td class="maybe">Only with write and reshare on the items and models</td></tr>
+        <tr><td><strong>Viewer</strong></td><td class="no">No</td><td class="no">No</td><td class="no">No</td></tr>
+      </tbody>
+    </table>
+    <p>It is easy to assume that Contributors cannot create apps. They can; what they cannot normally do is change access. The workspace setting <strong>Allow contributors to update the app</strong>, under the Power BI general settings for organization apps, applies to workspace apps only and has no effect on org apps.</p>
+    <p>Use this to design roles on purpose. Put report developers in Contributor so they can build and edit content without being able to widen access. Put the small group of people who publish and manage apps in Member, and keep Admin for platform owners. If a Contributor must manage access, grant the specific write and reshare rights on the items instead of promoting them.</p>
+    <div class="callout important"><p class="callout-title">Where the app lives</p>
+      <p>All included items must be in the app's workspace. With the house naming convention that usually means the consumption workspace for a domain, for example <code>PRD_SALES_CNSM</code>, which holds the reports and notebooks, while the semantic models behind the reports can sit in a gold-layer workspace and still receive access through the app, provided the app's author has the rights described above.</p></div>
+
+    <h2 id="preflight">Pre-flight checklist</h2>
+    <table>
+      <thead><tr><th>Level</th><th>Requirement</th><th>Required state</th><th>Who configures</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Tenant</strong></td><td>Org app setting</td><td>Enabled for the creators' security group</td><td>Fabric administrator</td></tr>
+        <tr><td><strong>Tenant</strong></td><td>Fabric items setting</td><td>Enabled for authors of notebooks, Real-Time Dashboards and Maps</td><td>Fabric administrator</td></tr>
+        <tr><td><strong>Tenant</strong></td><td>Real-Time Dashboard and Fabric App settings</td><td>Enabled only if you include those item types</td><td>Fabric administrator</td></tr>
+        <tr><td><strong>Capacity</strong></td><td>Capacity for the workspace</td><td>F SKU (or P or trial); F64 or larger if free-license consumers are planned</td><td>Capacity administrator</td></tr>
+        <tr><td><strong>Workspace</strong></td><td>Workspace type</td><td>Pro, Fabric trial, Premium capacity or Fabric capacity</td><td>Workspace administrator</td></tr>
+        <tr><td><strong>User</strong></td><td>Workspace role</td><td>Contributor, Member or Admin to create; Member or Admin to change access</td><td>Workspace administrator</td></tr>
+        <tr><td><strong>User</strong></td><td>Creator license</td><td>Power BI Pro or PPU</td><td>License administrator</td></tr>
+        <tr><td><strong>Item</strong></td><td>Write and reshare</td><td>On the org app, the included items and their semantic models, including models in other workspaces</td><td>Item owners</td></tr>
+        <tr><td><strong>Consumer</strong></td><td>License</td><td>Free if the capacity is F64 or larger, P or trial and validated; otherwise Pro or PPU</td><td>License administrator</td></tr>
+      </tbody>
+    </table>
+    <ul class="checklist">
+      <li>The org app setting is enabled for a named group that contains the planned creators.</li>
+      <li>Every workspace that will host apps is on a supported workspace type and, if it will hold notebooks or Real-Time Dashboards, on a Fabric or trial capacity.</li>
+      <li>Creators hold Pro or PPU and a Member or Admin role (or specific write and reshare rights).</li>
+      <li>Entra security groups exist for each planned audience, and an owner is named for each group.</li>
+      <li>You have test accounts: one free-licensed with no workspace role, one with a Pro license, and one that belongs to two audiences.</li>
+      <li>You know whether consumers will be on a capacity of F64 or larger and have validated free-license viewing with a test account.</li>
+      <li>The semantic models behind planned reports have identified owners who can grant or confirm reshare rights.</li>
+    </ul>
+
+    <h2 id="smoke-test">Smoke test before you invest</h2>
+    <p>An hour spent on a throwaway app is cheaper than discovering a gap while stakeholders wait. Use a test workspace that matches the production workspace type.</p>
+    <ol class="steps">
+      <li><strong>Create a minimal app</strong><p>As a Member, create an org app with one report whose semantic model lives in a different workspace. Add a notebook or Real-Time Dashboard if your design needs them.</p></li>
+      <li><strong>Add one audience member</strong><p>Share the app with a free-licensed test account that has no workspace role.</p></li>
+      <li><strong>Sign in as the test account</strong><p>Open the app from the Apps page and confirm that the report renders, the cross-workspace model resolves, and the notebook or dashboard opens.</p></li>
+      <li><strong>Check the negative case</strong><p>Remove the test account from the app and confirm access to the report and the model is gone, unless it came from another route.</p></li>
+      <li><strong>Repeat as a Contributor</strong><p>Try to add an item as a Contributor without extra rights and note the error. Your support team will see it.</p></li>
+    </ol>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p><ul>
+      <li>Verify five layers: tenant settings, capacity, workspace type, role, and item and model permissions.</li>
+      <li>Creators need Pro or PPU in every case; consumer licensing is decided by the capacity behind the workspace.</li>
+      <li>Notebooks and Real-Time Dashboards require a Fabric or trial capacity workspace even though org apps work in Pro workspaces.</li>
+      <li>Contributors can create apps; changing access needs write and reshare on items and models, which in practice means Member or Admin.</li>
+      <li>Validate with real test accounts before promising free-license consumption.</li>
+    </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/power-bi/explore-reports/org-app-items">Get started with org apps</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/enterprise/licenses">Understand Microsoft Fabric licenses and capacity</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/admin/service-admin-portal-microsoft-fabric-tenant-settings">Microsoft Fabric tenant settings</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/admin/tenant-settings-index">Tenant settings index</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/admin/fabric-switch">Enable Microsoft Fabric for your organization</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/fundamentals/roles-workspaces">Roles in workspaces in Microsoft Fabric</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/real-time-intelligence/dashboard-real-time-create">Create a Real-Time Dashboard</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/apps/overview">What is Fabric Apps (preview)?</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

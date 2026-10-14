@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Practices, pitfalls and roadmap · Org Apps</title>
+<meta name="description" content="Best practices and an operating model for org apps, a symptom-to-fix troubleshooting table, where consumers meet the app, how to track capability changes without trusting a roadmap, and a phase-by-phase checklist.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="11-org-apps" data-page="practices.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 11 · Organizational Apps</p>
+      <h1>Practices, pitfalls and roadmap</h1>
+      <p class="lede">The practices that keep an org app estate manageable, an operating model with named owners, a symptom-to-fix table for the problems you will actually be asked about, and a method for tracking how the feature set changes, because in this area the documentation moves faster than any playbook.</p>
+    </header>
+
+    <h2 id="practices">Best practices</h2>
+    <table>
+      <thead><tr><th>Practice</th><th>Why it matters</th><th>How</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Isolate development from production</strong></td><td>Saved changes to a report are live in every app that includes it</td><td>Separate <code>DEV_</code>, <code>TST_</code> and <code>PRD_</code> workspaces and a deployment pipeline; no direct edits in production (<a href="access-alm.html#alm">ALM</a>)</td></tr>
+        <tr><td><strong>Design for the audience</strong></td><td>One monolithic app forces everyone through content that is not theirs</td><td>Several small apps from one workspace, or one app with audiences; sections, an overview page and consumer-readable names</td></tr>
+        <tr><td><strong>Give each app an owner</strong></td><td>An app is a product with users, a backlog and a lifecycle, not a folder</td><td>Name an owner, keep release notes and a feedback channel, and review usage with the audience</td></tr>
+        <tr><td><strong>Grant through groups</strong></td><td>Membership in one place keeps audits and revocation tractable</td><td>One Entra group per audience per environment; named group owners; reshare limited to those owners</td></tr>
+        <tr><td><strong>Own the data-layer decision</strong></td><td>The app grants item and model access, not the data behind it</td><td>Decide Direct Lake identity and Real-Time Dashboard identity per item and record the decision (<a href="content.html">Integrating items</a>)</td></tr>
+        <tr><td><strong>Keep apps small</strong></td><td>Long navigation lists hide content and slow down review</td><td>As a rule of thumb, aim for a dozen elements or fewer per audience view; split an app when sections stop fitting on one screen</td></tr>
+        <tr><td><strong>Test with real accounts</strong></td><td>Preview shows a workspace-role view and workspace roles bypass model security</td><td>One test account per audience and one free-licensed account with no role, using the gates in <a href="../15-qa-validation/index.html">QA Validation Frameworks</a></td></tr>
+        <tr><td><strong>Review access on a schedule</strong></td><td>Reshare, direct shares and access drift accumulate</td><td>Review Manage access, reshare holders and each model's Access via related items on a regular cadence</td></tr>
+      </tbody>
+    </table>
+    <p>The product mindset changes the job. A BI developer who maintains an org app decides what goes in, what stays out, how it is named and when it changes, which is closer to a product manager's role than to a report builder's. Make that explicit in role descriptions, because the platform will not do it for you.</p>
+
+    <h2 id="operating-model">Operating model</h2>
+    <table>
+      <thead><tr><th>Role</th><th>Responsibility for org apps</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Fabric administrator</strong></td><td>Org app and related tenant settings, group scoping, terminology and label checks after changes</td></tr>
+        <tr><td><strong>Capacity administrator</strong></td><td>Capacity size and assignment; load from live dashboards and concurrent consumers</td></tr>
+        <tr><td><strong>Workspace administrator</strong></td><td>Workspace type, roles (Contributor for developers, Member for app owners), pipeline pairing</td></tr>
+        <tr><td><strong>App owner</strong></td><td>Content and navigation, audiences, release decisions, retirement</td></tr>
+        <tr><td><strong>Report and model owners</strong></td><td>Item quality, reshare rights, data-layer access for their models</td></tr>
+        <tr><td><strong>Group owners</strong></td><td>Membership of the audience groups, reshare reviews</td></tr>
+        <tr><td><strong>Support</strong></td><td>Access requests and the troubleshooting table below</td></tr>
+      </tbody>
+    </table>
+    <div class="callout tip"><p class="callout-title">Say how to ask for access</p>
+      <p>The org app article does not describe a custom access-request message like the one workspace apps offer. Put a "how to get access" paragraph and the group owner's name in the overview page header or the app description so a person without access finds the answer.</p></div>
+
+    <h2 id="troubleshooting">Troubleshooting: symptom, cause, fix</h2>
+    <table>
+      <thead><tr><th>Symptom</th><th>Likely cause</th><th>Fix</th></tr></thead>
+      <tbody>
+        <tr><td>No <strong>Org app</strong> entry under New</td><td>The org app tenant setting is off for the user, the workspace type is unsupported, or the user is a Viewer</td><td>Check the setting and its group scope, the workspace type and the role (<a href="prerequisites.html">Prerequisites</a>)</td></tr>
+        <tr><td>Save fails with a permissions message</td><td>Missing write and reshare on the app, an included item or a semantic model, including a model in another workspace</td><td>Have a Member or Admin save, or have the item owner grant the rights; check the owner of the cross-workspace model</td></tr>
+        <tr><td>A report opens but shows no data or an access error</td><td>Read on the model was granted but the data layer was not (Direct Lake with single sign-on), or the model is in another workspace and the author lacked reshare</td><td>Confirm the identity mode and grant the data-layer rights, or bind a fixed identity; fix reshare rights and re-save</td></tr>
+        <tr><td>Real-Time Dashboard tiles are empty for consumers</td><td>Pass-through identity and the viewer has no access to the KQL database, or the editor's connection is invalid</td><td>Grant database access, or switch to the editor's identity and repair the connection</td></tr>
+        <tr><td>A visual inside a report is blank</td><td>The report embeds a paginated report visual and the paginated report item was not granted</td><td>Include the paginated report in the app or grant access to it</td></tr>
+        <tr><td>A notebook cannot be run</td><td>Org apps present notebooks read-only and grant Read only</td><td>Expected behavior; share a separate item if users must run code</td></tr>
+        <tr><td>The app is missing from My apps on Home</td><td>My apps does not list org apps</td><td>Use the Apps page, Home Recent or Favorites, or the OneLake catalog</td></tr>
+        <tr><td>No audience tabs appear</td><td>The user belongs to one audience, tabs are hidden in Customize, or the user is on mobile</td><td>Expected in those cases; adjust Customize if tabs should show</td></tr>
+        <tr><td>A hidden item is still reachable</td><td>Access to hidden content is on for an audience, or a direct link works because the user has app access</td><td>Turn the setting off and rely on groups and visibility for separation</td></tr>
+        <tr><td>A removed user still sees content</td><td>Access came from a workspace role, a direct share, another audience or app, or the data store</td><td>Work through the list in <a href="access-alm.html#revoke">Revoking access</a></td></tr>
+        <tr><td>Cannot create or rename an audience</td><td>The name collides with an existing audience name, or the name of a deleted audience, in the workspace</td><td>Choose a unique name</td></tr>
+        <tr><td>Deploying to production creates a second app</td><td>The stages were not paired and an app with the same name was created by hand</td><td>Pair the stages before deploying; delete the hand-made copy</td></tr>
+        <tr><td>The release job cannot deploy the app</td><td>Org apps cannot be deployed across stages with service principals</td><td>Promote the app as a user-context step with an approval</td></tr>
+        <tr><td>Subscription emails link to the report, not the app</td><td>Subscriptions are tied to the underlying report</td><td>Expected; point users to the app link for navigation</td></tr>
+        <tr><td>Custom icon missing in Gallery view</td><td>Gallery view on the previous Apps page uses the default org app icon</td><td>Expected during the Apps page transition; the icon shows elsewhere</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="consumer-surfaces">Where consumers meet the app</h2>
+    <table>
+      <thead><tr><th>Surface</th><th>Behavior</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Apps page</strong></td><td>Lists org apps, workspace apps and Fabric Apps. On the new page they are labeled <strong>Org app</strong>, <strong>Workspace app</strong> and <strong>App</strong>. Reachable from both the Power BI and Fabric experiences.</td></tr>
+        <tr><td><strong>Home</strong></td><td>Appears under Recents once viewed and under Favorites once favorited. The separate My apps list does not show org apps.</td></tr>
+        <tr><td><strong>OneLake catalog</strong></td><td>Org apps the user can access appear like other items.</td></tr>
+        <tr><td><strong>Email on share</strong></td><td>Recipients get an email notification when the app is shared with them.</td></tr>
+        <tr><td><strong>Microsoft Teams</strong></td><td>Org apps are supported in the Power BI personal app for Teams.</td></tr>
+        <tr><td><strong>PowerPoint</strong></td><td>Reports in an org app can be added by URL with the Power BI add-in; embedding a single visual from an org app report is not supported.</td></tr>
+        <tr><td><strong>Email subscriptions</strong></td><td>Power BI reports only; tied to the underlying report; emails link to the report outside the app; personalized state such as applied filters is not fully captured.</td></tr>
+        <tr><td><strong>Mobile</strong></td><td>Audience tabs are not supported in the Power BI mobile apps.</td></tr>
+        <tr><td><strong>Focus mode</strong></td><td>The Fabric or Power BI sidebar stays visible by default; Focus mode collapses the sidebar and object explorer for a larger viewing area.</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="roadmap">Tracking capability changes</h2>
+    <p>Org apps have changed quickly and will keep changing. Statements about what is "coming" age badly and should not drive design. Some capabilities that were once described as upcoming, audiences and paginated report support among them, are now documented in the product articles, while others still carry limitations, such as audience tabs on mobile. The durable skill is not memorizing a feature list; it is having a cheap way to re-check it.</p>
+
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 880 220" role="img" aria-label="A repeating loop of four steps: watch release plans and what's new, verify in the Learn article and admin portal, test in a scratch workspace with test accounts, then decide and update standards">
+        <defs>
+          <marker id="fig-prac-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box gray" x="20" y="40" width="160" height="92" rx="10"/>
+        <text class="t-b" x="100" y="64" text-anchor="middle">1 · Watch</text>
+        <text class="t-s" x="100" y="86" text-anchor="middle">release plan, what's new,</text>
+        <text class="t-s" x="100" y="102" text-anchor="middle">blog, Learn changes</text>
+        <rect class="box blue" x="250" y="40" width="160" height="92" rx="10"/>
+        <text class="t-b" x="330" y="64" text-anchor="middle">2 · Verify</text>
+        <text class="t-s" x="330" y="86" text-anchor="middle">read the Learn article</text>
+        <text class="t-s" x="330" y="102" text-anchor="middle">and the setting label</text>
+        <rect class="box orange" x="480" y="40" width="160" height="92" rx="10"/>
+        <text class="t-b" x="560" y="64" text-anchor="middle">3 · Test</text>
+        <text class="t-s" x="560" y="86" text-anchor="middle">scratch workspace and</text>
+        <text class="t-s" x="560" y="102" text-anchor="middle">test accounts</text>
+        <rect class="box purple" x="710" y="40" width="160" height="92" rx="10"/>
+        <text class="t-b" x="790" y="64" text-anchor="middle">4 · Decide</text>
+        <text class="t-s" x="790" y="86" text-anchor="middle">update standards and</text>
+        <text class="t-s" x="790" y="102" text-anchor="middle">the capability register</text>
+        <path class="ln" d="M180 86H248" marker-end="url(#fig-prac-1-a)"/>
+        <path class="ln" d="M410 86H478" marker-end="url(#fig-prac-1-a)"/>
+        <path class="ln" d="M640 86H708" marker-end="url(#fig-prac-1-a)"/>
+        <path class="ln dash" d="M790 132V186H100V134" marker-end="url(#fig-prac-1-a)"/>
+        <rect class="pill-bg" x="360" y="178" width="180" height="16"/>
+        <text class="t-s" x="450" y="190" text-anchor="middle">repeat on a regular cadence</text>
+      </svg>
+      <figcaption><b>A re-check loop.</b> A feature announcement starts the loop; it does not end it. The decision is only updated after the Learn article, the portal label and a test agree.</figcaption>
+    </figure>
+
+    <table>
+      <thead><tr><th>Source</th><th>What it tells you</th><th>How to use it</th></tr></thead>
+      <tbody>
+        <tr><td><a href="https://roadmap.fabric.microsoft.com">Fabric roadmap and release plans</a></td><td>Planned and released features by workload, with the standard caveat that timelines can change</td><td>Early warning only; never a commitment to stakeholders</td></tr>
+        <tr><td><a href="https://learn.microsoft.com/fabric/get-started/whats-new">What's new in Microsoft Fabric</a></td><td>Released changes across workloads</td><td>Scan for org app, Power BI app, audience, CI/CD and item-type changes</td></tr>
+        <tr><td><a href="https://blog.fabric.microsoft.com/blog/">Fabric updates blog</a> and the <a href="https://powerbi.microsoft.com/blog/">Power BI blog</a></td><td>Announcements and walkthroughs</td><td>Context for what changed and why; confirm details in Learn</td></tr>
+        <tr><td><a href="https://learn.microsoft.com/power-bi/explore-reports/org-app-items">Get started with org apps</a></td><td>Prerequisites, behavior and an explicit considerations and limitations section</td><td>The primary source for gaps; re-read it before each major rollout</td></tr>
+        <tr><td><a href="https://learn.microsoft.com/fabric/cicd/git-integration/intro-to-git-integration">Git integration</a> and <a href="https://learn.microsoft.com/fabric/cicd/deployment-pipelines/intro-to-deployment-pipelines">deployment pipelines</a> supported-items lists</td><td>Which items are supported and which carry a preview label</td><td>Check the org app entry before each release-process change</td></tr>
+        <tr><td><a href="https://learn.microsoft.com/fabric/admin/service-admin-portal-microsoft-fabric-tenant-settings">Tenant settings reference</a></td><td>Setting names and behavior</td><td>Compare with your admin portal after changes; labels can lag the feature status</td></tr>
+        <tr><td><a href="https://ideas.fabric.microsoft.com">Fabric ideas</a></td><td>Requested capabilities and votes</td><td>Register gaps that matter to you; it is a request channel, not a plan</td></tr>
+      </tbody>
+    </table>
+    <p>Keep a short <strong>capability register</strong>: every capability a design depends on, the article that documents it, what you tested and who re-tests it. When something in the register changes, the decision that depended on it is reopened.</p>
+    <table>
+      <thead><tr><th>Capability your design depends on</th><th>Where documented</th><th>Re-test</th><th>Owner</th></tr></thead>
+      <tbody>
+        <tr><td>Paginated reports as included items</td><td>Get started with org apps</td><td>Add one, open as a free-licensed audience account</td><td>App owner</td></tr>
+        <tr><td>Notebooks as included items</td><td>Get started; notebook in app article</td><td>Open as a read-only consumer; check outputs</td><td>App owner</td></tr>
+        <tr><td>Free-license consumption</td><td>Licenses and capacity article</td><td>Smoke test with a free account and no role</td><td>License administrator</td></tr>
+        <tr><td>Git and pipeline support for org apps</td><td>CI/CD for org apps; supported-items lists</td><td>Promote a test app through all stages</td><td>Release owner</td></tr>
+        <tr><td>Service principal deployment limitation</td><td>CI/CD for org apps</td><td>Re-read the limitation before automating</td><td>Release owner</td></tr>
+        <tr><td>Fabric Apps inclusion and its tenant setting</td><td>Fabric Apps overview</td><td>Share a test Fabric App through an org app</td><td>Platform team</td></tr>
+      </tbody>
+    </table>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p>
+      <p>Before each major rollout, re-read the considerations and limitations section of <a href="https://learn.microsoft.com/power-bi/explore-reports/org-app-items#considerations-and-limitations-for-org-apps">Get started with org apps</a>, the <a href="https://learn.microsoft.com/power-bi/developer/embedded/org-app-cicd">CI/CD for org apps</a> limitations, and the preview labels in the Git and deployment pipeline supported-items lists. Do not tell stakeholders a capability is coming unless it is already documented as available in your tenant.</p></div>
+
+    <h2 id="checklist">Final checklist</h2>
+    <h3 id="check-before-build">Before you build</h3>
+    <ul class="checklist">
+      <li>An org app is the right model for this audience (decision table in <a href="concepts.html#decision-table">Concepts</a>).</li>
+      <li>Tenant setting, capacity, workspace type, roles and licenses pass the pre-flight checklist and a smoke test.</li>
+      <li>Audiences, Entra groups and group owners are defined for each environment.</li>
+      <li>The workspace layout separates development, test and production, with a pipeline planned.</li>
+    </ul>
+    <h3 id="check-before-share">Before the first share</h3>
+    <ul class="checklist">
+      <li>Navigation labels, overview page, icon and theme are reviewed; contrast is checked.</li>
+      <li>Every item opens for an account in each audience, including models in other workspaces.</li>
+      <li>Direct Lake identity and Real-Time Dashboard identity are decided and tested.</li>
+      <li>Notebook outputs and links are reviewed for sensitive content.</li>
+      <li>Access to hidden content is off unless a documented decision says otherwise.</li>
+    </ul>
+    <h3 id="check-before-promotion">Before each promotion</h3>
+    <ul class="checklist">
+      <li>The definition diff was reviewed, including <code>hasAccessToHiddenContent</code> and audience references.</li>
+      <li>The app and its included items deploy in the same run, under a user account with the needed rights.</li>
+      <li>Audience membership is assigned and verified in the target stage.</li>
+      <li>A rollback is possible from Git or the previous stage.</li>
+    </ul>
+    <h3 id="check-operations">In operation</h3>
+    <ul class="checklist">
+      <li>Manage access, reshare holders and models' Access via related items are reviewed on a schedule.</li>
+      <li>The capability register is re-checked on a regular cadence and after announcements.</li>
+      <li>There is a documented retirement path: capture the definition, withdraw access, delete, clean up.</li>
+    </ul>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p><ul>
+      <li>Run each org app as a product: an owner, a release path, group-based access and scheduled reviews.</li>
+      <li>Most support tickets trace back to the data layer, a missing reshare right or access that came from outside the app; the troubleshooting table covers them.</li>
+      <li>Do not design around announced features; keep a capability register and a re-check loop.</li>
+      <li>Consumers reach the app through the Apps page, Home, the OneLake catalog and Teams; not through My apps.</li>
+    </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/power-bi/explore-reports/org-app-items">Get started with org apps</a></li>
+        <li><a href="https://learn.microsoft.com/power-bi/developer/embedded/org-app-cicd">CI/CD for org apps in Fabric</a></li>
+        <li><a href="https://learn.microsoft.com/power-bi/explore-reports/end-user-apps">Workspace apps in Power BI</a></li>
+        <li><a href="https://learn.microsoft.com/power-bi/collaborate-share/office-integration/service-microsoft-teams-app">Add the Power BI app to Microsoft Teams</a></li>
+        <li><a href="https://learn.microsoft.com/power-bi/collaborate-share/end-user-subscribe">Email subscriptions for reports</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/enterprise/licenses">Understand Microsoft Fabric licenses and capacity</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/get-started/whats-new">What's new in Microsoft Fabric</a></li>
+        <li><a href="https://roadmap.fabric.microsoft.com">Microsoft Fabric roadmap</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Naming, DAX and measures tables · Report Dev Standards</title>
+<meta name="description" content="Naming rules for measures, calculated columns and tables with a worked example, DAX patterns that stay fast, and how to build a measures table in the UI or with a TMDL script.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="12-power-bi-report-development" data-page="naming-dax.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+
+    <header class="page-header">
+      <p class="eyebrow">Playbook 12 · Power BI Report Development Standards</p>
+      <h1>Naming, DAX and measures tables</h1>
+      <p class="lede">Names are an interface: reports, other developers and Copilot all depend on them, and renaming later breaks things. This page fixes the conventions for measures, columns and tables, the DAX patterns that keep models fast and readable, and the structure that stops measures from scattering.</p>
+    </header>
+
+    <h2 id="principles">General naming principles</h2>
+    <p>The naming rules below are house conventions, not Microsoft requirements. They are chosen so that a name tells a report author what a field is, where it comes from and whether it is shared.</p>
+    <ul>
+      <li><strong>Be descriptive.</strong> The name states what the measure or column does. <code>Total Sales</code> beats <code>Measure 1</code>; Microsoft's own guidance asks for descriptive table, column and measure names because they are what report authors and other consumers see.</li>
+      <li><strong>Avoid abbreviations</strong> unless they are standard and widely understood: <code>YoY</code>, <code>MTD</code>, <code>QTD</code>, <code>YTD</code>. Spell out everything else.</li>
+      <li><strong>Use Pascal Case with spaces</strong> for fields people read: <code>Total Sales</code>, <code>Customer Count</code>. Spaces are fine for measures and columns because DAX references them in brackets; they do force single quotes around table names in DAX.</li>
+      <li><strong>Be consistent across models.</strong> The same concept has the same name in every model: if one model says <code>Customer</code> another must not say <code>Client</code>.</li>
+      <li><strong>Never encode a changing fact in a name.</strong> A year, a person or a temporary filter in a measure name is a rename waiting to happen. Prefer a slicer or a calculation group item to <code>Sales (Fiscal Year 20XX Only)</code>.</li>
+      <li><strong>Name by business meaning, not by source.</strong> Gold-layer physical names such as <code>order_lines</code> become <code>Sales</code> or <code>Order Lines</code> in the model.</li>
+    </ul>
+
+    <h2 id="measure-naming">Report measures</h2>
+    <p>Measures defined in the shared semantic model are the governed definitions. A thin report may add a few report-level measures of its own for report-specific needs. To make the two distinguishable at a glance, every report-level measure carries the prefix <code>Rpt</code>.</p>
+    <table>
+      <thead><tr><th>Practice</th><th>Example</th><th>Why</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Prefix report-level measures with <code>Rpt</code></strong></td><td><code>Rpt Total Sales</code>, <code>Rpt Margin %</code></td><td>Shows the logic lives in the report, not the model, and avoids a name clash with a model measure.</td></tr>
+        <tr><td><strong>Include the metric type</strong></td><td><code>Rpt Sales Amount</code>, <code>Rpt Profit Margin %</code></td><td>The reader knows whether the value is an amount, a count, a ratio or a rank.</td></tr>
+        <tr><td><strong>Show filters or context in parentheses</strong></td><td><code>Rpt Sales (Region West)</code>, <code>Rpt Active Customers (Segment Retail)</code></td><td>A context-bound measure announces its constraint. Use sparingly; prefer slicers and calculation groups.</td></tr>
+        <tr><td><strong>Suffix time transformations</strong></td><td><code>Rpt Sales MTD</code>, <code>Rpt Sales YoY</code></td><td>Groups a base measure with its variants when the list is sorted.</td></tr>
+        <tr><td><strong>Put the unit in the name where it can be confused</strong></td><td><code>Margin %</code>, <code>Orders Count</code></td><td>A percentage and an amount with the same stem must not look alike.</td></tr>
+      </tbody>
+    </table>
+    <div class="callout note"><p class="callout-title">Shared measures do not take the prefix</p>
+      <p>Measures that live in the shared model are named plainly (<code>Sales Amount</code>, <code>Sales YoY %</code>). The prefix is a signal that a measure is local. When a report-level measure is needed by a second report, promote it into the model, drop the prefix, and delete the local copy.</p></div>
+
+    <h2 id="column-naming">Calculated columns</h2>
+    <p>Calculated columns are the exception, not the pattern. They are computed at refresh, stored in memory, and are not available on Direct Lake on SQL endpoints. Create one only when the value must be a column (for example to slice or sort by) and cannot come from the Gold layer or Power Query. When you do, make it obvious.</p>
+    <table>
+      <thead><tr><th>Practice</th><th>Example</th></tr></thead>
+      <tbody>
+        <tr><td>Prefix with <code>Col</code></td><td><code>Col Region Group</code>, <code>Col Customer Segment</code></td></tr>
+        <tr><td>Describe the transformation</td><td><code>Col Order Year</code>, <code>Col Days To Ship</code></td></tr>
+        <tr><td>Name the source field when the column is derived from one</td><td><code>Col Order Date Year</code>, <code>Col Order Date Month</code></td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="table-naming">Tables in semantic models</h2>
+    <p>Use clear, descriptive Pascal Case names, and be consistent across models. One rule needs more thought than the rest: <strong>prefix tables to show which model or domain they belong to when more than one model can appear in the same report.</strong> This is the situation in a composite model that combines several shared models, and also in a report that uses more than one.</p>
+
+    <h3 id="table-example">Worked example</h3>
+    <p>Suppose the Sales model and the HR model each contain a date table and each is used by a report that combines them. Without a prefix, the report's field list contains two tables called <code>Date</code>, and authors cannot tell which relates to which fact. Because you cannot rename a table from a remote model inside a thin report, the prefix has to be in the model itself.</p>
+
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 270" role="img" aria-label="Without prefixes the combined field list shows two tables both named Date; with domain prefixes the tables read Sales Dates and HR Dates and the source is clear">
+        <defs>
+          <marker id="fig-nd-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-nd-1-ag" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="zone red" x="20" y="30" width="420" height="220" rx="12"/>
+        <text class="t-h" x="36" y="54">No prefix</text>
+        <rect class="box" x="40" y="70" width="120" height="64" rx="8"/>
+        <text class="t-b" x="100" y="94" text-anchor="middle">Sales model</text>
+        <text class="t-s" x="100" y="114" text-anchor="middle">Date · Customer</text>
+        <rect class="box" x="40" y="160" width="120" height="64" rx="8"/>
+        <text class="t-b" x="100" y="184" text-anchor="middle">HR model</text>
+        <text class="t-s" x="100" y="204" text-anchor="middle">Date · Employee</text>
+        <rect class="box red" x="260" y="70" width="160" height="154" rx="8"/>
+        <text class="t-b" x="340" y="94" text-anchor="middle">Field list in report</text>
+        <text class="t-s" x="340" y="120" text-anchor="middle">Customer</text>
+        <text class="t-s" x="340" y="138" text-anchor="middle">Date</text>
+        <text class="t-s" x="340" y="156" text-anchor="middle">Date</text>
+        <text class="t-s" x="340" y="174" text-anchor="middle">Employee</text>
+        <text class="t-s c-red" x="340" y="204" text-anchor="middle">Same name, two sources</text>
+        <path class="ln" d="M160 102H258" marker-end="url(#fig-nd-1-a)"/>
+        <path class="ln" d="M160 192H258" marker-end="url(#fig-nd-1-a)"/>
+        <text class="t-s" x="209" y="95" text-anchor="middle">exposes</text>
+        <text class="t-s" x="209" y="185" text-anchor="middle">exposes</text>
+        <rect class="zone green" x="470" y="30" width="410" height="220" rx="12"/>
+        <text class="t-h" x="486" y="54">Domain prefix</text>
+        <rect class="box" x="490" y="70" width="120" height="64" rx="8"/>
+        <text class="t-b" x="550" y="94" text-anchor="middle">Sales model</text>
+        <text class="t-s" x="550" y="114" text-anchor="middle">[Sales] tables</text>
+        <rect class="box" x="490" y="160" width="120" height="64" rx="8"/>
+        <text class="t-b" x="550" y="184" text-anchor="middle">HR model</text>
+        <text class="t-s" x="550" y="204" text-anchor="middle">[HR] tables</text>
+        <rect class="box green" x="700" y="70" width="160" height="154" rx="8"/>
+        <text class="t-b" x="780" y="94" text-anchor="middle">Field list in report</text>
+        <text class="t-s" x="780" y="120" text-anchor="middle">[Sales] Customer</text>
+        <text class="t-s" x="780" y="138" text-anchor="middle">[Sales] Dates</text>
+        <text class="t-s" x="780" y="156" text-anchor="middle">[HR] Dates</text>
+        <text class="t-s" x="780" y="174" text-anchor="middle">[HR] Employee</text>
+        <text class="t-s c-green" x="780" y="204" text-anchor="middle">Source is obvious</text>
+        <path class="ln green" d="M610 102H698" marker-end="url(#fig-nd-1-ag)"/>
+        <path class="ln green" d="M610 192H698" marker-end="url(#fig-nd-1-ag)"/>
+        <text class="t-s" x="654" y="95" text-anchor="middle">exposes</text>
+        <text class="t-s" x="654" y="185" text-anchor="middle">exposes</text>
+      </svg>
+      <figcaption><b>Why prefix.</b> The prefix is a cheap, permanent label for "which model owns this table" that survives into every report and every composite model built on top.</figcaption>
+    </figure>
+
+    <p>In DAX, a table whose name contains spaces or brackets must be quoted, so the prefixed date column is referenced as <code>'[Sales] Dates'[Date]</code>. A prefix is a trade-off, so decide per model:</p>
+    <ul>
+      <li>If a model will only ever be used on its own, skip the prefix and keep the names clean.</li>
+      <li>If a model might be combined with another (any shared model, any model on the certified list), prefix <em>all</em> its tables. A model with some prefixed and some unprefixed tables is the worst of both.</li>
+      <li>Use a short domain code, not a long name: <code>[Sales]</code>, <code>[HR]</code>, <code>[Finance]</code>.</li>
+    </ul>
+    <div class="callout warning"><p class="callout-title">Test the bracket convention with your tools</p>
+      <p>Power BI Desktop accepts square brackets in table names, and the convention is used in practice, but some tools and Analysis Services object-naming rules are stricter. Before you standardize on it, confirm that Analyze in Excel, DAX Studio, Tabular Editor and any export or documentation scripts your team uses handle such names. If any fail, use a parenthetical or a delimiter instead, such as <code>Sales - Dates</code> or <code>SALES_Dates</code>, and apply it everywhere.</p></div>
+
+    <h2 id="dax">DAX patterns that stay fast</h2>
+    <p>These are the patterns that matter most in review. Format DAX consistently, with a DAX formatter (for example the Format query command in DAX query view), so diffs show logic changes rather than whitespace.</p>
+
+    <h3 id="dax-variables">Use variables</h3>
+    <p>A variable is evaluated once, outside the filter context its <code>RETURN</code> expression applies, and can be reused. That improves readability, avoids repeated evaluation, and removes most reasons to use <code>EARLIER</code>. Microsoft's example of reusing a prior-period calculation roughly halves the query time. You can also debug by temporarily returning a variable.</p>
+<pre data-title="Measure in the shared model"><code class="language-dax">Sales YoY % =
+VAR CurrentSales = [Sales Amount]
+VAR PriorSales =
+    CALCULATE ( [Sales Amount], SAMEPERIODLASTYEAR ( 'Date'[Date] ) )
+RETURN
+    DIVIDE ( CurrentSales - PriorSales, PriorSales )</code></pre>
+
+    <h3 id="dax-divide">Use DIVIDE when the denominator can be zero</h3>
+    <p><code>DIVIDE</code> returns BLANK (or an alternate result you supply) instead of an error. Microsoft recommends it whenever the denominator is an expression that could be zero or BLANK, and the plain <code>/</code> operator when the denominator is a constant, because it is faster and cannot fail. Returning BLANK is usually the better behavior, because visuals drop groupings that summarize to BLANK instead of printing zeros.</p>
+
+    <h3 id="dax-iterators">Avoid nested iterators and unnecessary row-by-row work</h3>
+    <p>Iterators (<code>SUMX</code>, <code>AVERAGEX</code>, <code>FILTER</code>) evaluate an expression per row. One iterator at the grain of the fact table is fine; an iterator inside an iterator multiplies the work. Better still, do the row arithmetic once in the Gold layer and use a plain aggregation.</p>
+<pre data-title="Nested iterators versus one iterator"><code class="language-dax">-- Avoid: an iterator over customers wrapping an iterator over their sales
+Sales Amount Slow =
+SUMX ( Customer, SUMX ( RELATEDTABLE ( Sales ), Sales[Quantity] * Sales[Unit Price] ) )
+
+-- Prefer: one iterator at the grain of the fact table
+Sales Amount =
+SUMX ( Sales, Sales[Quantity] * Sales[Unit Price] )
+
+-- Best, when the line amount is computed upstream
+Sales Amount = SUM ( Sales[Net Amount] )</code></pre>
+
+    <h3 id="dax-filter">Prefer Boolean filter arguments to FILTER</h3>
+    <p>In an Import model, filtering a column with a simple Boolean expression is optimized by the storage engine. Passing <code>FILTER</code> over a whole table forces the engine to evaluate row by row. Keep <code>FILTER</code> for the cases a Boolean cannot express: conditions on a measure, on several columns, or with <code>OR</code> logic. <code>KEEPFILTERS</code> preserves the existing filters on the column the way <code>FILTER</code> over the table would.</p>
+<pre data-title="Boolean filter with KEEPFILTERS"><code class="language-dax">-- Slower
+Red Sales Slow =
+CALCULATE ( [Sales Amount], FILTER ( Product, Product[Color] = "Red" ) )
+
+-- Preferred
+Red Sales =
+CALCULATE ( [Sales Amount], KEEPFILTERS ( Product[Color] = "Red" ) )</code></pre>
+
+    <h3 id="dax-time">Time intelligence needs a marked date table</h3>
+    <p>Time intelligence functions read a contiguous date table. Mark it, relate it to every fact by date, and reference its date column. Do not use the date column of the fact table.</p>
+<pre data-title="Classic time intelligence"><code class="language-dax">Sales YTD = TOTALYTD ( [Sales Amount], 'Date'[Date] )
+Sales MTD = TOTALMTD ( [Sales Amount], 'Date'[Date] )
+Sales PY  = CALCULATE ( [Sales Amount], SAMEPERIODLASTYEAR ( 'Date'[Date] ) )</code></pre>
+    <p>Each base measure multiplied by each time variant becomes a long list. A calculation group removes the multiplication: define the time variants once and apply them to whichever measure is selected.</p>
+
+    <h3 id="dax-calc-groups">Calculation groups for repeated variants</h3>
+    <p>Create the group in Model view with the <strong>Calculation group</strong> button. If <strong>Discourage implicit measures</strong> is off, Desktop prompts you to turn it on, because calculation groups require it. Once a calculation group exists, reports treat measure values as the variant data type, so give each item a format string (a dynamic format string expression) when the variant changes the unit, as a percentage does.</p>
+    <table>
+      <thead><tr><th>Calculation item</th><th>Expression</th></tr></thead>
+      <tbody>
+        <tr><td><code>Current</code></td><td><code>SELECTEDMEASURE ( )</code></td></tr>
+        <tr><td><code>YTD</code></td><td><code>CALCULATE ( SELECTEDMEASURE ( ), DATESYTD ( 'Date'[Date] ) )</code></td></tr>
+        <tr><td><code>Prior Year</code></td><td><code>CALCULATE ( SELECTEDMEASURE ( ), SAMEPERIODLASTYEAR ( 'Date'[Date] ) )</code></td></tr>
+        <tr><td><code>YoY %</code></td><td>Variables for the current and prior-year values, then <code>DIVIDE</code>; format string <code>0.0%</code></td></tr>
+      </tbody>
+    </table>
+    <p>Calculation groups are not supported on remote sources inside a composite model, so define them in the shared model that owns the measures, not in a thin report.</p>
+
+    <h3 id="dax-other">Other rules</h3>
+    <ul>
+      <li><strong>Reference columns with the table name and measures without it</strong>: <code>Sales[Net Amount]</code> and <code>[Sales Amount]</code>. The convention makes the difference visible when you read a formula.</li>
+      <li><strong>Document logic in the description field</strong> of each measure and column, and organize measures with display folders.</li>
+      <li><strong>Centralize shared logic in the model.</strong> A measure used in two reports is defined once, in the model.</li>
+      <li><strong>Prefer measures to calculated columns.</strong> Measures are evaluated at query time and respond to filters; calculated columns are stored and evaluated at refresh.</li>
+      <li><strong>Push transforms upstream.</strong> Shape in the Gold layer or Power Query, not in DAX.</li>
+    </ul>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p>
+      <p>DAX is gaining user-defined functions, stored in a <code>functions</code> file in TMDL, and calendar-based time intelligence. Both are described in Learn; check each article for current status before using them in a shared model: <a href="https://learn.microsoft.com/dax/best-practices/dax-user-defined-functions">Use DAX user-defined functions</a> and <a href="https://learn.microsoft.com/power-bi/transform-model/desktop-time-intelligence">Implement time-based calculations in Power BI</a>.</p></div>
+
+    <h2 id="measures-table">Create a measures table</h2>
+    <p>Keep every measure in a dedicated table that holds no data, so authors find measures in one place, the table sorts to the top of the field list, and the logic is not scattered across fact tables. Name it <code>_Measures</code> in the shared model, and <code>Local Measures</code> in a thin report that needs its own. The two names also make it obvious in a composite model which measures are shared and which are local.</p>
+
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 290" role="img" aria-label="Shared measures live in the model's measures table; each thin report keeps only a Local Measures table with Rpt-prefixed measures, and a measure used by two reports is promoted into the model">
+        <defs>
+          <marker id="fig-nd-2-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar blue" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-nd-2-ag" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="zone blue" x="20" y="24" width="860" height="116" rx="12"/>
+        <text class="t-h" x="36" y="46">Shared semantic model</text>
+        <rect class="box blue" x="40" y="58" width="250" height="64" rx="8"/>
+        <text class="t-b" x="165" y="84" text-anchor="middle">Tables and relationships</text>
+        <text class="t-s" x="165" y="102" text-anchor="middle">star schema, one Date table</text>
+        <rect class="box accent" x="330" y="58" width="250" height="64" rx="8"/>
+        <text class="t-b t-w" x="455" y="84" text-anchor="middle">_Measures</text>
+        <text class="t-s t-w" x="455" y="102" text-anchor="middle">Sales Amount, Sales YoY %</text>
+        <rect class="box purple" x="620" y="58" width="240" height="64" rx="8"/>
+        <text class="t-b" x="740" y="84" text-anchor="middle">Calculation groups</text>
+        <text class="t-s" x="740" y="102" text-anchor="middle">time intelligence, units</text>
+        <rect class="box green" x="40" y="196" width="250" height="64" rx="8"/>
+        <text class="t-b" x="165" y="222" text-anchor="middle">Thin report A</text>
+        <text class="t-s" x="165" y="240" text-anchor="middle">Local Measures: Rpt ...</text>
+        <rect class="box green" x="330" y="196" width="250" height="64" rx="8"/>
+        <text class="t-b" x="455" y="222" text-anchor="middle">Thin report B</text>
+        <text class="t-s" x="455" y="240" text-anchor="middle">Local Measures: Rpt ...</text>
+        <rect class="box green" x="620" y="196" width="240" height="64" rx="8"/>
+        <text class="t-b" x="740" y="222" text-anchor="middle">Thin report C</text>
+        <text class="t-s" x="740" y="240" text-anchor="middle">Local Measures: Rpt ...</text>
+        <path class="ln blue" d="M110 196V142" marker-end="url(#fig-nd-2-a)"/>
+        <path class="ln blue" d="M390 196V142" marker-end="url(#fig-nd-2-a)"/>
+        <path class="ln blue" d="M700 196V142" marker-end="url(#fig-nd-2-a)"/>
+        <path class="ln green dash" d="M520 196V124" marker-end="url(#fig-nd-2-ag)"/>
+        <rect class="pill-bg" x="118" y="162" width="96" height="16"/>
+        <text class="t-s" x="166" y="174" text-anchor="middle">connects to</text>
+        <rect class="pill-bg" x="528" y="162" width="124" height="16"/>
+        <text class="t-s" x="590" y="174" text-anchor="middle">promote when reused</text>
+      </svg>
+      <figcaption><b>Where measures live.</b> Shared logic is defined once, in the model's measures table. A report keeps only what is specific to it. When a second report needs a local measure, promote it (dashed arrow) and delete the local copy.</figcaption>
+    </figure>
+
+    <h3 id="measures-table-ui">In Power BI Desktop</h3>
+    <ol class="steps">
+      <li><strong>Create an empty table</strong><p>On the <strong>Home</strong> ribbon, select <strong>Enter data</strong>. Leave the grid empty (it has a single column named <code>Column1</code>), name the table <code>_Measures</code> (or <code>Local Measures</code> in a thin report) and select <strong>Load</strong>. The new table appears in the Data pane.</p></li>
+      <li><strong>Add measures to it</strong><p>Select the table, then <strong>Home &gt; New measure</strong> (or <strong>Table tools</strong> in Table view). Enter the DAX, then set the format, display folder and description in the Properties pane.</p></li>
+      <li><strong>Move existing measures in</strong><p>Select a measure, open <strong>Properties &gt; General</strong> and change <strong>Home table</strong> to the measures table. Repeat, or multi-select in Model view and change them together.</p></li>
+      <li><strong>Remove the placeholder column</strong><p>Delete or hide <code>Column1</code>. When only measures remain visible, Desktop changes the table's icon to the measure icon. If the icon does not change, a visible column is still there.</p></li>
+      <li><strong>Check</strong><p>The table sits at the top of the field list, has no relationships, and holds only measures. In a shared model also tick <strong>Discourage implicit measures</strong>.</p></li>
+    </ol>
+    <div class="callout warning"><p class="callout-title">Which table can be created where</p>
+      <p>An <strong>Enter data</strong> table is an Import table. That is fine in an Import model or a composite model, but a Direct Lake on SQL endpoint model cannot mix storage modes. In that case use a calculated table that references no lake columns, or keep measures on a small dimension table. Microsoft lists calculated tables that reference no Direct Lake columns as supported, but treat the limits as volatile and check the <a href="https://learn.microsoft.com/fabric/fundamentals/direct-lake-overview">Direct Lake overview</a>. A report with a pure live connection cannot add tables at all, so its report-level measures are stored with the report against a table of the remote model; the naming prefix still tells people they are local.</p></div>
+
+    <h3 id="measures-table-tmdl">Alternative: with TMDL</h3>
+    <p>For a repeatable result, script the table. In Power BI Desktop open <strong>TMDL view</strong>, paste the script and select <strong>Apply</strong>. The same text works as a <code>tables/_Measures.tmdl</code> file in a PBIP project. The table uses a calculated partition so no source data is involved, and the placeholder column is hidden.</p>
+<pre data-title="TMDL view script: measures table"><code class="language-text">createOrReplace
+
+	table _Measures
+
+		/// Net sales after discounts, before tax.
+		measure 'Sales Amount' = SUM ( Sales[Net Amount] )
+			formatString: #,0
+			displayFolder: Sales
+
+		/// Year-over-year change in Sales Amount. BLANK when no prior-year sales.
+		measure 'Sales YoY %' =
+				VAR CurrentSales = [Sales Amount]
+				VAR PriorSales =
+					CALCULATE ( [Sales Amount], SAMEPERIODLASTYEAR ( 'Date'[Date] ) )
+				RETURN
+					DIVIDE ( CurrentSales - PriorSales, PriorSales )
+			formatString: 0.0%
+			displayFolder: Sales
+
+		column Value
+			isHidden
+			isNameInferred
+			sourceColumn: [Value]
+			summarizeBy: none
+
+		partition _Measures = calculated
+			mode: import
+			source = { 0 }</code></pre>
+    <div class="callout tip"><p class="callout-title">Confirm property names for your model</p>
+      <p>TMDL property names depend on the model's compatibility level. Right-click a calculated table that already exists in your model and choose <strong>Script TMDL</strong> to see exactly which properties your version writes, then align this script to it. TMDL view only changes metadata; it does not refresh anything, and renaming a field there can break report visuals that use it.</p></div>
+
+    <h2 id="checklist">Naming and DAX checklist</h2>
+    <ul class="checklist">
+      <li>Names are descriptive Pascal Case; abbreviations are only <code>YoY</code>, <code>MTD</code>, <code>QTD</code>, <code>YTD</code>.</li>
+      <li>Report-level measures use <code>Rpt</code>; calculated columns use <code>Col</code>; shared measures have no prefix.</li>
+      <li>No hard-coded years, people or temporary filters in names.</li>
+      <li>Tables in any model that may be combined carry a short domain prefix, consistently.</li>
+      <li>Every measure is in a measures table and has a description; display folders group them.</li>
+      <li>Variables used for repeated expressions; <code>DIVIDE</code> for variable denominators.</li>
+      <li>No nested iterators; Boolean filter arguments where possible.</li>
+      <li>Time intelligence reads one marked date table; repeated variants are a calculation group.</li>
+    </ul>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p>
+      <ul>
+        <li>Names are a contract. Use the prefix to say where logic lives: none for shared, <code>Rpt</code> for report-level, <code>Col</code> for calculated columns.</li>
+        <li>Prefix tables with a domain code wherever two models can end up in one report, and make sure your tools accept the form you choose.</li>
+        <li>Variables, <code>DIVIDE</code>, single iterators and Boolean filters cover most DAX review comments.</li>
+        <li>One measures table per model, built once in Desktop or with a TMDL script; promote report measures instead of copying them.</li>
+      </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/dax/best-practices/dax-variables">Use variables to improve your DAX formulas</a></li>
+        <li><a href="https://learn.microsoft.com/dax/best-practices/dax-divide-function-operator">DIVIDE function vs divide operator in DAX</a></li>
+        <li><a href="https://learn.microsoft.com/dax/best-practices/dax-avoid-avoid-filter-as-filter-argument">Avoid using FILTER as a filter argument in DAX</a></li>
+        <li><a href="https://learn.microsoft.com/dax/best-practices/dax-column-measure-references">Column and measure references in DAX</a></li>
+        <li><a href="https://learn.microsoft.com/power-bi/transform-model/calculation-groups">Create calculation groups in Power BI</a></li>
+        <li><a href="https://learn.microsoft.com/power-bi/transform-model/desktop-time-intelligence">Implement time-based calculations in Power BI</a></li>
+        <li><a href="https://learn.microsoft.com/power-bi/transform-model/desktop-tmdl-view">Use TMDL view in Power BI</a></li>
+        <li><a href="https://learn.microsoft.com/power-bi/guidance/power-bi-optimization">Optimization guide for Power BI</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>
