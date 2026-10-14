@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fabric Implementation Playbooks</title>
+<meta name="description" content="Field-tested, vendor-neutral playbooks for planning, building, deploying and governing Microsoft Fabric: medallion architecture, data loading, orchestration, CI/CD, Power BI and tenant governance.">
+<link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="" data-section="home" data-page="index.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Site navigation"></aside>
+  <main class="content" id="main">
+
+    <header class="hero">
+      <p class="eyebrow">Microsoft Fabric · Practitioner guides</p>
+      <h1>Implement Microsoft Fabric with <em>patterns that hold up in production</em></h1>
+      <p class="lede">Seventeen playbooks that take a team from a Power BI estate to a governed, layered Fabric platform: how to lay out workspaces, load and merge data, orchestrate across workspaces, promote changes from DEV to PRD, publish to business users and keep the tenant under control. Each one explains the decision, shows the mechanism in a diagram and gives you code and checklists you can run.</p>
+      <div class="hero-cta">
+        <a class="btn primary" href="playbooks/index.html">Browse the playbooks</a>
+        <a class="btn" href="paths.html">Find your learning path</a>
+        <a class="btn" href="reference-architecture.html">See the reference architecture</a>
+      </div>
+    </header>
+
+    <div class="stats">
+      <div class="stat"><b>17</b><span>playbooks</span></div>
+      <div class="stat"><b>123</b><span>pages</span></div>
+      <div class="stat"><b>330+</b><span>diagrams</span></div>
+      <div class="stat"><b>5</b><span>practice areas</span></div>
+    </div>
+
+    <h2 id="map">The playbooks along the implementation lifecycle</h2>
+    <p>The playbooks are written to be used on their own, but they share one set of conventions — workspaces named <code>&lt;ENV&gt;_&lt;DOMAIN&gt;_&lt;LAYER&gt;</code>, one workspace per medallion layer, Git for development and deployment pipelines for promotion — so they also read as one implementation. Click any box to open that playbook.</p>
+    <figure class="diagram wide">
+      <svg class="dg" viewBox="0 0 900 336" role="img" aria-label="The seventeen playbooks arranged along the implementation lifecycle: plan and migrate, build the data platform, ship and operate, consume and govern">
+<defs><marker id="home-map-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker></defs>
+<rect class="box purple" x="15" y="14" width="195" height="42" rx="10"/>
+<text class="t-h" x="112" y="40" text-anchor="middle">Plan and migrate</text>
+<path class="ln" d="M212 35H238" marker-end="url(#home-map-a)"/>
+<a href="playbooks/01-powerbi-to-fabric-migration/index.html"><rect class="box plain" x="15" y="72" width="195" height="34" rx="8"/>
+<text class="t-b c-purple" x="27" y="94">01</text><text x="51" y="94">Power BI to Fabric</text></a>
+<a href="playbooks/13-paginated-report-migration/index.html"><rect class="box plain" x="15" y="115" width="195" height="34" rx="8"/>
+<text class="t-b c-purple" x="27" y="137">13</text><text x="51" y="137">Paginated Migration</text></a>
+<rect class="box bronze" x="240" y="14" width="195" height="42" rx="10"/>
+<text class="t-h" x="338" y="40" text-anchor="middle">Build the data platform</text>
+<path class="ln" d="M437 35H463" marker-end="url(#home-map-a)"/>
+<a href="playbooks/03-medallion-architecture/index.html"><rect class="box plain" x="240" y="72" width="195" height="34" rx="8"/>
+<text class="t-b c-bronze" x="252" y="94">03</text><text x="276" y="94">Medallion Architecture</text></a>
+<a href="playbooks/02-data-load-strategy/index.html"><rect class="box plain" x="240" y="115" width="195" height="34" rx="8"/>
+<text class="t-b c-bronze" x="252" y="137">02</text><text x="276" y="137">Data Load Strategy</text></a>
+<a href="playbooks/08-delta-partitioning/index.html"><rect class="box plain" x="240" y="158" width="195" height="34" rx="8"/>
+<text class="t-b c-bronze" x="252" y="180">08</text><text x="276" y="180">Delta Partitioning</text></a>
+<a href="playbooks/10-control-table-pipelines/index.html"><rect class="box plain" x="240" y="201" width="195" height="34" rx="8"/>
+<text class="t-b c-bronze" x="252" y="223">10</text><text x="276" y="223">Control tables</text></a>
+<a href="playbooks/04-cross-workspace-orchestration/index.html"><rect class="box plain" x="240" y="244" width="195" height="34" rx="8"/>
+<text class="t-b c-bronze" x="252" y="266">04</text><text x="276" y="266">Hub and Spoke</text></a>
+<a href="playbooks/06-shared-libraries/index.html"><rect class="box plain" x="240" y="287" width="195" height="34" rx="8"/>
+<text class="t-b c-bronze" x="252" y="309">06</text><text x="276" y="309">Shared Libraries</text></a>
+<rect class="box blue" x="465" y="14" width="195" height="42" rx="10"/>
+<text class="t-h" x="562" y="40" text-anchor="middle">Ship and operate</text>
+<path class="ln" d="M662 35H688" marker-end="url(#home-map-a)"/>
+<a href="playbooks/05-github-integration/index.html"><rect class="box plain" x="465" y="72" width="195" height="34" rx="8"/>
+<text class="t-b c-blue" x="477" y="94">05</text><text x="501" y="94">GitHub Integration</text></a>
+<a href="playbooks/17-pr-notifications-codeowners/index.html"><rect class="box plain" x="465" y="115" width="195" height="34" rx="8"/>
+<text class="t-b c-blue" x="477" y="137">17</text><text x="501" y="137">PR Notifications</text></a>
+<a href="playbooks/09-variable-libraries/index.html"><rect class="box plain" x="465" y="158" width="195" height="34" rx="8"/>
+<text class="t-b c-blue" x="477" y="180">09</text><text x="501" y="180">Variable Libraries</text></a>
+<a href="playbooks/07-deployment/index.html"><rect class="box plain" x="465" y="201" width="195" height="34" rx="8"/>
+<text class="t-b c-blue" x="477" y="223">07</text><text x="501" y="223">Deployment Pipelines</text></a>
+<a href="playbooks/14-deployment-checklist/index.html"><rect class="box plain" x="465" y="244" width="195" height="34" rx="8"/>
+<text class="t-b c-blue" x="477" y="266">14</text><text x="501" y="266">Deployment Checklist</text></a>
+<rect class="box gold" x="690" y="14" width="195" height="42" rx="10"/>
+<text class="t-h" x="788" y="40" text-anchor="middle">Consume and govern</text>
+<a href="playbooks/12-power-bi-report-development/index.html"><rect class="box plain" x="690" y="72" width="195" height="34" rx="8"/>
+<text class="t-b c-gold" x="702" y="94">12</text><text x="726" y="94">Report Dev Standards</text></a>
+<a href="playbooks/11-org-apps/index.html"><rect class="box plain" x="690" y="115" width="195" height="34" rx="8"/>
+<text class="t-b c-gold" x="702" y="137">11</text><text x="726" y="137">Org Apps</text></a>
+<a href="playbooks/15-qa-validation/index.html"><rect class="box plain" x="690" y="158" width="195" height="34" rx="8"/>
+<text class="t-b c-gold" x="702" y="180">15</text><text x="726" y="180">QA Validation</text></a>
+<a href="playbooks/16-tenant-settings/index.html"><rect class="box plain" x="690" y="201" width="195" height="34" rx="8"/>
+<text class="t-b c-gold" x="702" y="223">16</text><text x="726" y="223">Tenant Settings</text></a>
+</svg>
+      <figcaption><b>Where each playbook fits.</b> Work generally flows left to right, but ALM and governance decisions (columns three and four) should be made before the first workspace is created, not after the first release.</figcaption>
+    </figure>
+
+    <h2 id="how-to-use">How to use this site</h2>
+    <div class="grid-3">
+      <div class="card blue"><h3>Start from a decision</h3><p>Every playbook opens with when to use it, the outcomes it gives you and a map of its pages. Decision tables and pros/cons come before procedures.</p></div>
+      <div class="card teal"><h3>Follow the mechanism</h3><p>Diagrams show where data flows, which identity calls what and what changes between options — read them before the step-by-step pages.</p></div>
+      <div class="card green"><h3>Run it, then check it</h3><p>Code is parameterized and copy-ready; checklists remember what you ticked in your browser. Search with <kbd>/</kbd> from any page.</p></div>
+    </div>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>Fabric changes quickly. The playbooks were checked against Microsoft documentation when written, and anything volatile (preview status, limits, supported items, setting names) is flagged with a callout and a link. Confirm those before you rely on them.</p></div>
+
+    <h2 id="playbooks">All playbooks</h2>
+<!-- CATALOG:START -->
+<div class="cat-head"><h2 id="cat-strategy">Strategy &amp; Migration</h2></div>
+<p class="cat-blurb">Plan the move to Fabric: scope, licensing, workspace strategy, migration waves and go-live.</p>
+<div class="cards wide">
+<a class="card purple" href="playbooks/01-powerbi-to-fabric-migration/index.html"><span class="card-num">PLAYBOOK 01</span><h3>Power BI to Fabric Migration</h3><p>A strategic and technical playbook for moving a Power BI Premium or Pro estate to Microsoft Fabric: capacity migration, rationalization, medallion rebuild, validation, go-live and adoption.</p><div class="card-meta"><span>Intermediate</span> <span>120 min</span> <span>10 pages</span></div></a>
+</div>
+<div class="cat-head"><h2 id="cat-data-engineering">Architecture &amp; Data Engineering</h2></div>
+<p class="cat-blurb">Medallion layers, load patterns, orchestration, partitioning and reusable engineering assets.</p>
+<div class="cards wide">
+<a class="card bronze" href="playbooks/02-data-load-strategy/index.html"><span class="card-num">PLAYBOOK 02</span><h3>Data Load Strategy</h3><p>Choose full or incremental loads per table and per medallion layer, detect changes at the source, apply MERGE, SCD2 and deletes safely, and pick the right Fabric tool for each job.</p><div class="card-meta"><span>Intermediate</span> <span>80 min</span> <span>8 pages</span></div></a>
+<a class="card bronze" href="playbooks/03-medallion-architecture/index.html"><span class="card-num">PLAYBOOK 03</span><h3>Medallion Architecture</h3><p>A strictly isolated Bronze, Silver, Gold, Consumption and Delivery workspace design on Fabric, with naming standards, reusable load and MERGE code, notebook guidance and Environment setup.</p><div class="card-meta"><span>Intermediate</span> <span>120 min</span> <span>10 pages</span></div></a>
+<a class="card bronze" href="playbooks/04-cross-workspace-orchestration/index.html"><span class="card-num">PLAYBOOK 04</span><h3>Cross-Workspace Pipeline Orchestration (Hub and Spoke)</h3><p>Orchestrate Fabric pipelines across workspaces with a hub master pipeline that invokes spoke pipelines: identity, control flow, central logging, CI/CD, alternatives and a hands-on workshop.</p><div class="card-meta"><span>Advanced</span> <span>90 min</span> <span>7 pages</span></div></a>
+<a class="card bronze" href="playbooks/06-shared-libraries/index.html"><span class="card-num">PLAYBOOK 06</span><h3>Shared Python Libraries</h3><p>Package vetted Spark utilities as a versioned Python wheel, test and build it in CI, and deliver it through a Fabric Environment so every notebook and pipeline imports the same code.</p><div class="card-meta"><span>Intermediate</span> <span>80 min</span> <span>6 pages</span></div></a>
+<a class="card bronze" href="playbooks/08-delta-partitioning/index.html"><span class="card-num">PLAYBOOK 08</span><h3>Delta Lake Partitioning Strategy</h3><p>Decide whether to partition a Delta table, when liquid clustering or compaction is better, how Direct Lake, the SQL endpoint and Warehouse consume the layout, and how to implement and operate it.</p><div class="card-meta"><span>Intermediate</span> <span>45 min</span> <span>6 pages</span></div></a>
+<a class="card bronze" href="playbooks/10-control-table-pipelines/index.html"><span class="card-num">PLAYBOOK 10</span><h3>Control-Table-Driven Pipelines and Asset Discovery</h3><p>Drive Fabric pipelines from a Warehouse control table instead of hard-coded activities, and keep the item IDs it needs fresh with an automated, API-based inventory of every workspace and item.</p><div class="card-meta"><span>Advanced</span> <span>100 min</span> <span>8 pages</span></div></a>
+</div>
+<div class="cat-head"><h2 id="cat-alm">ALM &amp; DevOps</h2></div>
+<p class="cat-blurb">Source control, branching, deployment pipelines, environment configuration and release checklists.</p>
+<div class="cards wide">
+<a class="card blue" href="playbooks/05-github-integration/index.html"><span class="card-num">PLAYBOOK 05</span><h3>GitHub Integration and Branching</h3><p>Connect Fabric workspaces to GitHub safely, run GitHub Flow with feature workspaces, harden the repository with rulesets, and automate deployment with service principals and OIDC.</p><div class="card-meta"><span>Intermediate</span> <span>110 min</span> <span>9 pages</span></div></a>
+<a class="card blue" href="playbooks/07-deployment/index.html"><span class="card-num">PLAYBOOK 07</span><h3>Deployment Pipelines and Promotion</h3><p>Combine Git with Fabric deployment pipelines to promote lakehouses, notebooks, warehouses, semantic models and reports from DEV to TST to PRD, with pairing, autobinding, rules and a safe layer order.</p><div class="card-meta"><span>Advanced</span> <span>120 min</span> <span>9 pages</span></div></a>
+<a class="card blue" href="playbooks/09-variable-libraries/index.html"><span class="card-num">PLAYBOOK 09</span><h3>Variable Libraries</h3><p>Hold stage-specific values (item IDs, connections, sizes, flags) in one Fabric item with a value set per stage, and let pipelines, notebooks, dataflows and shortcuts read the active set at run time.</p><div class="card-meta"><span>Intermediate</span> <span>65 min</span> <span>5 pages</span></div></a>
+<a class="card blue" href="playbooks/14-deployment-checklist/index.html"><span class="card-num">PLAYBOOK 14</span><h3>Deployment Checklist</h3><p>A release-day runbook for promoting a layered Fabric platform from DEV to TST to PRD: order of operations, per-layer checklists, verified tips, gates and a troubleshooting table.</p><div class="card-meta"><span>Intermediate</span> <span>45 min</span> <span>5 pages</span></div></a>
+<a class="card blue" href="playbooks/17-pr-notifications-codeowners/index.html"><span class="card-num">PLAYBOOK 17</span><h3>Pull-Request Notifications with CODEOWNERS</h3><p>Route pull requests to the right reviewers with a CODEOWNERS file, require their approval through a ruleset, and understand which notifications GitHub really sends, and to whom.</p><div class="card-meta"><span>Intermediate</span> <span>35 min</span> <span>4 pages</span></div></a>
+</div>
+<div class="cat-head"><h2 id="cat-analytics">Analytics &amp; BI</h2></div>
+<p class="cat-blurb">Semantic models, report development standards, organizational apps and paginated reports.</p>
+<div class="cards wide">
+<a class="card gold" href="playbooks/11-org-apps/index.html"><span class="card-num">PLAYBOOK 11</span><h3>Organizational Apps</h3><p>Package reports, notebooks, real-time dashboards and other Fabric items into governed, audience-aware org apps, and manage their access, ALM and lifecycle.</p><div class="card-meta"><span>Intermediate</span> <span>65 min</span> <span>7 pages</span></div></a>
+<a class="card gold" href="playbooks/12-power-bi-report-development/index.html"><span class="card-num">PLAYBOOK 12</span><h3>Power BI Report Development Standards</h3><p>Standards for building maintainable, fast Power BI semantic models and thin reports on a Fabric data platform: model settings, storage modes, naming, DAX, rebinding, endorsement and a pre-publish checklist.</p><div class="card-meta"><span>Intermediate</span> <span>75 min</span> <span>6 pages</span></div></a>
+<a class="card gold" href="playbooks/13-paginated-report-migration/index.html"><span class="card-num">PLAYBOOK 13</span><h3>Paginated Report Migration</h3><p>Move paginated (RDL) reports from Power BI Premium capacity workspaces to Fabric workspaces: inventory, workspace reassignment or RDL republishing, deployment pipeline rules, gateways, validation and cutover.</p><div class="card-meta"><span>Intermediate</span> <span>70 min</span> <span>6 pages</span></div></a>
+</div>
+<div class="cat-head"><h2 id="cat-governance">Governance &amp; Quality</h2></div>
+<p class="cat-blurb">Tenant settings, validation frameworks and the controls that keep a platform trustworthy.</p>
+<div class="cards wide">
+<a class="card teal" href="playbooks/15-qa-validation/index.html"><span class="card-num">PLAYBOOK 15</span><h3>QA Validation Frameworks</h3><p>Notebook-based, SQL-first validation frameworks for Fabric medallion pipelines: row counts, transformations, schema, freshness and metric reconciliation, with structured results, gates and alerts.</p><div class="card-meta"><span>Intermediate</span> <span>100 min</span> <span>8 pages</span></div></a>
+<a class="card teal" href="playbooks/16-tenant-settings/index.html"><span class="card-num">PLAYBOOK 16</span><h3>Tenant Settings Reference and Decision Guide</h3><p>A vendor-neutral reference for Microsoft Fabric tenant settings: what each controls, defaults, a recommended enterprise posture, safe enablement through security groups, and change control.</p><div class="card-meta"><span>Intermediate</span> <span>90 min</span> <span>9 pages</span></div></a>
+</div>
+<!-- CATALOG:END -->
+
+    <h2 id="conventions">Shared conventions</h2>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Convention</th><th>Pattern</th><th>Example</th></tr></thead>
+      <tbody>
+        <tr><td>Workspace</td><td><code>&lt;ENV&gt;_&lt;DOMAIN&gt;_&lt;LAYER&gt;[_&lt;Qualifier&gt;]</code></td><td><code>DEV_SALES_BRZ</code>, <code>PRD_SALES_GLD</code></td></tr>
+        <tr><td>Item</td><td><code>&lt;ARTIFACT&gt;_&lt;DOMAIN&gt;_&lt;LAYER&gt;_&lt;Function&gt;</code></td><td><code>NB_SALES_BRZ_LoadOrders</code>, <code>WH_SALES_CNSM</code></td></tr>
+        <tr><td>Environments</td><td><code>DEV</code> → <code>TST</code> → <code>PRD</code></td><td>Git-connected DEV, promotion by deployment pipeline</td></tr>
+        <tr><td>Layers</td><td><code>BRZ</code> · <code>SLV</code> · <code>GLD</code> · <code>CNSM</code> · <code>DLV</code></td><td>Bronze, Silver, Gold, Consumption, Delivery</td></tr>
+        <tr><td>Orchestration</td><td><code>&lt;ENV&gt;_ORCH_HUB</code></td><td>Hub workspace holding master pipelines</td></tr>
+        <tr><td>Deployment pipeline</td><td><code>DPLY_&lt;DOMAIN&gt;_&lt;LAYER&gt;</code></td><td><code>DPLY_SALES_SLV</code></td></tr>
+      </tbody>
+    </table></div>
+    <p>The full naming standard and abbreviation table live in <a href="playbooks/03-medallion-architecture/workspace-pattern.html">Playbook 03 · Workspace pattern and naming</a>. Examples throughout use a fictional retailer, Contoso.</p>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="assets/js/site-data.js"></script>
+<script src="assets/js/site.js"></script>
+</body>
+</html>

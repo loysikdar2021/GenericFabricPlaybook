@@ -1,0 +1,776 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reference architecture · Fabric Implementation Playbooks</title>
+<meta name="description" content="The end-to-end Microsoft Fabric reference architecture behind the playbooks: data, orchestration, ALM and governance planes, environment matrix, identity boundaries and the decisions to make.">
+<link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="" data-section="architecture" data-page="reference-architecture.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Site navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Architecture</p>
+      <h1>Reference architecture</h1>
+      <p class="lede">The seventeen playbooks each solve one part of a Fabric platform. This page assembles them into one design: how data moves from sources to reports through isolated layer workspaces, how a hub decides when each layer runs, how a change travels from a feature branch to production, and which controls govern all of it. Every section links to the playbook that holds the detail.</p>
+      <ul class="chips"><li><b>Planes</b> data, orchestration, ALM, governance</li><li><b>Environments</b> DEV, TST, PRD</li><li><b>Diagrams</b> 8</li></ul>
+    </header>
+
+    <h2 id="overview">The architecture in one view</h2>
+    <p>Think of the platform as four planes that change at different speeds and are owned by different people. The <strong>data plane</strong> holds the data and the code that transforms it. The <strong>orchestration plane</strong> decides when that code runs and records what happened. The <strong>ALM plane</strong> decides which version of the code is running in each environment. The <strong>governance plane</strong> sets the tenant-wide rules and checks the results. Keeping them separate is what lets a data engineer change a Silver notebook without touching the schedule, and a release manager promote that change without editing the notebook.</p>
+    <figure class="diagram">
+<svg class="dg" viewBox="0 0 880 448" role="img" aria-label="Four planes of the reference architecture: governance on top, the data plane from sources through Bronze, Silver, Gold, Consumption and Delivery, an orchestration hub that invokes the layer pipelines, and an ALM plane that promotes from GitHub through DEV, TST and PRD">
+<defs><marker id="fig-ra-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker><marker id="fig-ra-1-ab" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar blue" d="M0 0L10 5L0 10z"/></marker><marker id="fig-ra-1-at" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar teal" d="M0 0L10 5L0 10z"/></marker><marker id="fig-ra-1-ag" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker><marker id="fig-ra-1-ar" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar red" d="M0 0L10 5L0 10z"/></marker><marker id="fig-ra-1-ap" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar purple" d="M0 0L10 5L0 10z"/></marker></defs>
+<rect class="zone" x="6" y="8" width="868" height="74" rx="10"/>
+<text class="t-s" x="18" y="25">Governance plane</text>
+<rect class="box purple" x="20" y="30" width="158" height="44" rx="8"/>
+<text class="t-b" x="99" y="48" text-anchor="middle">Tenant settings</text>
+<text class="t-s" x="99" y="64" text-anchor="middle">security-group scoped</text>
+<rect class="box purple" x="190" y="30" width="158" height="44" rx="8"/>
+<text class="t-b" x="269" y="48" text-anchor="middle">Domains</text>
+<text class="t-s" x="269" y="64" text-anchor="middle">OneLake catalog</text>
+<rect class="box purple" x="360" y="30" width="158" height="44" rx="8"/>
+<text class="t-b" x="439" y="48" text-anchor="middle">Purview</text>
+<text class="t-s" x="439" y="64" text-anchor="middle">labels · DLP · audit</text>
+<rect class="box purple" x="530" y="30" width="158" height="44" rx="8"/>
+<text class="t-b" x="609" y="48" text-anchor="middle">QA gates</text>
+<text class="t-s" x="609" y="64" text-anchor="middle">validate before promote</text>
+<rect class="box purple" x="700" y="30" width="158" height="44" rx="8"/>
+<text class="t-b" x="779" y="48" text-anchor="middle">Monitoring</text>
+<text class="t-s" x="779" y="64" text-anchor="middle">hub · run log · metrics</text>
+<rect class="zone" x="6" y="92" width="868" height="150" rx="10"/>
+<text class="t-s" x="18" y="109">Data plane · one domain, one environment</text>
+<rect class="box gray" x="20" y="114" width="96" height="108" rx="8"/>
+<text class="t-b" x="68" y="150" text-anchor="middle">Sources</text>
+<text class="t-s" x="68" y="164" text-anchor="middle">databases</text>
+<text class="t-s" x="68" y="180" text-anchor="middle">SaaS, APIs</text>
+<text class="t-s" x="68" y="194" text-anchor="middle">files</text>
+<path class="ln" d="M116 168H144" marker-end="url(#fig-ra-1-a)"/>
+<text class="t-s" x="131" y="160" text-anchor="middle">pull</text>
+<rect class="box teal" x="146" y="114" width="96" height="108" rx="8"/>
+<text class="t-b" x="194" y="142" text-anchor="middle">Ingestion</text>
+<text class="t-s" x="194" y="157" text-anchor="middle">pipelines</text>
+<text class="t-s" x="194" y="172" text-anchor="middle">Copy job</text>
+<text class="t-s" x="194" y="187" text-anchor="middle">mirroring</text>
+<text class="t-s" x="194" y="202" text-anchor="middle">notebooks</text>
+<path class="ln" d="M242 168H270" marker-end="url(#fig-ra-1-a)"/>
+<text class="t-s" x="257" y="160" text-anchor="middle">land</text>
+<rect class="box bronze" x="272" y="114" width="96" height="108" rx="8"/>
+<text class="t-b" x="320" y="150" text-anchor="middle">Bronze</text>
+<text class="t-m" x="320" y="164" text-anchor="middle">_BRZ</text>
+<text class="t-s" x="320" y="180" text-anchor="middle">raw</text>
+<text class="t-s" x="320" y="194" text-anchor="middle">append-only</text>
+<path class="ln" d="M368 168H396" marker-end="url(#fig-ra-1-a)"/>
+<text class="t-s" x="383" y="160" text-anchor="middle">clean</text>
+<rect class="box silver" x="398" y="114" width="96" height="108" rx="8"/>
+<text class="t-b" x="446" y="150" text-anchor="middle">Silver</text>
+<text class="t-m" x="446" y="164" text-anchor="middle">_SLV</text>
+<text class="t-s" x="446" y="180" text-anchor="middle">conformed</text>
+<text class="t-s" x="446" y="194" text-anchor="middle">MERGE, SCD2</text>
+<path class="ln" d="M494 168H522" marker-end="url(#fig-ra-1-a)"/>
+<text class="t-s" x="509" y="160" text-anchor="middle">model</text>
+<rect class="box gold" x="524" y="114" width="96" height="108" rx="8"/>
+<text class="t-b" x="572" y="150" text-anchor="middle">Gold</text>
+<text class="t-m" x="572" y="164" text-anchor="middle">_GLD</text>
+<text class="t-s" x="572" y="180" text-anchor="middle">star schema</text>
+<text class="t-s" x="572" y="194" text-anchor="middle">V-Order</text>
+<path class="ln" d="M620 168H648" marker-end="url(#fig-ra-1-a)"/>
+<text class="t-s" x="635" y="160" text-anchor="middle">serve</text>
+<rect class="box blue" x="650" y="114" width="96" height="108" rx="8"/>
+<text class="t-b" x="698" y="142" text-anchor="middle">Consumption</text>
+<text class="t-m" x="698" y="157" text-anchor="middle">_CNSM</text>
+<text class="t-s" x="698" y="172" text-anchor="middle">Warehouse</text>
+<text class="t-s" x="698" y="187" text-anchor="middle">semantic models</text>
+<text class="t-s" x="698" y="202" text-anchor="middle">ML lakehouse</text>
+<path class="ln" d="M746 168H774" marker-end="url(#fig-ra-1-a)"/>
+<text class="t-s" x="761" y="160" text-anchor="middle">bind</text>
+<rect class="box green" x="776" y="114" width="96" height="108" rx="8"/>
+<text class="t-b" x="824" y="142" text-anchor="middle">Delivery</text>
+<text class="t-m" x="824" y="157" text-anchor="middle">_DLV</text>
+<text class="t-s" x="824" y="172" text-anchor="middle">reports</text>
+<text class="t-s" x="824" y="187" text-anchor="middle">org apps</text>
+<text class="t-s" x="824" y="202" text-anchor="middle">paginated</text>
+<rect class="zone" x="6" y="254" width="868" height="70" rx="10"/>
+<text class="t-s" x="18" y="271">Orchestration plane</text>
+<rect class="box accent" x="272" y="276" width="474" height="40" rx="8"/>
+<text class="t-b t-w" x="509" y="292" text-anchor="middle">&lt;ENV&gt;_ORCH_HUB · master pipeline</text>
+<text class="t-s t-w" x="509" y="308" text-anchor="middle">control table · run log · Invoke pipeline</text>
+<path class="ln teal" d="M320 274V224" marker-end="url(#fig-ra-1-at)"/>
+<path class="ln teal" d="M446 274V224" marker-end="url(#fig-ra-1-at)"/>
+<path class="ln teal" d="M572 274V224" marker-end="url(#fig-ra-1-at)"/>
+<path class="ln teal" d="M698 274V224" marker-end="url(#fig-ra-1-at)"/>
+<rect class="pill-bg" x="455" y="239" width="109" height="15"/>
+<text class="t-s" x="509" y="250" text-anchor="middle">invokes and waits</text>
+<rect class="zone" x="6" y="336" width="868" height="104" rx="10"/>
+<text class="t-s" x="18" y="353">ALM plane</text>
+<rect class="box gray" x="20" y="358" width="160" height="52" rx="8"/>
+<text class="t-b" x="100" y="380" text-anchor="middle">GitHub repository</text>
+<text class="t-s" x="100" y="396" text-anchor="middle">main · PRs · CODEOWNERS</text>
+<rect class="box blue" x="230" y="358" width="150" height="52" rx="8"/>
+<text class="t-b" x="305" y="380" text-anchor="middle">DEV workspaces</text>
+<text class="t-s" x="305" y="396" text-anchor="middle">Git-connected</text>
+<rect class="box purple" x="430" y="358" width="170" height="52" rx="8"/>
+<text class="t-b" x="515" y="380" text-anchor="middle">Deployment pipelines</text>
+<text class="t-m" x="515" y="396" text-anchor="middle">DPLY_&lt;DOMAIN&gt;_&lt;LAYER&gt;</text>
+<rect class="box blue" x="650" y="358" width="90" height="52" rx="8"/>
+<text class="t-b" x="695" y="380" text-anchor="middle">TST</text>
+<text class="t-s" x="695" y="396" text-anchor="middle">validated</text>
+<rect class="box green" x="780" y="358" width="88" height="52" rx="8"/>
+<text class="t-b" x="824" y="380" text-anchor="middle">PRD</text>
+<text class="t-s" x="824" y="396" text-anchor="middle">released</text>
+<path class="ln" d="M180 390H228" marker-end="url(#fig-ra-1-a)"/>
+<text class="t-s" x="205.0" y="382" text-anchor="middle">update</text>
+<path class="ln" d="M380 390H428" marker-end="url(#fig-ra-1-a)"/>
+<text class="t-s" x="405.0" y="382" text-anchor="middle">stage 1</text>
+<path class="ln" d="M600 390H648" marker-end="url(#fig-ra-1-a)"/>
+<text class="t-s" x="625.0" y="382" text-anchor="middle">deploy</text>
+<path class="ln" d="M740 390H778" marker-end="url(#fig-ra-1-a)"/>
+<text class="t-s" x="760.0" y="382" text-anchor="middle">deploy</text>
+<text class="t-s" x="20" y="430" text-anchor="start">Variable libraries carry per-stage values · Environments carry the shared library wheel</text>
+</svg>
+<figcaption><b>The reference architecture in four planes.</b> Data moves left to right through isolated layer workspaces; the hub decides when each layer runs; the ALM plane decides which version of each layer is running; the governance plane sets the rules for all three. Each plane has its own section below.</figcaption></figure>
+
+    <table>
+      <thead><tr><th>Plane</th><th>Owns</th><th>Main Fabric building blocks</th><th>Playbooks</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Data</strong></td><td>Data and transformation logic per layer</td><td>Lakehouses, Warehouse, notebooks, shortcuts, Environment, semantic models, reports</td><td><a href="playbooks/03-medallion-architecture/index.html">03</a>, <a href="playbooks/02-data-load-strategy/index.html">02</a>, <a href="playbooks/08-delta-partitioning/index.html">08</a>, <a href="playbooks/06-shared-libraries/index.html">06</a>, <a href="playbooks/12-power-bi-report-development/index.html">12</a>, <a href="playbooks/11-org-apps/index.html">11</a>, <a href="playbooks/13-paginated-report-migration/index.html">13</a></td></tr>
+        <tr><td><strong>Orchestration</strong></td><td>Order, retries, run status</td><td>Data pipelines, Invoke pipeline, control warehouse, variable library</td><td><a href="playbooks/04-cross-workspace-orchestration/index.html">04</a>, <a href="playbooks/10-control-table-pipelines/index.html">10</a></td></tr>
+        <tr><td><strong>ALM</strong></td><td>Versions and promotion</td><td>Git integration, GitHub rulesets and CODEOWNERS, deployment pipelines, variable libraries, GitHub Actions</td><td><a href="playbooks/05-github-integration/index.html">05</a>, <a href="playbooks/17-pr-notifications-codeowners/index.html">17</a>, <a href="playbooks/07-deployment/index.html">07</a>, <a href="playbooks/09-variable-libraries/index.html">09</a>, <a href="playbooks/14-deployment-checklist/index.html">14</a></td></tr>
+        <tr><td><strong>Governance</strong></td><td>Rules, access and evidence</td><td>Tenant settings, domains, OneLake catalog, Purview, validation frameworks, monitoring</td><td><a href="playbooks/16-tenant-settings/index.html">16</a>, <a href="playbooks/15-qa-validation/index.html">15</a>, <a href="playbooks/01-powerbi-to-fabric-migration/governance.html">01</a></td></tr>
+      </tbody>
+    </table>
+    <div class="callout note"><p class="callout-title">Starting from Power BI</p><p>If the platform replaces an existing Power BI estate, the <a href="playbooks/01-powerbi-to-fabric-migration/index.html">Power BI to Fabric Migration</a> playbook sequences this architecture into phases: capacity move first, then a medallion rebuild of the assets worth keeping.</p></div>
+
+    <h2 id="data-plane">Data plane: isolated medallion layers</h2>
+    <p>The data plane is the medallion pattern with two extra layers. Bronze, Silver and Gold carry data from raw to business-ready; Consumption shapes it for each engine (T-SQL, Direct Lake, Spark); Delivery packages it for people. Each layer of each domain gets its own workspace, named <code>&lt;ENV&gt;_&lt;DOMAIN&gt;_&lt;LAYER&gt;[_&lt;Qualifier&gt;]</code>, because the workspace is the unit to which Fabric attaches roles, capacity, the Git connection and the deployment stage. Items follow <code>&lt;ARTIFACT&gt;_&lt;DOMAIN&gt;_&lt;LAYER&gt;_&lt;Function&gt;</code> and carry no environment token, so they pair across stages.</p>
+    <figure class="diagram">
+<svg class="dg" viewBox="0 0 880 332" role="img" aria-label="Sources feed ingestion tools that land raw data in the Bronze lakehouse; Silver and Gold each read the previous layer through shortcuts in their own workspace and write their own lakehouse with notebooks">
+<defs><marker id="fig-ra-2-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker><marker id="fig-ra-2-ab" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar blue" d="M0 0L10 5L0 10z"/></marker><marker id="fig-ra-2-at" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar teal" d="M0 0L10 5L0 10z"/></marker><marker id="fig-ra-2-ag" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker><marker id="fig-ra-2-ar" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar red" d="M0 0L10 5L0 10z"/></marker><marker id="fig-ra-2-ap" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar purple" d="M0 0L10 5L0 10z"/></marker></defs>
+<rect class="box gray" x="14" y="62" width="110" height="48" rx="8"/>
+<text class="t-b" x="69" y="90" text-anchor="middle">Databases</text>
+<path class="ln" d="M124 86H158" marker-end="url(#fig-ra-2-a)"/>
+<rect class="box gray" x="14" y="132" width="110" height="48" rx="8"/>
+<text class="t-b" x="69" y="160" text-anchor="middle">SaaS / APIs</text>
+<path class="ln" d="M124 156H158" marker-end="url(#fig-ra-2-a)"/>
+<rect class="box gray" x="14" y="202" width="110" height="48" rx="8"/>
+<text class="t-b" x="69" y="230" text-anchor="middle">Files</text>
+<path class="ln" d="M124 226H158" marker-end="url(#fig-ra-2-a)"/>
+<rect class="box teal" x="160" y="50" width="130" height="34" rx="8"/>
+<text class="t-b" x="225" y="71" text-anchor="middle">Mirroring</text>
+<path class="ln" d="M290 67H308"/>
+<rect class="box teal" x="160" y="94" width="130" height="34" rx="8"/>
+<text class="t-b" x="225" y="115" text-anchor="middle">Copy job</text>
+<path class="ln" d="M290 111H308"/>
+<rect class="box teal" x="160" y="138" width="130" height="34" rx="8"/>
+<text class="t-b" x="225" y="159" text-anchor="middle">Pipeline Copy</text>
+<path class="ln" d="M290 155H308"/>
+<rect class="box teal" x="160" y="182" width="130" height="34" rx="8"/>
+<text class="t-b" x="225" y="203" text-anchor="middle">Dataflow Gen2</text>
+<path class="ln" d="M290 199H308"/>
+<rect class="box teal" x="160" y="226" width="130" height="34" rx="8"/>
+<text class="t-b" x="225" y="247" text-anchor="middle">Notebook</text>
+<path class="ln" d="M290 243H308"/>
+<path class="ln" d="M308 67V243"/>
+<rect class="zone" x="330" y="30" width="160" height="276" rx="10"/>
+<text class="t-m" x="342" y="47">DEV_SALES_BRZ</text>
+<rect class="zone" x="520" y="30" width="170" height="276" rx="10"/>
+<text class="t-m" x="532" y="47">DEV_SALES_SLV</text>
+<rect class="zone" x="710" y="30" width="160" height="276" rx="10"/>
+<text class="t-m" x="722" y="47">DEV_SALES_GLD</text>
+<path class="ln" d="M308 95H343" marker-end="url(#fig-ra-2-a)"/>
+<text class="t-s" x="326" y="88" text-anchor="middle">land</text>
+<rect class="box teal" x="345" y="70" width="130" height="50" rx="8"/>
+<text class="t-m" x="410" y="92" text-anchor="middle">PL_SALES_BRZ_*</text>
+<text class="t-s" x="410" y="106" text-anchor="middle">ingest items</text>
+<rect class="box bronze" x="345" y="190" width="130" height="70" rx="8"/>
+<text class="t-m" x="410" y="214" text-anchor="middle">LH_SALES_BRZ</text>
+<text class="t-s" x="410" y="229" text-anchor="middle">raw Delta tables</text>
+<text class="t-s" x="410" y="244" text-anchor="middle">Files area</text>
+<path class="ln" d="M410 120V188" marker-end="url(#fig-ra-2-a)"/>
+<rect class="pill-bg" x="412" y="147" width="44" height="15"/>
+<text class="t-s" x="416" y="158" text-anchor="start">append</text>
+<rect class="box silver dashed" x="535" y="60" width="140" height="40" rx="8"/>
+<text class="t-b" x="605" y="84" text-anchor="middle">brz.* shortcuts</text>
+<rect class="box blue" x="535" y="130" width="140" height="44" rx="8"/>
+<text class="t-m" x="605" y="148" text-anchor="middle">NB_SALES_SLV_*</text>
+<text class="t-s" x="605" y="164" text-anchor="middle">MERGE, SCD2</text>
+<rect class="box silver" x="535" y="204" width="140" height="56" rx="8"/>
+<text class="t-m" x="605" y="228" text-anchor="middle">LH_SALES_SLV</text>
+<text class="t-s" x="605" y="244" text-anchor="middle">dbo: conformed</text>
+<path class="ln" d="M605 100V128" marker-end="url(#fig-ra-2-a)"/>
+<rect class="pill-bg" x="607" y="107" width="38" height="15"/>
+<text class="t-s" x="611" y="118" text-anchor="start">reads</text>
+<path class="ln" d="M605 174V202" marker-end="url(#fig-ra-2-a)"/>
+<rect class="pill-bg" x="607" y="181" width="44" height="15"/>
+<text class="t-s" x="611" y="192" text-anchor="start">writes</text>
+<rect class="box gold dashed" x="722" y="60" width="136" height="40" rx="8"/>
+<text class="t-b" x="790" y="84" text-anchor="middle">slv.* shortcuts</text>
+<rect class="box blue" x="722" y="130" width="136" height="44" rx="8"/>
+<text class="t-m" x="790" y="148" text-anchor="middle">NB_SALES_GLD_*</text>
+<text class="t-s" x="790" y="164" text-anchor="middle">facts, dimensions</text>
+<rect class="box gold" x="722" y="204" width="136" height="56" rx="8"/>
+<text class="t-m" x="790" y="228" text-anchor="middle">LH_SALES_GLD</text>
+<text class="t-s" x="790" y="244" text-anchor="middle">star schema</text>
+<path class="ln" d="M790 100V128" marker-end="url(#fig-ra-2-a)"/>
+<rect class="pill-bg" x="792" y="107" width="38" height="15"/>
+<text class="t-s" x="796" y="118" text-anchor="start">reads</text>
+<path class="ln" d="M790 174V202" marker-end="url(#fig-ra-2-a)"/>
+<rect class="pill-bg" x="792" y="181" width="44" height="15"/>
+<text class="t-s" x="796" y="192" text-anchor="start">writes</text>
+<path class="ln dash" d="M475 225H505V80H533" marker-end="url(#fig-ra-2-a)"/>
+<path class="ln dash" d="M675 232H697V80H720" marker-end="url(#fig-ra-2-a)"/>
+<text class="t-s" x="330" y="324" text-anchor="start">Dashed arrow: OneLake shortcut, authorized at the target · every edge one hop downstream</text>
+</svg>
+<figcaption><b>Data plane for one domain in DEV.</b> Each layer workspace owns one lakehouse and the compute that writes it. The next layer sees it only through a read-only shortcut schema (<code>brz</code>, <code>slv</code>), so the grant at the target, not the role in the reading workspace, decides access.</figcaption></figure>
+
+    <h3 id="layer-contract">The layer contract</h3>
+    <table>
+      <thead><tr><th>Layer</th><th>Holds</th><th>Written by</th><th>Read by</th><th>Detail</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Bronze</strong> <code>_BRZ</code></td><td>Source-shaped Delta tables and raw files, append-heavy, with load metadata</td><td>Pipelines, Copy job, Dataflows Gen2, notebooks; mirrored databases reached by shortcut</td><td>Silver, through shortcuts</td><td><a href="playbooks/02-data-load-strategy/bronze.html">02 · Bronze</a></td></tr>
+        <tr><td><strong>Silver</strong> <code>_SLV</code></td><td>One conformed, deduplicated table per entity at source grain</td><td>Notebooks: full reload for small tables, MERGE and SCD2 for large ones</td><td>Gold, through shortcuts</td><td><a href="playbooks/02-data-load-strategy/silver.html">02 · Silver</a></td></tr>
+        <tr><td><strong>Gold</strong> <code>_GLD</code></td><td>Star-schema facts and dimensions, materialized derivations, V-Order where Direct Lake reads</td><td>Notebooks with reconciliation against Silver</td><td>Consumption, through shortcuts</td><td><a href="playbooks/02-data-load-strategy/gold-direct-lake.html">02 · Gold and Direct Lake</a></td></tr>
+        <tr><td><strong>Consumption</strong> <code>_CNSM[_WH|_SM|_LH]</code></td><td>Warehouse, semantic models, ML lakehouse</td><td>Warehouse developers, BI modelers, data scientists</td><td>Delivery, analysts, data scientists</td><td><a href="playbooks/03-medallion-architecture/architecture.html#layers">03 · Layers</a></td></tr>
+        <tr><td><strong>Delivery</strong> <code>_DLV</code></td><td>Thin reports, paginated reports, org apps</td><td>Report authors</td><td>Business users, through app audiences</td><td><a href="playbooks/11-org-apps/index.html">11 · Org apps</a></td></tr>
+      </tbody>
+    </table>
+    <h3 id="ingestion">Ingestion choices</h3>
+    <p>Pick the ingestion tool per source after choosing the change signal; the tool follows the signal, not the other way round. Mirroring and Copy job remove most pipeline plumbing for supported sources; notebooks remain the escape hatch for APIs and complex parsing.</p>
+    <table>
+      <thead><tr><th>Tool</th><th>Use it when</th><th>Change signal</th><th>Detail</th></tr></thead>
+      <tbody>
+        <tr><td>Mirroring</td><td>A supported database must be replicated continuously with minimal build effort</td><td>Managed replication of the source's changes</td><td><a href="playbooks/02-data-load-strategy/change-tracking.html#comparison">02 · Change tracking</a></td></tr>
+        <tr><td>Copy job</td><td>Bulk, incremental or CDC copy without building a pipeline</td><td>Watermark column or CDC, configured on the job</td><td><a href="playbooks/02-data-load-strategy/tooling.html#copy-job">02 · Copy job</a></td></tr>
+        <tr><td>Pipeline Copy activity</td><td>Copy needs to sit inside a larger pipeline with lookups, branching and logging</td><td>Watermark passed as a parameter</td><td><a href="playbooks/02-data-load-strategy/tooling.html#pipelines">02 · Pipelines</a></td></tr>
+        <tr><td>Dataflow Gen2</td><td>Low-code ingestion and light shaping, mostly into Bronze</td><td>Query folding and incremental refresh settings</td><td><a href="playbooks/02-data-load-strategy/tooling.html#dataflows">02 · Dataflows</a></td></tr>
+        <tr><td>Notebook</td><td>APIs, semi-structured files, custom parsing, anything else</td><td>Whatever the code implements</td><td><a href="playbooks/02-data-load-strategy/tooling.html#spark">02 · Spark</a></td></tr>
+        <tr><td>Shortcut to external storage</td><td>Data already sits in ADLS, S3 or another supported store</td><td>None: data is read in place</td><td><a href="playbooks/03-medallion-architecture/architecture.html#moving-data">03 · Moving data</a></td></tr>
+      </tbody>
+    </table>
+    <h3 id="data-rules">Rules that keep the data plane sane</h3>
+    <ul>
+      <li><strong>One-hop, downstream shortcuts.</strong> A shortcut lives in the downstream workspace and points one layer up. No skipping, no upward edges. See <a href="playbooks/03-medallion-architecture/workspace-pattern.html#shortcut-rules">shortcut edge rules</a>.</li>
+      <li><strong>Authorization at the target.</strong> Reading a shortcut needs access at the target; a role in the reading workspace is not enough. Grant the production identity read access at every target it uses. See <a href="playbooks/03-medallion-architecture/architecture.html#security-controls">security controls</a>.</li>
+      <li><strong>Choose the load per table.</strong> Full or incremental, and which change signal, are per-table decisions recorded in the control table. See <a href="playbooks/02-data-load-strategy/cheat-sheet.html">the load strategy cheat sheet</a>.</li>
+      <li><strong>Layout by default, partitioning by exception.</strong> Most tables need compaction and, where it helps, liquid clustering rather than partitions. See <a href="playbooks/08-delta-partitioning/index.html#decision-tree">the partitioning decision tree</a>.</li>
+      <li><strong>Shared code ships as a wheel.</strong> Load and MERGE helpers live in a versioned library installed through each layer's Environment. See <a href="playbooks/06-shared-libraries/index.html">Shared Python Libraries</a> and <a href="playbooks/03-medallion-architecture/environment.html">The Environment item</a>.</li>
+    </ul>
+
+    <h2 id="consumption">Consumption and delivery</h2>
+    <p>The consumption layer exists so that the meaning of the data is fixed in Gold and only its shape changes downstream. A warehouse serves T-SQL users and paginated reports; a semantic model serves interactive BI; an ML lakehouse serves data science. Delivery then packages reports into apps, so business users never need a role in a data workspace.</p>
+    <figure class="diagram">
+<svg class="dg" viewBox="0 0 880 300" role="img" aria-label="Gold feeds three consumption items: a warehouse loaded from Gold shortcuts, a Direct Lake semantic model and an ML lakehouse; the Delivery workspace holds paginated and thin reports that an org app packages for business users">
+<defs><marker id="fig-ra-3-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker><marker id="fig-ra-3-ab" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar blue" d="M0 0L10 5L0 10z"/></marker><marker id="fig-ra-3-at" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar teal" d="M0 0L10 5L0 10z"/></marker><marker id="fig-ra-3-ag" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker><marker id="fig-ra-3-ar" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar red" d="M0 0L10 5L0 10z"/></marker><marker id="fig-ra-3-ap" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar purple" d="M0 0L10 5L0 10z"/></marker></defs>
+<rect class="box gold" x="14" y="110" width="110" height="80" rx="8"/>
+<text class="t-b" x="69" y="139" text-anchor="middle">Gold</text>
+<text class="t-m" x="69" y="154" text-anchor="middle">LH_SALES_GLD</text>
+<text class="t-s" x="69" y="169" text-anchor="middle">Delta, V-Order</text>
+<rect class="zone" x="220" y="14" width="260" height="272" rx="10"/>
+<text class="t-m" x="232" y="31">DEV_SALES_CNSM_WH / _SM / _LH</text>
+<rect class="box blue" x="236" y="40" width="228" height="64" rx="8"/>
+<text class="t-b" x="350" y="61" text-anchor="middle">Warehouse</text>
+<text class="t-m" x="350" y="76" text-anchor="middle">WH_SALES_CNSM</text>
+<text class="t-s" x="350" y="91" text-anchor="middle">T-SQL, loaded from Gold shortcuts</text>
+<rect class="box blue" x="236" y="120" width="228" height="64" rx="8"/>
+<text class="t-b" x="350" y="141" text-anchor="middle">Semantic model</text>
+<text class="t-m" x="350" y="156" text-anchor="middle">SM_SALES_CNSM_Orders</text>
+<text class="t-s" x="350" y="171" text-anchor="middle">Direct Lake on OneLake</text>
+<rect class="box blue" x="236" y="200" width="228" height="64" rx="8"/>
+<text class="t-b" x="350" y="221" text-anchor="middle">ML lakehouse</text>
+<text class="t-m" x="350" y="236" text-anchor="middle">LH_SALES_CNSM_ML</text>
+<text class="t-s" x="350" y="251" text-anchor="middle">Gold shortcuts, notebooks</text>
+<path class="ln" d="M124 150H140"/>
+<path class="ln" d="M140 72V232"/>
+<path class="ln" d="M140 72H234" marker-end="url(#fig-ra-3-a)"/>
+<rect class="pill-bg" x="138" y="55" width="97" height="15"/>
+<text class="t-s" x="187" y="66" text-anchor="middle">shortcut + load</text>
+<path class="ln" d="M140 152H234" marker-end="url(#fig-ra-3-a)"/>
+<rect class="pill-bg" x="150" y="135" width="73" height="15"/>
+<text class="t-s" x="187" y="146" text-anchor="middle">Direct Lake</text>
+<path class="ln" d="M140 232H234" marker-end="url(#fig-ra-3-a)"/>
+<rect class="pill-bg" x="159" y="215" width="56" height="15"/>
+<text class="t-s" x="187" y="226" text-anchor="middle">shortcut</text>
+<rect class="zone" x="520" y="14" width="200" height="272" rx="10"/>
+<text class="t-m" x="532" y="31">DEV_SALES_DLV</text>
+<rect class="box green" x="536" y="40" width="168" height="64" rx="8"/>
+<text class="t-b" x="620" y="68" text-anchor="middle">Paginated report</text>
+<text class="t-s" x="620" y="84" text-anchor="middle">RDL, pixel-perfect</text>
+<rect class="box green" x="536" y="120" width="168" height="64" rx="8"/>
+<text class="t-b" x="620" y="148" text-anchor="middle">Thin reports</text>
+<text class="t-s" x="620" y="164" text-anchor="middle">no model of their own</text>
+<rect class="box accent" x="536" y="200" width="168" height="64" rx="8"/>
+<text class="t-b t-w" x="620" y="228" text-anchor="middle">Org app</text>
+<text class="t-s t-w" x="620" y="244" text-anchor="middle">audiences, branding</text>
+<path class="ln" d="M464 72H534" marker-end="url(#fig-ra-3-a)"/>
+<rect class="pill-bg" x="480" y="55" width="38" height="15"/>
+<text class="t-s" x="499" y="66" text-anchor="middle">T-SQL</text>
+<path class="ln" d="M464 152H534" marker-end="url(#fig-ra-3-a)"/>
+<rect class="pill-bg" x="480" y="135" width="38" height="15"/>
+<text class="t-s" x="499" y="146" text-anchor="middle">binds</text>
+<path class="ln" d="M620 184V198" marker-end="url(#fig-ra-3-a)"/>
+<path class="ln" d="M704 72H712V218H706" marker-end="url(#fig-ra-3-a)"/>
+<rect class="box gray" x="760" y="200" width="106" height="64" rx="8"/>
+<text class="t-b" x="813" y="228" text-anchor="middle">Business users</text>
+<text class="t-s" x="813" y="244" text-anchor="middle">app audience</text>
+<path class="ln" d="M704 232H758" marker-end="url(#fig-ra-3-a)"/>
+<rect class="pill-bg" x="712" y="215" width="38" height="15"/>
+<text class="t-s" x="731" y="226" text-anchor="middle">opens</text>
+</svg>
+<figcaption><b>Consumption and delivery.</b> Gold is never read directly by people. The Consumption layer shapes it per engine, and Delivery packages reports into an org app, so business users get access through an audience rather than a workspace role. Analysts query the warehouse with SQL; data scientists work in the ML lakehouse.</figcaption></figure>
+
+    <table>
+      <thead><tr><th>Decision</th><th>Default in this architecture</th><th>Why</th><th>Detail</th></tr></thead>
+      <tbody>
+        <tr><td>Semantic model storage mode</td><td>Direct Lake on OneLake for new models over Gold; Import where features or sources require it</td><td>No import refresh window; one copy of the data; fails visibly instead of falling back</td><td><a href="playbooks/12-power-bi-report-development/semantic-model.html#storage-mode">12 · Storage mode</a></td></tr>
+        <tr><td>How Gold is written</td><td>Append or replace slices; avoid full overwrites of large tables; V-Order on Direct Lake tables</td><td>Direct Lake reframing keeps resident data whose files did not change</td><td><a href="playbooks/02-data-load-strategy/gold-direct-lake.html#direct-lake">02 · Direct Lake</a></td></tr>
+        <tr><td>Model and report split</td><td>One certified shared model, many thin reports</td><td>One definition of each measure; reports change without touching the model</td><td><a href="playbooks/12-power-bi-report-development/collaboration-qa.html#shared-models">12 · Shared models</a></td></tr>
+        <tr><td>Distribution</td><td>Org apps with audiences</td><td>Several apps per workspace, access propagated to included items and models</td><td><a href="playbooks/11-org-apps/concepts.html#comparison">11 · Org apps compared</a></td></tr>
+        <tr><td>Paginated reports</td><td>Reports in the Delivery workspace, sourced from the Warehouse or the semantic model, with data source rules per stage</td><td>Paginated data sources are not autobound by deployment pipelines</td><td><a href="playbooks/13-paginated-report-migration/pipelines-gateways.html#rules">13 · Pipeline rules</a></td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="orchestration">Orchestration plane: hub, spokes and control tables</h2>
+    <p>A layered platform loses the one thing a single workspace gave for free: a place that knows what must run before what. The orchestration plane puts that knowledge in a dedicated hub workspace per environment, <code>&lt;ENV&gt;_ORCH_HUB</code>. Its master pipeline reads the task list from a control table, resolves stage-specific workspace and item IDs from a variable library, invokes each spoke pipeline with the Invoke pipeline activity (waiting on completion), and writes every outcome to a run log.</p>
+    <figure class="diagram">
+<svg class="dg" viewBox="0 0 880 340" role="img" aria-label="The orchestration hub reads tasks from a control warehouse, resolves stage-specific IDs from a variable library, invokes the layer pipelines in the spoke workspaces in order and writes their status to a run log">
+<defs><marker id="fig-ra-4-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker><marker id="fig-ra-4-ab" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar blue" d="M0 0L10 5L0 10z"/></marker><marker id="fig-ra-4-at" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar teal" d="M0 0L10 5L0 10z"/></marker><marker id="fig-ra-4-ag" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker><marker id="fig-ra-4-ar" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar red" d="M0 0L10 5L0 10z"/></marker><marker id="fig-ra-4-ap" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar purple" d="M0 0L10 5L0 10z"/></marker></defs>
+<rect class="zone" x="14" y="14" width="426" height="312" rx="10"/>
+<text class="t-m" x="26" y="31">&lt;ENV&gt;_ORCH_HUB</text>
+<rect class="box blue" x="30" y="46" width="180" height="76" rx="8"/>
+<text class="t-b" x="120" y="73" text-anchor="middle">Control warehouse</text>
+<text class="t-s" x="120" y="88" text-anchor="middle">control table</text>
+<text class="t-s" x="120" y="103" text-anchor="middle">run log · health views</text>
+<rect class="box purple" x="30" y="214" width="180" height="76" rx="8"/>
+<text class="t-b" x="120" y="241" text-anchor="middle">Variable library</text>
+<text class="t-s" x="120" y="256" text-anchor="middle">item references</text>
+<text class="t-s" x="120" y="271" text-anchor="middle">per stage</text>
+<rect class="box accent" x="260" y="96" width="164" height="140" rx="8"/>
+<text class="t-b t-w" x="342" y="140" text-anchor="middle">Master pipeline</text>
+<text class="t-s t-w" x="342" y="155" text-anchor="middle">1 · Lookup tasks</text>
+<text class="t-s t-w" x="342" y="170" text-anchor="middle">2 · ForEach stage</text>
+<text class="t-s t-w" x="342" y="185" text-anchor="middle">3 · Invoke pipeline</text>
+<text class="t-s t-w" x="342" y="200" text-anchor="middle">4 · Log status</text>
+<path class="ln" d="M210 104H258" marker-end="url(#fig-ra-4-a)"/>
+<rect class="pill-bg" x="215" y="87" width="38" height="15"/>
+<text class="t-s" x="234" y="98" text-anchor="middle">reads</text>
+<path class="ln" d="M258 118H212" marker-end="url(#fig-ra-4-a)"/>
+<rect class="pill-bg" x="218" y="123" width="32" height="15"/>
+<text class="t-s" x="234" y="134" text-anchor="middle">logs</text>
+<path class="ln" d="M210 252H342V238" marker-end="url(#fig-ra-4-a)"/>
+<rect class="pill-bg" x="230" y="245" width="79" height="15"/>
+<text class="t-s" x="270" y="256" text-anchor="middle">resolves IDs</text>
+<text class="t-s" x="30" y="316" text-anchor="start">Notebook tasks run through a dispatcher notebook, by item ID</text>
+<path class="ln" d="M424 166H500"/>
+<path class="ln" d="M500 58V286"/>
+<rect class="box teal" x="600" y="30" width="260" height="56" rx="8"/>
+<text class="t-m" x="730" y="54" text-anchor="middle">&lt;ENV&gt;_SALES_BRZ</text>
+<text class="t-s" x="730" y="70" text-anchor="middle">PL_SALES_BRZ_Ingest</text>
+<path class="ln teal" d="M500 58H598" marker-end="url(#fig-ra-4-at)"/>
+<rect class="pill-bg" x="515" y="41" width="67" height="15"/>
+<text class="t-s" x="549" y="52" text-anchor="middle">1 · invoke</text>
+<rect class="box teal" x="600" y="106" width="260" height="56" rx="8"/>
+<text class="t-m" x="730" y="130" text-anchor="middle">&lt;ENV&gt;_SALES_SLV</text>
+<text class="t-s" x="730" y="146" text-anchor="middle">PL_SALES_SLV_Load</text>
+<path class="ln teal" d="M500 134H598" marker-end="url(#fig-ra-4-at)"/>
+<rect class="pill-bg" x="515" y="117" width="67" height="15"/>
+<text class="t-s" x="549" y="128" text-anchor="middle">2 · invoke</text>
+<rect class="box teal" x="600" y="182" width="260" height="56" rx="8"/>
+<text class="t-m" x="730" y="206" text-anchor="middle">&lt;ENV&gt;_SALES_GLD</text>
+<text class="t-s" x="730" y="222" text-anchor="middle">PL_SALES_GLD_Load</text>
+<path class="ln teal" d="M500 210H598" marker-end="url(#fig-ra-4-at)"/>
+<rect class="pill-bg" x="515" y="193" width="67" height="15"/>
+<text class="t-s" x="549" y="204" text-anchor="middle">3 · invoke</text>
+<rect class="box teal" x="600" y="258" width="260" height="56" rx="8"/>
+<text class="t-m" x="730" y="282" text-anchor="middle">&lt;ENV&gt;_SALES_CNSM_WH</text>
+<text class="t-s" x="730" y="298" text-anchor="middle">PL_SALES_CNSM_LoadWarehouse</text>
+<path class="ln teal" d="M500 286H598" marker-end="url(#fig-ra-4-at)"/>
+<rect class="pill-bg" x="515" y="269" width="67" height="15"/>
+<text class="t-s" x="549" y="280" text-anchor="middle">4 · invoke</text>
+</svg>
+<figcaption><b>Hub and spoke with a control table.</b> The hub owns order, retries and the run log; each spoke owns its data and its pipeline. Because the hub reads tasks and item IDs from data (control table, variable library), adding a task or promoting to a new stage does not mean editing the master pipeline.</figcaption></figure>
+
+    <table>
+      <thead><tr><th>Component</th><th>Responsibility</th><th>Detail</th></tr></thead>
+      <tbody>
+        <tr><td>Master pipeline</td><td>Order, fan-out, retries, failure policy</td><td><a href="playbooks/04-cross-workspace-orchestration/control-flow.html">04 · Control flow</a></td></tr>
+        <tr><td>Invoke pipeline activity</td><td>Cross-workspace call with wait on completion, authorized by a connection</td><td><a href="playbooks/04-cross-workspace-orchestration/invoke-pipeline.html">04 · Invoke pipeline</a></td></tr>
+        <tr><td>Control table and run log</td><td>Which tasks run in which stage and order; what happened on each run</td><td><a href="playbooks/10-control-table-pipelines/warehouse-objects.html">10 · Warehouse objects</a></td></tr>
+        <tr><td>Dispatcher notebook</td><td>Runs notebooks by item ID so renames cannot break orchestration</td><td><a href="playbooks/10-control-table-pipelines/dispatcher.html">10 · Dispatcher</a></td></tr>
+        <tr><td>Variable library</td><td>Workspace and item IDs per stage, so the hub needs no edits after deployment</td><td><a href="playbooks/09-variable-libraries/build-and-consume.html#pipelines">09 · Pipelines</a></td></tr>
+        <tr><td>Asset inventory</td><td>API-based catalog of workspaces and items that keeps the control table's IDs fresh</td><td><a href="playbooks/10-control-table-pipelines/asset-inventory.html">10 · Asset inventory</a></td></tr>
+      </tbody>
+    </table>
+    <div class="callout tip"><p class="callout-title">Solve logging and IDs on day one</p><p>Central run logging and environment-specific item IDs are the two things that are painful to retrofit. Create the run log table and the hub's variable library before the first spoke is wired in. See <a href="playbooks/04-cross-workspace-orchestration/operations.html">Logging, monitoring and CI/CD</a>.</p></div>
+
+    <h2 id="alm">ALM plane: from feature branch to production</h2>
+    <p>The ALM plane combines two Fabric mechanisms. <strong>Git integration</strong> versions item definitions: DEV workspaces follow <code>main</code>, and developers work in feature workspaces connected to short-lived branches. <strong>Deployment pipelines</strong> promote those definitions from DEV to TST to PRD, one pipeline per layer, named <code>DPLY_&lt;DOMAIN&gt;_&lt;LAYER&gt;</code>. GitHub enforces review with a ruleset on <code>main</code> and routes pull requests to owners with CODEOWNERS; GitHub Actions authenticates as a service principal through OIDC to build the shared library and call the deployment APIs.</p>
+    <figure class="diagram">
+<svg class="dg" viewBox="0 0 880 348" role="img" aria-label="Developers work in a feature workspace on a feature branch, merge to main through a pull request gated by a ruleset and code owners, DEV workspaces update from main and deployment pipelines promote each layer to TST and PRD">
+<defs><marker id="fig-ra-5-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker><marker id="fig-ra-5-ab" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar blue" d="M0 0L10 5L0 10z"/></marker><marker id="fig-ra-5-at" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar teal" d="M0 0L10 5L0 10z"/></marker><marker id="fig-ra-5-ag" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker><marker id="fig-ra-5-ar" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar red" d="M0 0L10 5L0 10z"/></marker><marker id="fig-ra-5-ap" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar purple" d="M0 0L10 5L0 10z"/></marker></defs>
+<rect class="lane" x="12" y="12" width="856" height="100" rx="10"/>
+<text class="t-h" x="24" y="36" text-anchor="start">GitHub</text>
+<rect class="lane" x="12" y="124" width="856" height="90" rx="10"/>
+<text class="t-h" x="24" y="148" text-anchor="start">Fabric DEV</text>
+<rect class="lane" x="12" y="236" width="856" height="100" rx="10"/>
+<text class="t-h" x="24" y="260" text-anchor="start">Promotion</text>
+<rect class="box gray" x="140" y="40" width="150" height="56" rx="8"/>
+<text class="t-b" x="215" y="64" text-anchor="middle">Feature branch</text>
+<text class="t-m" x="215" y="80" text-anchor="middle">feature/1234-…</text>
+<rect class="box purple" x="330" y="40" width="190" height="56" rx="8"/>
+<text class="t-b" x="425" y="57" text-anchor="middle">Pull request</text>
+<text class="t-s" x="425" y="72" text-anchor="middle">ruleset · CODEOWNERS</text>
+<text class="t-s" x="425" y="87" text-anchor="middle">status checks</text>
+<rect class="box gray" x="560" y="40" width="140" height="56" rx="8"/>
+<text class="t-b" x="630" y="64" text-anchor="middle">main</text>
+<text class="t-s" x="630" y="80" text-anchor="middle">source of truth</text>
+<rect class="box blue" x="740" y="40" width="120" height="56" rx="8"/>
+<text class="t-b" x="800" y="57" text-anchor="middle">GitHub Actions</text>
+<text class="t-s" x="800" y="72" text-anchor="middle">OIDC · SP</text>
+<text class="t-s" x="800" y="87" text-anchor="middle">build, deploy</text>
+<path class="ln" d="M290 68H328" marker-end="url(#fig-ra-5-a)"/>
+<text class="t-s" x="309" y="61" text-anchor="middle">open</text>
+<path class="ln" d="M520 68H558" marker-end="url(#fig-ra-5-a)"/>
+<text class="t-s" x="539" y="61" text-anchor="middle">merge</text>
+<path class="ln" d="M700 68H738" marker-end="url(#fig-ra-5-a)"/>
+<text class="t-s" x="719" y="61" text-anchor="middle">runs</text>
+<rect class="box blue" x="140" y="146" width="150" height="56" rx="8"/>
+<text class="t-b" x="215" y="170" text-anchor="middle">Feature workspace</text>
+<text class="t-m" x="215" y="186" text-anchor="middle">DEV_SALES_SLV_F1234</text>
+<rect class="box blue" x="560" y="146" width="140" height="56" rx="8"/>
+<text class="t-b" x="630" y="170" text-anchor="middle">DEV workspaces</text>
+<text class="t-s" x="630" y="186" text-anchor="middle">follow main</text>
+<path class="ln" d="M215 144V98" marker-start="url(#fig-ra-5-a)" marker-end="url(#fig-ra-5-a)"/>
+<rect class="pill-bg" x="234" y="116" width="97" height="15"/>
+<text class="t-s" x="238" y="127" text-anchor="start">commit / update</text>
+<path class="ln" d="M630 96V144" marker-end="url(#fig-ra-5-a)"/>
+<rect class="pill-bg" x="634" y="116" width="44" height="15"/>
+<text class="t-s" x="638" y="127" text-anchor="start">update</text>
+<path class="ln" d="M600 202V226H235V256" marker-end="url(#fig-ra-5-a)"/>
+<rect class="pill-bg" x="351" y="219" width="139" height="15"/>
+<text class="t-s" x="420" y="230" text-anchor="middle">workspaces are stage 1</text>
+<rect class="box blue" x="140" y="258" width="190" height="60" rx="8"/>
+<text class="t-b" x="235" y="284" text-anchor="middle">DEV stage</text>
+<text class="t-s" x="235" y="300" text-anchor="middle">default value set</text>
+<rect class="box orange" x="390" y="258" width="190" height="60" rx="8"/>
+<text class="t-b" x="485" y="284" text-anchor="middle">TST stage</text>
+<text class="t-s" x="485" y="300" text-anchor="middle">rules · TST value set</text>
+<rect class="box green" x="640" y="258" width="190" height="60" rx="8"/>
+<text class="t-b" x="735" y="284" text-anchor="middle">PRD stage</text>
+<text class="t-s" x="735" y="300" text-anchor="middle">rules · PRD value set</text>
+<path class="ln" d="M330 288H388" marker-end="url(#fig-ra-5-a)"/>
+<text class="t-s" x="359" y="280" text-anchor="middle">deploy</text>
+<path class="ln" d="M580 288H638" marker-end="url(#fig-ra-5-a)"/>
+<text class="t-s" x="609" y="280" text-anchor="middle">approve</text>
+<path class="ln blue" d="M800 96V256" marker-end="url(#fig-ra-5-ab)"/>
+<rect class="pill-bg" x="731" y="169" width="67" height="15"/>
+<text class="t-s" x="794" y="180" text-anchor="end">deploy API</text>
+</svg>
+<figcaption><b>The ALM and promotion plane.</b> Work in progress lives only in feature workspaces; <code>main</code> is the only branch that feeds shared workspaces. From there, deployment pipelines (driven by hand or by GitHub Actions with a service principal) copy definitions forward one stage at a time, and each stage applies its own rules and value set.</figcaption></figure>
+
+    <h3 id="alm-mechanics">What each mechanism carries</h3>
+    <table>
+      <thead><tr><th>Mechanism</th><th>Carries</th><th>Does not carry</th><th>Detail</th></tr></thead>
+      <tbody>
+        <tr><td>Git integration</td><td>Item definitions (notebooks, pipelines, models, reports, and other supported items)</td><td>Data, the active value set, connections</td><td><a href="playbooks/05-github-integration/sync-and-items.html">05 · Sync model</a></td></tr>
+        <tr><td>Deployment pipeline</td><td>Definitions between paired items, with rules per target stage</td><td>Data (a first deployment creates empty lakehouses); deletions</td><td><a href="playbooks/07-deployment/manual-deploy.html">07 · Manual deployment</a></td></tr>
+        <tr><td>Autobinding</td><td>References to paired dependencies in the same workspace; reports to models across pipelines at the same stage position</td><td>Cross-workspace references, Direct Lake model sources, Dataflow Gen2, connections</td><td><a href="playbooks/07-deployment/autobinding.html#what-binds">07 · What binds</a></td></tr>
+        <tr><td>Deployment rules</td><td>Per-stage overrides: data sources, default lakehouse, parameters</td><td>Anything not exposed as a rule for that item type</td><td><a href="playbooks/07-deployment/deployment-rules.html#rules">07 · Rules</a></td></tr>
+        <tr><td>Variable libraries</td><td>Per-stage values that items read at run time</td><td>Which value set is active; set it in each stage</td><td><a href="playbooks/09-variable-libraries/concepts.html#active-set">09 · Active value set</a></td></tr>
+        <tr><td>Environment and wheel</td><td>The same tested library version in every stage</td><td>The wheel build itself; CI builds once and uploads</td><td><a href="playbooks/06-shared-libraries/cicd.html">06 · CI/CD</a></td></tr>
+        <tr><td>Ruleset and CODEOWNERS</td><td>Required reviews, owner approval and checks before merge to <code>main</code></td><td>Anything committed directly in TST or PRD (nothing should be)</td><td><a href="playbooks/17-pr-notifications-codeowners/fabric-example.html#enforce">17 · Enforcement</a></td></tr>
+      </tbody>
+    </table>
+    <div class="callout warning"><p class="callout-title">Deploy, hydrate, verify</p><p>A deployment copies definitions, not data. Deploy layers in dependency order, run the loads in the target stage and verify each layer before deploying the next; otherwise the next layer reads empty tables and reports success. The release-day runbook is in <a href="playbooks/14-deployment-checklist/index.html">Deployment Checklist</a>, and the order rationale in <a href="playbooks/07-deployment/order-and-layers.html">Deployment order and layers</a>.</p></div>
+
+    <h2 id="environments">Environment matrix</h2>
+    <p>Every layer repeats in three environments. DEV is connected to Git; TST and PRD receive content only through deployment pipelines. Each environment's shortcuts and IDs point at the same environment's upstream workspaces, never at a higher one.</p>
+    <figure class="diagram">
+<svg class="dg" viewBox="0 0 880 330" role="img" aria-label="Environment matrix: for the SALES domain, each layer has a DEV, TST and PRD workspace connected by its own deployment pipeline, plus an orchestration hub per environment">
+<defs><marker id="fig-ra-6-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker><marker id="fig-ra-6-ab" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar blue" d="M0 0L10 5L0 10z"/></marker><marker id="fig-ra-6-at" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar teal" d="M0 0L10 5L0 10z"/></marker><marker id="fig-ra-6-ag" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker><marker id="fig-ra-6-ar" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar red" d="M0 0L10 5L0 10z"/></marker><marker id="fig-ra-6-ap" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar purple" d="M0 0L10 5L0 10z"/></marker></defs>
+<text class="t-b" x="20" y="24" text-anchor="start">Deployment pipeline</text>
+<text class="t-b" x="290" y="24" text-anchor="middle">DEV · follows main</text>
+<text class="t-b" x="530" y="24" text-anchor="middle">TST · deployed, hydrated</text>
+<text class="t-b" x="770" y="24" text-anchor="middle">PRD · deployed, hydrated</text>
+<text class="t-m" x="20" y="58" text-anchor="start">DPLY_SALES_BRZ</text>
+<rect class="box bronze" x="200" y="40" width="180" height="26" rx="6"/>
+<text class="t-m" x="290" y="57" text-anchor="middle">DEV_SALES_BRZ</text>
+<path class="ln" d="M380 53H438" marker-end="url(#fig-ra-6-a)"/>
+<rect class="box bronze" x="440" y="40" width="180" height="26" rx="6"/>
+<text class="t-m" x="530" y="57" text-anchor="middle">TST_SALES_BRZ</text>
+<path class="ln" d="M620 53H678" marker-end="url(#fig-ra-6-a)"/>
+<rect class="box bronze" x="680" y="40" width="180" height="26" rx="6"/>
+<text class="t-m" x="770" y="57" text-anchor="middle">PRD_SALES_BRZ</text>
+<text class="t-m" x="20" y="92" text-anchor="start">DPLY_SALES_SLV</text>
+<rect class="box silver" x="200" y="74" width="180" height="26" rx="6"/>
+<text class="t-m" x="290" y="91" text-anchor="middle">DEV_SALES_SLV</text>
+<path class="ln" d="M380 87H438" marker-end="url(#fig-ra-6-a)"/>
+<rect class="box silver" x="440" y="74" width="180" height="26" rx="6"/>
+<text class="t-m" x="530" y="91" text-anchor="middle">TST_SALES_SLV</text>
+<path class="ln" d="M620 87H678" marker-end="url(#fig-ra-6-a)"/>
+<rect class="box silver" x="680" y="74" width="180" height="26" rx="6"/>
+<text class="t-m" x="770" y="91" text-anchor="middle">PRD_SALES_SLV</text>
+<text class="t-m" x="20" y="126" text-anchor="start">DPLY_SALES_GLD</text>
+<rect class="box gold" x="200" y="108" width="180" height="26" rx="6"/>
+<text class="t-m" x="290" y="125" text-anchor="middle">DEV_SALES_GLD</text>
+<path class="ln" d="M380 121H438" marker-end="url(#fig-ra-6-a)"/>
+<rect class="box gold" x="440" y="108" width="180" height="26" rx="6"/>
+<text class="t-m" x="530" y="125" text-anchor="middle">TST_SALES_GLD</text>
+<path class="ln" d="M620 121H678" marker-end="url(#fig-ra-6-a)"/>
+<rect class="box gold" x="680" y="108" width="180" height="26" rx="6"/>
+<text class="t-m" x="770" y="125" text-anchor="middle">PRD_SALES_GLD</text>
+<text class="t-m" x="20" y="160" text-anchor="start">DPLY_SALES_CNSM_WH</text>
+<rect class="box blue" x="200" y="142" width="180" height="26" rx="6"/>
+<text class="t-m" x="290" y="159" text-anchor="middle">DEV_SALES_CNSM_WH</text>
+<path class="ln" d="M380 155H438" marker-end="url(#fig-ra-6-a)"/>
+<rect class="box blue" x="440" y="142" width="180" height="26" rx="6"/>
+<text class="t-m" x="530" y="159" text-anchor="middle">TST_SALES_CNSM_WH</text>
+<path class="ln" d="M620 155H678" marker-end="url(#fig-ra-6-a)"/>
+<rect class="box blue" x="680" y="142" width="180" height="26" rx="6"/>
+<text class="t-m" x="770" y="159" text-anchor="middle">PRD_SALES_CNSM_WH</text>
+<text class="t-m" x="20" y="194" text-anchor="start">DPLY_SALES_CNSM_SM</text>
+<rect class="box blue" x="200" y="176" width="180" height="26" rx="6"/>
+<text class="t-m" x="290" y="193" text-anchor="middle">DEV_SALES_CNSM_SM</text>
+<path class="ln" d="M380 189H438" marker-end="url(#fig-ra-6-a)"/>
+<rect class="box blue" x="440" y="176" width="180" height="26" rx="6"/>
+<text class="t-m" x="530" y="193" text-anchor="middle">TST_SALES_CNSM_SM</text>
+<path class="ln" d="M620 189H678" marker-end="url(#fig-ra-6-a)"/>
+<rect class="box blue" x="680" y="176" width="180" height="26" rx="6"/>
+<text class="t-m" x="770" y="193" text-anchor="middle">PRD_SALES_CNSM_SM</text>
+<text class="t-m" x="20" y="228" text-anchor="start">DPLY_SALES_CNSM_LH</text>
+<rect class="box blue" x="200" y="210" width="180" height="26" rx="6"/>
+<text class="t-m" x="290" y="227" text-anchor="middle">DEV_SALES_CNSM_LH</text>
+<path class="ln" d="M380 223H438" marker-end="url(#fig-ra-6-a)"/>
+<rect class="box blue" x="440" y="210" width="180" height="26" rx="6"/>
+<text class="t-m" x="530" y="227" text-anchor="middle">TST_SALES_CNSM_LH</text>
+<path class="ln" d="M620 223H678" marker-end="url(#fig-ra-6-a)"/>
+<rect class="box blue" x="680" y="210" width="180" height="26" rx="6"/>
+<text class="t-m" x="770" y="227" text-anchor="middle">PRD_SALES_CNSM_LH</text>
+<text class="t-m" x="20" y="262" text-anchor="start">DPLY_SALES_DLV</text>
+<rect class="box green" x="200" y="244" width="180" height="26" rx="6"/>
+<text class="t-m" x="290" y="261" text-anchor="middle">DEV_SALES_DLV</text>
+<path class="ln" d="M380 257H438" marker-end="url(#fig-ra-6-a)"/>
+<rect class="box green" x="440" y="244" width="180" height="26" rx="6"/>
+<text class="t-m" x="530" y="261" text-anchor="middle">TST_SALES_DLV</text>
+<path class="ln" d="M620 257H678" marker-end="url(#fig-ra-6-a)"/>
+<rect class="box green" x="680" y="244" width="180" height="26" rx="6"/>
+<text class="t-m" x="770" y="261" text-anchor="middle">PRD_SALES_DLV</text>
+<text class="t-m" x="20" y="296" text-anchor="start">DPLY_ORCH_HUB</text>
+<rect class="box teal" x="200" y="278" width="180" height="26" rx="6"/>
+<text class="t-m" x="290" y="295" text-anchor="middle">DEV_ORCH_HUB</text>
+<path class="ln" d="M380 291H438" marker-end="url(#fig-ra-6-a)"/>
+<rect class="box teal" x="440" y="278" width="180" height="26" rx="6"/>
+<text class="t-m" x="530" y="295" text-anchor="middle">TST_ORCH_HUB</text>
+<path class="ln" d="M620 291H678" marker-end="url(#fig-ra-6-a)"/>
+<rect class="box teal" x="680" y="278" width="180" height="26" rx="6"/>
+<text class="t-m" x="770" y="295" text-anchor="middle">PRD_ORCH_HUB</text>
+</svg>
+<figcaption><b>Environment matrix for one domain.</b> Eight workspaces per environment, twenty-four in all, each row promoted by its own deployment pipeline in dependency order from top to bottom. Item names are identical in every column; only the workspace prefix changes, which is what lets pipelines pair items across stages.</figcaption></figure>
+
+    <table>
+      <thead><tr><th>Aspect</th><th>DEV</th><th>TST</th><th>PRD</th></tr></thead>
+      <tbody>
+        <tr><td>Source of content</td><td>Git (<code>main</code>) and feature workspaces</td><td>Deployment pipeline</td><td>Deployment pipeline</td></tr>
+        <tr><td>Data</td><td>Synthetic or masked samples</td><td>Representative, masked where sensitive</td><td>Production</td></tr>
+        <tr><td>Human access</td><td>Engineers as Contributors</td><td>Engineers and testers, mostly read</td><td>Few humans; service identities run loads</td></tr>
+        <tr><td>Schedules</td><td>Off or manual</td><td>Test cadence</td><td>Production cadence</td></tr>
+        <tr><td>Variable library value set</td><td>Default (DEV values)</td><td>TST, activated on first deployment</td><td>PRD, activated on first deployment</td></tr>
+        <tr><td>Capacity</td><td>Smallest that works</td><td>Sized for realistic volume</td><td>Sized for the real workload, isolated from DEV and TST</td></tr>
+      </tbody>
+    </table>
+    <p>Details: <a href="playbooks/03-medallion-architecture/workspace-pattern.html#environments">environments</a> and <a href="playbooks/03-medallion-architecture/workspace-pattern.html#capacity">capacity placement</a> in the medallion playbook, and <a href="playbooks/09-variable-libraries/example-and-operations.html">the DEV, TST and PRD worked example</a> for variable libraries.</p>
+
+    <h2 id="security">Security and identity boundaries</h2>
+    <p>The workspace is the coarse boundary and the one auditors ask about first: who holds which role in which layer. Inside it, OneLake security, SQL permissions and semantic model security narrow what a reader sees. Automation uses its own identities, never a person's.</p>
+    <figure class="diagram">
+<svg class="dg" viewBox="0 0 880 326" role="img" aria-label="Security boundaries: each persona group holds Contributor only in its own layer workspace, business users reach Delivery through an org app audience, layers read the previous layer through shortcuts authorized at the target, and one production identity runs the loads">
+<defs><marker id="fig-ra-7-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker><marker id="fig-ra-7-ab" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar blue" d="M0 0L10 5L0 10z"/></marker><marker id="fig-ra-7-at" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar teal" d="M0 0L10 5L0 10z"/></marker><marker id="fig-ra-7-ag" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker><marker id="fig-ra-7-ar" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar red" d="M0 0L10 5L0 10z"/></marker><marker id="fig-ra-7-ap" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar purple" d="M0 0L10 5L0 10z"/></marker></defs>
+<rect class="box blue" x="14" y="12" width="852" height="44" rx="8"/>
+<text class="t-b" x="440" y="30" text-anchor="middle">Production run identity · service principal or workspace identity</text>
+<text class="t-s" x="440" y="46" text-anchor="middle">Contributor in the layer it writes · read access at every shortcut target it uses</text>
+<rect class="zone" x="14" y="94" width="156" height="118" rx="10"/>
+<text class="t-m" x="26" y="111">&lt;ENV&gt;_SALES_BRZ</text>
+<rect class="box bronze" x="28" y="122" width="128" height="64" rx="8"/>
+<text class="t-b" x="92" y="150" text-anchor="middle">Lakehouse</text>
+<text class="t-s" x="92" y="166" text-anchor="middle">raw, sensitive</text>
+<path class="ln dash" d="M156 154H200" marker-end="url(#fig-ra-7-a)"/>
+<path class="ln blue dash" d="M92 56V92" marker-end="url(#fig-ra-7-ab)"/>
+<rect class="box gray" x="22" y="262" width="140" height="50" rx="8"/>
+<text class="t-b" x="92" y="284" text-anchor="middle">Ingestion engineers</text>
+<text class="t-s" x="92" y="298" text-anchor="middle">own layer only</text>
+<path class="ln purple" d="M92 260V214" marker-end="url(#fig-ra-7-ap)"/>
+<rect class="pill-bg" x="55" y="231" width="73" height="15"/>
+<text class="t-s" x="92" y="242" text-anchor="middle">Contributor</text>
+<rect class="zone" x="188" y="94" width="156" height="118" rx="10"/>
+<text class="t-m" x="200" y="111">&lt;ENV&gt;_SALES_SLV</text>
+<rect class="box silver" x="202" y="122" width="128" height="64" rx="8"/>
+<text class="t-b" x="266" y="150" text-anchor="middle">Lakehouse</text>
+<text class="t-s" x="266" y="166" text-anchor="middle">brz shortcuts</text>
+<path class="ln dash" d="M330 154H374" marker-end="url(#fig-ra-7-a)"/>
+<path class="ln blue dash" d="M266 56V92" marker-end="url(#fig-ra-7-ab)"/>
+<rect class="box gray" x="196" y="262" width="140" height="50" rx="8"/>
+<text class="t-b" x="266" y="284" text-anchor="middle">Data engineers</text>
+<text class="t-s" x="266" y="298" text-anchor="middle">read BRZ at target</text>
+<path class="ln purple" d="M266 260V214" marker-end="url(#fig-ra-7-ap)"/>
+<rect class="pill-bg" x="229" y="231" width="73" height="15"/>
+<text class="t-s" x="266" y="242" text-anchor="middle">Contributor</text>
+<rect class="zone" x="362" y="94" width="156" height="118" rx="10"/>
+<text class="t-m" x="374" y="111">&lt;ENV&gt;_SALES_GLD</text>
+<rect class="box gold" x="376" y="122" width="128" height="64" rx="8"/>
+<text class="t-b" x="440" y="150" text-anchor="middle">Lakehouse</text>
+<text class="t-s" x="440" y="166" text-anchor="middle">slv shortcuts</text>
+<path class="ln dash" d="M504 154H548" marker-end="url(#fig-ra-7-a)"/>
+<path class="ln blue dash" d="M440 56V92" marker-end="url(#fig-ra-7-ab)"/>
+<rect class="box gray" x="370" y="262" width="140" height="50" rx="8"/>
+<text class="t-b" x="440" y="284" text-anchor="middle">Analytics engineers</text>
+<text class="t-s" x="440" y="298" text-anchor="middle">read SLV at target</text>
+<path class="ln purple" d="M440 260V214" marker-end="url(#fig-ra-7-ap)"/>
+<rect class="pill-bg" x="403" y="231" width="73" height="15"/>
+<text class="t-s" x="440" y="242" text-anchor="middle">Contributor</text>
+<rect class="zone" x="536" y="94" width="156" height="118" rx="10"/>
+<text class="t-m" x="548" y="111">&lt;ENV&gt;_SALES_CNSM</text>
+<rect class="box blue" x="550" y="122" width="128" height="64" rx="8"/>
+<text class="t-b" x="614" y="150" text-anchor="middle">Warehouse</text>
+<text class="t-s" x="614" y="166" text-anchor="middle">semantic model</text>
+<path class="ln dash" d="M678 154H722" marker-end="url(#fig-ra-7-a)"/>
+<path class="ln blue dash" d="M614 56V92" marker-end="url(#fig-ra-7-ab)"/>
+<rect class="box gray" x="544" y="262" width="140" height="50" rx="8"/>
+<text class="t-b" x="614" y="284" text-anchor="middle">BI modelers</text>
+<text class="t-s" x="614" y="298" text-anchor="middle">read GLD at target</text>
+<path class="ln purple" d="M614 260V214" marker-end="url(#fig-ra-7-ap)"/>
+<rect class="pill-bg" x="577" y="231" width="73" height="15"/>
+<text class="t-s" x="614" y="242" text-anchor="middle">Contributor</text>
+<rect class="zone" x="710" y="94" width="156" height="118" rx="10"/>
+<text class="t-m" x="722" y="111">&lt;ENV&gt;_SALES_DLV</text>
+<rect class="box accent" x="724" y="122" width="128" height="64" rx="8"/>
+<text class="t-b t-w" x="788" y="150" text-anchor="middle">Org app</text>
+<text class="t-s t-w" x="788" y="166" text-anchor="middle">reports</text>
+<path class="ln blue dash" d="M788 56V92" marker-end="url(#fig-ra-7-ab)"/>
+<rect class="box gray" x="718" y="262" width="140" height="50" rx="8"/>
+<text class="t-b" x="788" y="284" text-anchor="middle">Business users</text>
+<text class="t-s" x="788" y="298" text-anchor="middle">no workspace role</text>
+<path class="ln purple" d="M788 260V188" marker-end="url(#fig-ra-7-ap)"/>
+<rect class="pill-bg" x="748" y="231" width="79" height="15"/>
+<text class="t-s" x="788" y="242" text-anchor="middle">app audience</text>
+</svg>
+<figcaption><b>Identity and access boundaries.</b> Roles never span layers: a group is Contributor in one workspace and reads the layer before it through a shortcut that is authorized at the target. Business users hold no workspace role at all. The production identity is the one that must be tested, because an interactive run under your own account proves nothing about the scheduled one.</figcaption></figure>
+
+    <table>
+      <thead><tr><th>Identity</th><th>Used for</th><th>Holds</th><th>Detail</th></tr></thead>
+      <tbody>
+        <tr><td>Persona security groups</td><td>People building each layer</td><td>Contributor in one layer workspace; read at the previous layer's targets</td><td><a href="playbooks/03-medallion-architecture/workspace-pattern.html#who-works-where">03 · Who works where</a></td></tr>
+        <tr><td>App audiences</td><td>Business users</td><td>Access to an org app and, through it, read on included items and models</td><td><a href="playbooks/11-org-apps/access-alm.html#audiences">11 · Audiences</a></td></tr>
+        <tr><td>Service principal (CI/CD)</td><td>GitHub Actions deployments, API automation, inventory</td><td>Roles on the workspaces and pipelines it deploys; federated credential, no stored secret where possible</td><td><a href="playbooks/05-github-integration/service-principals-automation.html">05 · Service principals</a></td></tr>
+        <tr><td>Workspace identity or service principal connection</td><td>Pipeline connections, Invoke pipeline, trusted access to firewalled storage</td><td>Contributor where it writes; read at shortcut targets</td><td><a href="playbooks/04-cross-workspace-orchestration/invoke-pipeline.html#identity">04 · Identity</a></td></tr>
+        <tr><td>Fabric administrators</td><td>Tenant settings, capacities, domains</td><td>Admin portal rights; changes through a change record</td><td><a href="playbooks/16-tenant-settings/framework.html">16 · Decision framework</a></td></tr>
+      </tbody>
+    </table>
+    <div class="callout caution"><p class="callout-title">Test the identity that runs production</p><p>A notebook that works interactively can fail on schedule because the identity differs and workspace roles do not extend across a shortcut. Some engines also evaluate shortcuts with the item owner's identity rather than the caller's. Test the scheduled run, with the production identity, in TST.</p></div>
+
+    <h2 id="governance">Governance plane: rules, quality and monitoring</h2>
+    <p>Governance is not a separate project at the end; it is the set of controls the other three planes run inside. Tenant settings decide which features exist and for whom. Domains, endorsement, sensitivity labels and the OneLake catalog make content discoverable and classifiable. Validation frameworks decide whether a load is good enough to promote, and monitoring tells you whether the platform is healthy.</p>
+    <figure class="diagram">
+<svg class="dg" viewBox="0 0 880 224" role="img" aria-label="Validation gate: after each layer load, validation notebooks write results; a high-severity failure stops the run and alerts while the last good load keeps serving, otherwise the next layer runs or promotion proceeds">
+<defs><marker id="fig-ra-8-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker><marker id="fig-ra-8-ab" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar blue" d="M0 0L10 5L0 10z"/></marker><marker id="fig-ra-8-at" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar teal" d="M0 0L10 5L0 10z"/></marker><marker id="fig-ra-8-ag" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker><marker id="fig-ra-8-ar" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar red" d="M0 0L10 5L0 10z"/></marker><marker id="fig-ra-8-ap" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar purple" d="M0 0L10 5L0 10z"/></marker></defs>
+<rect class="box teal" x="14" y="40" width="160" height="50" rx="8"/>
+<text class="t-b" x="94" y="69" text-anchor="middle">Layer load completes</text>
+<rect class="box blue" x="224" y="40" width="170" height="50" rx="8"/>
+<text class="t-b" x="309" y="62" text-anchor="middle">Run validations</text>
+<text class="t-s" x="309" y="76" text-anchor="middle">counts, schema, recon</text>
+<rect class="box purple" x="444" y="40" width="190" height="50" rx="25"/>
+<text class="t-b" x="539" y="69" text-anchor="middle">Any high-severity FAIL?</text>
+<rect class="box green" x="684" y="34" width="182" height="62" rx="8"/>
+<text class="t-b" x="775" y="54" text-anchor="middle">Proceed</text>
+<text class="t-s" x="775" y="69" text-anchor="middle">next layer or promote</text>
+<text class="t-s" x="775" y="84" text-anchor="middle">warnings to owner</text>
+<rect class="box red" x="444" y="150" width="190" height="56" rx="8"/>
+<text class="t-b" x="539" y="174" text-anchor="middle">Stop and alert</text>
+<text class="t-s" x="539" y="190" text-anchor="middle">last good load keeps serving</text>
+<path class="ln" d="M174 65H222" marker-end="url(#fig-ra-8-a)"/>
+<text class="t-s" x="198" y="58" text-anchor="middle">invokes</text>
+<path class="ln" d="M394 65H442" marker-end="url(#fig-ra-8-a)"/>
+<text class="t-s" x="418" y="58" text-anchor="middle">results</text>
+<path class="ln" d="M634 65H682" marker-end="url(#fig-ra-8-a)"/>
+<text class="t-s c-green" x="658" y="58" text-anchor="middle">no</text>
+<path class="ln" d="M539 90V148" marker-end="url(#fig-ra-8-a)"/>
+<text class="t-s c-red" x="547" y="124">yes</text>
+<text class="t-s" x="14" y="130" text-anchor="start">Results land in the run log and</text>
+<text class="t-s" x="14" y="146" text-anchor="start">a validation semantic model</text>
+</svg>
+<figcaption><b>The quality gate between layers.</b> Validation is a step in the orchestration, not a report someone reads later. Each layer's checks write structured results; a high-severity failure stops the downstream layers so that Gold and the reports keep serving the last good load.</figcaption></figure>
+
+    <table>
+      <thead><tr><th>Control</th><th>What it governs</th><th>Where it acts</th><th>Detail</th></tr></thead>
+      <tbody>
+        <tr><td>Tenant settings scoped to security groups</td><td>Which features, exports, integrations and preview items exist</td><td>Whole tenant, delegated to capacity or domain admins where allowed</td><td><a href="playbooks/16-tenant-settings/matrix.html">16 · Settings matrix</a></td></tr>
+        <tr><td>Domains and endorsement</td><td>Ownership and trust of content per business area</td><td>Workspaces and items; OneLake catalog</td><td><a href="playbooks/01-powerbi-to-fabric-migration/governance.html#domains">01 · Domains</a></td></tr>
+        <tr><td>Sensitivity labels and DLP</td><td>Classification and handling of sensitive data</td><td>Items, exports, downstream files</td><td><a href="playbooks/01-powerbi-to-fabric-migration/governance.html#labels-dlp">01 · Labels and DLP</a></td></tr>
+        <tr><td>Validation frameworks</td><td>Row counts, schema, freshness, reconciliation</td><td>After each layer load; as promotion gates</td><td><a href="playbooks/15-qa-validation/orchestration.html#gate">15 · Gating</a></td></tr>
+        <tr><td>Run log and Monitoring hub</td><td>Whether each run finished, and where it stopped</td><td>Orchestration plane</td><td><a href="playbooks/04-cross-workspace-orchestration/operations.html#monitoring-options">04 · Monitoring options</a></td></tr>
+        <tr><td>Capacity Metrics app</td><td>Utilization, smoothing and throttling per capacity</td><td>Capacities</td><td><a href="playbooks/01-powerbi-to-fabric-migration/strategy-licensing.html#capacity-behavior">01 · Capacity behavior</a></td></tr>
+        <tr><td>Tenant setting change control</td><td>Who changed which switch, and why</td><td>Admin portal, audit log</td><td><a href="playbooks/16-tenant-settings/operations.html">16 · Change control</a></td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="decisions">Decisions you must make</h2>
+    <p>The architecture above is a set of defaults. Each row below is a decision a project must take explicitly, ideally before the first workspace is created, because several are expensive to reverse. Record the choice and the reason.</p>
+    <table>
+      <thead><tr><th>Decision</th><th>Options</th><th>Default here</th><th>Reverse later?</th><th>Decide with</th></tr></thead>
+      <tbody>
+        <tr><td>Isolation level</td><td>Workspace per layer; merged workspaces; one workspace with a lakehouse per layer; one lakehouse with schemas</td><td>Workspace per layer</td><td>Expensive: splitting moves IDs, shortcuts, history</td><td><a href="playbooks/03-medallion-architecture/architecture.html#decision-table">03 · Decision table</a></td></tr>
+        <tr><td>Consumption split</td><td>One <code>_CNSM</code> workspace, or <code>_WH</code>, <code>_SM</code>, <code>_LH</code></td><td>Split when owners or security differ</td><td>Moderate</td><td><a href="playbooks/03-medallion-architecture/workspace-pattern.html#workspace-pattern">03 · Workspace pattern</a></td></tr>
+        <tr><td>All-Lakehouse or Hybrid</td><td>Lakehouse everywhere, or a Warehouse in Gold or Consumption</td><td>Lakehouse layers plus a Consumption Warehouse</td><td>Moderate</td><td><a href="playbooks/01-powerbi-to-fabric-migration/architecture.html#pattern-decision">01 · Pattern decision</a></td></tr>
+        <tr><td>Ingestion tool per source</td><td>Mirroring, Copy job, pipeline Copy, Dataflow Gen2, notebook, shortcut</td><td>Per source, after the change signal</td><td>Cheap per source</td><td><a href="playbooks/02-data-load-strategy/tooling.html#matrix">02 · Tool matrix</a></td></tr>
+        <tr><td>Load pattern per table</td><td>Full or incremental; watermark, CDC, CDF</td><td>Full for small tables, incremental MERGE for large</td><td>Cheap per table</td><td><a href="playbooks/02-data-load-strategy/change-tracking.html#choosing">02 · Choosing</a></td></tr>
+        <tr><td>Table layout</td><td>No partitioning, partitioning, liquid clustering, Z-Order</td><td>Compaction first; partition only by exception</td><td>Requires rewrite</td><td><a href="playbooks/08-delta-partitioning/index.html#decision-tree">08 · Decision tree</a></td></tr>
+        <tr><td>Storage mode</td><td>Direct Lake on OneLake, Direct Lake on SQL endpoints, Import, DirectQuery</td><td>Direct Lake on OneLake for new Gold models</td><td>Moderate: model rebuild</td><td><a href="playbooks/12-power-bi-report-development/semantic-model.html#storage-mode">12 · Storage mode</a></td></tr>
+        <tr><td>Orchestration pattern</td><td>Hub and spoke, notebook DAG, Airflow, events, run conditions</td><td>Hub and spoke for batch, events for arrivals</td><td>Moderate</td><td><a href="playbooks/04-cross-workspace-orchestration/alternatives.html#decision-table">04 · Alternatives</a></td></tr>
+        <tr><td>Repository layout</td><td>One repository per data product or per platform; folder per workspace</td><td>One repository per data product, one folder per workspace</td><td>Expensive: history and connections</td><td><a href="playbooks/05-github-integration/repository-design.html#one-vs-many">05 · One vs many</a></td></tr>
+        <tr><td>Promotion mechanism</td><td>Deployment pipelines, Git per stage, code-first (fabric-cicd, APIs)</td><td>Git for DEV plus deployment pipelines</td><td>Moderate</td><td><a href="playbooks/07-deployment/strategy.html#decision">07 · Strategy</a></td></tr>
+        <tr><td>Per-stage values</td><td>Variable libraries, deployment rules, parameters</td><td>Variable libraries; rules where items need them</td><td>Cheap</td><td><a href="playbooks/09-variable-libraries/cicd-promotion.html#rules-vs-libraries">09 · Libraries vs rules</a></td></tr>
+        <tr><td>Shared code distribution</td><td>Environment wheel, feed, Lakehouse files, <code>%run</code></td><td>Wheel in an Environment, Full publish mode</td><td>Cheap</td><td><a href="playbooks/06-shared-libraries/distribution-and-ops.html#options">06 · Options</a></td></tr>
+        <tr><td>Capacity layout</td><td>Shared, per environment, per workload shape</td><td>Separate PRD; separate engineering and BI where load warrants</td><td>Cheap: reassign workspaces</td><td><a href="playbooks/01-powerbi-to-fabric-migration/strategy-licensing.html#capacity-strategy">01 · Capacity strategy</a></td></tr>
+        <tr><td>Automation identity</td><td>Service principal, workspace identity, user connection</td><td>Service principal with OIDC for CI/CD; durable identity for pipeline connections</td><td>Cheap</td><td><a href="playbooks/04-cross-workspace-orchestration/invoke-pipeline.html#identity">04 · Identity</a></td></tr>
+        <tr><td>Distribution model</td><td>Org app, workspace app, embedding</td><td>Org apps with audiences</td><td>Cheap</td><td><a href="playbooks/11-org-apps/concepts.html#comparison">11 · Comparison</a></td></tr>
+        <tr><td>Tenant posture</td><td>Per setting: off, on for groups, on for all</td><td>On for named security groups</td><td>Cheap but audited</td><td><a href="playbooks/16-tenant-settings/framework.html#decision-path">16 · Decision path</a></td></tr>
+        <tr><td>Validation tooling</td><td>Notebook framework, MLV constraints, Purview data quality, open source</td><td>Notebook framework with structured results</td><td>Cheap</td><td><a href="playbooks/15-qa-validation/tools-comparison.html#decision">15 · Decision table</a></td></tr>
+      </tbody>
+    </table>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>Several building blocks in this design have release status, limits or defaults that change: the Invoke pipeline activity and its connections, variable library reference types, OneLake security, Direct Lake guardrails, org app CI/CD support and Environment publish behavior. Each linked playbook page names the exact Learn article to check; re-read it before committing a design to a capability.</p></div>
+    <div class="takeaways"><p class="tk-title">Key takeaways</p><ul>
+      <li>Separate the planes: data, orchestration, ALM and governance change at different speeds and have different owners.</li>
+      <li>Make every layer of every domain a workspace, and keep shortcut edges one hop downstream, authorized at the target.</li>
+      <li>Put order and IDs in data: a control table and variable libraries let the hub and the promotion path run without edits.</li>
+      <li>Promote one layer at a time: deploy, hydrate, verify, then move on.</li>
+      <li>Take the decisions table to the first design workshop; the expensive rows are isolation level and repository layout.</li>
+    </ul></div>
+    <p>New to the terms? Use the <a href="glossary.html">glossary</a>. Looking for where to start reading? See the <a href="paths.html">learning paths</a>.</p>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/fabric/onelake/onelake-medallion-lakehouse-architecture">Implement medallion lakehouse architecture in Fabric</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/onelake/onelake-shortcuts">OneLake shortcuts</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/fundamentals/direct-lake-overview">Direct Lake overview</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/invoke-pipeline-activity">Invoke pipeline activity</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/cicd/git-integration/intro-to-git-integration">What is Fabric Git integration?</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/cicd/deployment-pipelines/intro-to-deployment-pipelines">Introduction to deployment pipelines</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/cicd/variable-library/variable-library-overview">What is a variable library?</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/security/workspace-identity">Workspace identity</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/admin/about-tenant-settings">About tenant settings</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/governance/governance-compliance-overview">Governance and compliance in Microsoft Fabric</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="assets/js/site-data.js"></script>
+<script src="assets/js/site.js"></script>
+</body>
+</html>

@@ -1,0 +1,13 @@
+{
+  "title": "Fabric Implementation Playbooks",
+  "brandShort": "Fabric Playbooks",
+  "brandSub": "Implementation guides",
+  "repo": "",
+  "categories": [
+    { "id": "strategy", "title": "Strategy & Migration", "blurb": "Plan the move to Fabric: scope, licensing, workspace strategy, migration waves and go-live." },
+    { "id": "data-engineering", "title": "Architecture & Data Engineering", "blurb": "Medallion layers, load patterns, orchestration, partitioning and reusable engineering assets." },
+    { "id": "alm", "title": "ALM & DevOps", "blurb": "Source control, branching, deployment pipelines, environment configuration and release checklists." },
+    { "id": "analytics", "title": "Analytics & BI", "blurb": "Semantic models, report development standards, organizational apps and paginated reports." },
+    { "id": "governance", "title": "Governance & Quality", "blurb": "Tenant settings, validation frameworks and the controls that keep a platform trustworthy." }
+  ]
+}
