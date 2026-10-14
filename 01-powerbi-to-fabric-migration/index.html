@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Overview and execution map · Power BI to Fabric</title>
+<meta name="description" content="Strategic and technical playbook for migrating a Power BI Premium or Pro estate to Microsoft Fabric: two workstreams, four execution phases, decisions, deliverables and a map of every page.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="01-powerbi-to-fabric-migration" data-page="index.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 01 · Power BI to Fabric</p>
+      <h1>Migrating from Power BI to Microsoft Fabric</h1>
+      <p class="lede">A phase-by-phase guide for moving a Power BI Premium or Pro estate onto Microsoft Fabric. It separates the part that is mandatory and deadline-driven (moving capacity) from the part that creates lasting value (rationalizing, rebuilding and governing what runs on it), and gives you the decisions, templates and checks for both.</p>
+      <ul class="chips"><li><b>Audience</b> platform leads, architects, BI and data engineers, program managers</li><li><b>Level</b> Intermediate</li><li><b>Reading time</b> 120 min</li></ul>
+    </header>
+
+    <h2 id="what-this-covers">What this playbook covers</h2>
+    <p>Most Power BI estates grew report by report: a PBIX file with its own Power Query logic, its own import copy of the data, and its own DAX. Fabric changes the unit of design. Data lands once in OneLake, is shaped by pipelines, notebooks and a warehouse, and is exposed through a small number of governed semantic models that many reports share. A migration is therefore two different jobs that happen to share a project plan:</p>
+    <ul>
+      <li><strong>Move the capacity.</strong> Premium per-capacity (P) SKUs are being retired, and the supported path is a Fabric capacity (F SKU). For most tenants this is a licensing and infrastructure change: buy an F SKU, reassign workspaces, validate, cancel the P SKU. Existing reports and semantic models keep working.</li>
+      <li><strong>Modernize the estate.</strong> Decide which assets are worth keeping, rebinding or rebuilding on a governed medallion foundation, and retire the rest. This is where the platform benefits come from, and it is optional in the sense that it does not have to finish before the capacity move does.</li>
+    </ul>
+    <p>Many migration guides treat the whole effort as a rebuild. That is the right default for high-value, high-debt assets, but it is the wrong default for a tenant with a licensing deadline. The pages that follow keep the rebuild method intact and put it behind an explicit decision: reassign, modernize in place, or rebuild.</p>
+
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 330" role="img" aria-label="Two workstreams run in parallel: a deadline-driven capacity migration from Premium to a Fabric capacity, and a value-driven modernization that rebuilds prioritized assets in four phases">
+        <defs>
+          <marker id="fig-index-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-index-1-ag" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-index-1-ao" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar orange" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="lane" x="10" y="12" width="880" height="132" rx="10"/>
+        <text class="t-h" x="24" y="34">A · Capacity migration: mandatory and deadline-driven</text>
+        <rect class="box orange" x="24" y="52" width="140" height="68" rx="10"/>
+        <text class="t-b" x="94" y="80" text-anchor="middle">Inventory</text>
+        <text class="t-s" x="94" y="98" text-anchor="middle">workspaces and items</text>
+        <rect class="box blue" x="204" y="52" width="140" height="68" rx="10"/>
+        <text class="t-b" x="274" y="80" text-anchor="middle">Size and buy</text>
+        <text class="t-s" x="274" y="98" text-anchor="middle">F SKU in Azure</text>
+        <rect class="box blue" x="384" y="52" width="140" height="68" rx="10"/>
+        <text class="t-b" x="454" y="80" text-anchor="middle">Pilot</text>
+        <text class="t-s" x="454" y="98" text-anchor="middle">low-risk workspace</text>
+        <rect class="box blue" x="564" y="52" width="140" height="68" rx="10"/>
+        <text class="t-b" x="634" y="80" text-anchor="middle">Reassign</text>
+        <text class="t-s" x="634" y="98" text-anchor="middle">validate in batches</text>
+        <rect class="box green" x="744" y="52" width="140" height="68" rx="10"/>
+        <text class="t-b" x="814" y="80" text-anchor="middle">Cancel P SKU</text>
+        <text class="t-s" x="814" y="98" text-anchor="middle">after validation</text>
+        <path class="ln" d="M164 86H202" marker-end="url(#fig-index-1-a)"/>
+        <path class="ln" d="M344 86H382" marker-end="url(#fig-index-1-a)"/>
+        <path class="ln" d="M524 86H562" marker-end="url(#fig-index-1-a)"/>
+        <path class="ln" d="M704 86H742" marker-end="url(#fig-index-1-a)"/>
+
+        <rect class="lane" x="10" y="170" width="880" height="148" rx="10"/>
+        <text class="t-h" x="24" y="192">B · Modernization: value-driven, paced by rationalization</text>
+        <rect class="box purple" x="24" y="212" width="180" height="84" rx="10"/>
+        <text class="t-h" x="114" y="240" text-anchor="middle">I · Foundation</text>
+        <text class="t-s" x="114" y="260" text-anchor="middle">assess, architect, govern</text>
+        <text class="t-s" x="114" y="276" text-anchor="middle">signed-off scope</text>
+        <rect class="box blue" x="244" y="212" width="180" height="84" rx="10"/>
+        <text class="t-h" x="334" y="240" text-anchor="middle">II · Build</text>
+        <text class="t-s" x="334" y="260" text-anchor="middle">rebuild priority assets</text>
+        <text class="t-s" x="334" y="276" text-anchor="middle">medallion, models, reports</text>
+        <rect class="box teal" x="464" y="212" width="180" height="84" rx="10"/>
+        <text class="t-h" x="554" y="240" text-anchor="middle">III · Release</text>
+        <text class="t-s" x="554" y="260" text-anchor="middle">QA, UAT, deploy</text>
+        <text class="t-s" x="554" y="276" text-anchor="middle">parallel run, go live</text>
+        <rect class="box green" x="684" y="212" width="180" height="84" rx="10"/>
+        <text class="t-h" x="774" y="240" text-anchor="middle">IV · Adopt</text>
+        <text class="t-s" x="774" y="260" text-anchor="middle">train, support, optimize</text>
+        <text class="t-s" x="774" y="276" text-anchor="middle">decommission legacy</text>
+        <path class="ln" d="M204 254H242" marker-end="url(#fig-index-1-a)"/>
+        <path class="ln" d="M424 254H462" marker-end="url(#fig-index-1-a)"/>
+        <path class="ln" d="M644 254H682" marker-end="url(#fig-index-1-a)"/>
+
+        <path class="ln dash orange" d="M94 120V210" marker-end="url(#fig-index-1-ao)"/>
+        <rect class="pill-bg" x="102" y="148" width="104" height="16"/>
+        <text class="t-s" x="106" y="160">shared inventory</text>
+        <path class="ln dash green" d="M634 120V210" marker-end="url(#fig-index-1-ag)"/>
+        <rect class="pill-bg" x="642" y="148" width="206" height="16"/>
+        <text class="t-s" x="646" y="160">legacy keeps serving on the F SKU</text>
+      </svg>
+      <figcaption><b>Two workstreams, one inventory.</b> Workstream A has a hard end date set by your Premium agreement. Workstream B starts from the same inventory but is paced by value: each rebuilt asset replaces a legacy one, and the legacy copy keeps serving on the new capacity until it is decommissioned.</figcaption>
+    </figure>
+
+    <h2 id="when-to-use">When to use this playbook</h2>
+    <table>
+      <thead><tr><th>Use it when</th><th>Use something else when</th></tr></thead>
+      <tbody>
+        <tr><td>You run Power BI Premium (P SKU) capacities, Premium Per User, or Pro workspaces and are adopting Fabric.</td><td>You only need to move workspaces between P SKUs and F SKUs and rebuild nothing: the capacity runbook on the <a href="strategy-licensing.html#capacity-runbook">strategy page</a> is enough.</td></tr>
+        <tr><td>You want to retire import-heavy, per-report data preparation in favor of a lakehouse or warehouse foundation.</td><td>Your data already lives in a well-modeled lakehouse and you only need report standards: see <a href="../12-power-bi-report-development/index.html">Power BI Report Development Standards</a>.</td></tr>
+        <tr><td>You need a defensible scope: a signed-off list of what is rebuilt, rebound, consolidated or retired.</td><td>You are migrating paginated (RDL) reports specifically: see <a href="../13-paginated-report-migration/index.html">Paginated Report Migration</a>.</td></tr>
+        <tr><td>You need a project plan, QA gates, UAT, go-live and decommissioning steps that a program manager can run.</td><td>You are designing the medallion layers themselves: see <a href="../03-medallion-architecture/index.html">Medallion Architecture</a>.</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="executive-summary">Executive summary</h2>
+    <p>Each row is a position this playbook takes. The detail, the trade-offs and the failure modes are on the page in the right-hand column.</p>
+    <table>
+      <thead><tr><th>Theme</th><th>Position</th><th>Page</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Strategic case</strong></td><td>Frame the move as a shift from isolated BI to a platform that manages the whole data lifecycle on OneLake, not as a license renewal. The same framing drives funding for the rebuild.</td><td><a href="strategy-licensing.html#strategic-case">Strategy</a></td></tr>
+        <tr><td><strong>Licensing and cost</strong></td><td>Map each P SKU to its F SKU equivalent, decide the F64 viewer-license question explicitly, and use pay-as-you-go, reservations, pause and resume deliberately.</td><td><a href="strategy-licensing.html#licensing">Strategy</a></td></tr>
+        <tr><td><strong>Migration paths</strong></td><td>Reassign first, modernize selectively, rebuild only what earns it. The capacity deadline never waits on the rebuild.</td><td><a href="strategy-licensing.html#migration-paths">Strategy</a></td></tr>
+        <tr><td><strong>Target architecture</strong></td><td>Medallion layers in separate workspaces per environment. Choose All-Lakehouse or Hybrid (lakehouse plus warehouse) by team skills, not by fashion.</td><td><a href="architecture.html">Architecture</a></td></tr>
+        <tr><td><strong>Governance</strong></td><td>Govern first. Use the OneLake catalog, domains and endorsement for trust, and Microsoft Purview for labels, data loss prevention and audit.</td><td><a href="governance.html">Governance</a></td></tr>
+        <tr><td><strong>Assessment</strong></td><td>Automate the inventory, respect activity-log retention limits, and end with a signed-off rationalization matrix.</td><td><a href="assessment.html">Assessment</a></td></tr>
+        <tr><td><strong>Reverse-engineering</strong></td><td>Extract logic with tools, not by eye. Produce a specification per report and a source-to-semantic-model mapping document.</td><td><a href="reverse-engineering.html">Reverse-engineering</a></td></tr>
+        <tr><td><strong>Data layers</strong></td><td>Pipelines for Bronze, Spark for Silver, a warehouse or lakehouse for the consumption layer, orchestrated by a metadata-driven hub.</td><td><a href="build-data.html">Build</a></td></tr>
+        <tr><td><strong>Semantic and delivery</strong></td><td>Certified semantic models plus thin reports. Prefer Direct Lake where the data is lake-centric; keep Import and DirectQuery for the cases that need them.</td><td><a href="semantic-delivery.html">Semantic and reports</a></td></tr>
+        <tr><td><strong>Release</strong></td><td>Reconcile numbers, test security, get written UAT sign-off, deploy through a pipeline, run old and new in parallel, then decommission on a schedule.</td><td><a href="validate-release.html">Validate and release</a></td></tr>
+        <tr><td><strong>Adoption</strong></td><td>Role-based training, a tiered support model and a continuous-improvement backlog turn the project into a product.</td><td><a href="adoption-plan.html">Adoption and plan</a></td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="execution-map">Execution map</h2>
+    <p>The work is organized into four phases. Phases overlap in practice, but each has an exit gate that should be met before the next phase consumes significant effort.</p>
+    <ol class="phases">
+      <li><strong>Foundation and planning</strong>Decide, size, design, govern, assess.</li>
+      <li><strong>Implementation</strong>Environments, reverse-engineering, data layers, semantic layer, orchestration.</li>
+      <li><strong>Validation and go-live</strong>QA, UAT, deployment, parallel run, decommission.</li>
+      <li><strong>Change and support</strong>Communicate, train, support, optimize.</li>
+    </ol>
+    <table>
+      <thead><tr><th>Phase</th><th>Activities</th><th>Exit gate</th><th>Pages</th></tr></thead>
+      <tbody>
+        <tr><td><strong>I · Foundation</strong></td><td>Platform decision and sponsor alignment; licensing and capacity plan; architecture pattern; workspace strategy; governance framework; legacy assessment and rationalization.</td><td>Capacity plan approved; architecture decision recorded; governance baseline agreed; rationalization matrix signed off by business and IT.</td><td><a href="strategy-licensing.html">Strategy</a>, <a href="architecture.html">Architecture</a>, <a href="governance.html">Governance</a>, <a href="assessment.html">Assessment</a></td></tr>
+        <tr><td><strong>II · Implementation</strong></td><td>Environments and CI/CD; reverse-engineer legacy reports and write the data mapping; build Bronze, Silver and consumption layers; rebuild semantic models and reports; orchestration and deployment pipelines.</td><td>End-to-end automated load in the test environment; certified semantic models published; reports rebuilt to specification.</td><td><a href="reverse-engineering.html">Reverse-engineering</a>, <a href="build-data.html">Build</a>, <a href="semantic-delivery.html">Semantic and reports</a></td></tr>
+        <tr><td><strong>III · Validation and go-live</strong></td><td>QA (data, function, performance, security); UAT; production deployment; parallel run; decommissioning of legacy assets.</td><td>Reconciliation passed; written UAT sign-off; production deployment verified; legacy assets retired.</td><td><a href="validate-release.html">Validate and release</a></td></tr>
+        <tr><td><strong>IV · Change and support</strong></td><td>Communication plan; role-based training; support channels; adoption and capacity monitoring; retrospective.</td><td>Support model live; adoption metrics reported; improvement backlog owned.</td><td><a href="adoption-plan.html">Adoption and plan</a></td></tr>
+      </tbody>
+    </table>
+    <div class="callout tip"><p class="callout-title">Project plan template</p><p>A phased task table and a relative-week timeline are on the <a href="adoption-plan.html#project-plan">last page</a>. They use week offsets, never calendar dates, so you can drop them into any schedule.</p></div>
+
+    <h2 id="prerequisites">Prerequisites and outcomes</h2>
+    <div class="grid-2">
+      <div class="card blue"><h3>Before you start</h3>
+        <ul>
+          <li>An executive sponsor and a named business owner per domain.</li>
+          <li>Azure subscription access to register the <code>Microsoft.Fabric</code> resource provider and create capacities.</li>
+          <li>Fabric administrator access, or a service principal allowed to call the read-only admin APIs, for the inventory.</li>
+          <li>The end date of your Premium agreement, confirmed with your Microsoft account team.</li>
+          <li>A Git provider (GitHub or Azure DevOps) and a decision on who owns the repository.</li>
+        </ul>
+      </div>
+      <div class="card green"><h3>What you end up with</h3>
+        <ul>
+          <li>Workloads running on an F SKU, with the P SKU cancelled.</li>
+          <li>A signed rationalization matrix and a migration backlog.</li>
+          <li>Governed workspaces, certified semantic models and thin reports.</li>
+          <li>A repeatable CI/CD path from development to production.</li>
+          <li>A support and optimization model owned by named people.</li>
+        </ul>
+      </div>
+    </div>
+
+    <h2 id="page-map">Page map</h2>
+    <div class="cards">
+      <a class="card blue" href="strategy-licensing.html"><span class="card-num">02</span><h3>Strategy, licensing and capacity</h3><p>Migration paths, F SKU rules, cost levers, throttling and the capacity runbook.</p></a>
+      <a class="card purple" href="architecture.html"><span class="card-num">03</span><h3>Architecture and environments</h3><p>Medallion, pattern decision matrix, workspace strategy and CI/CD foundation.</p></a>
+      <a class="card purple" href="governance.html"><span class="card-num">04</span><h3>Governance with Fabric and Purview</h3><p>Catalog, domains, endorsement, labels, data loss prevention and audit.</p></a>
+      <a class="card orange" href="assessment.html"><span class="card-num">05</span><h3>Assessment and rationalization</h3><p>Inventory, usage, decision tree and the matrix template.</p></a>
+      <a class="card orange" href="reverse-engineering.html"><span class="card-num">06</span><h3>Reverse-engineering legacy assets</h3><p>Tools, scripts, specification and mapping documents.</p></a>
+      <a class="card teal" href="build-data.html"><span class="card-num">07</span><h3>Build the data layers</h3><p>Medallion build, Dataflow Gen1 replacement, SCD Type 2, orchestration.</p></a>
+      <a class="card teal" href="semantic-delivery.html"><span class="card-num">08</span><h3>Semantic models and reports</h3><p>Storage mode choice, certified models, thin reports and security.</p></a>
+      <a class="card green" href="validate-release.html"><span class="card-num">09</span><h3>Validate, deploy and go live</h3><p>Reconciliation, UAT, deployment, parallel run and decommissioning.</p></a>
+      <a class="card green" href="adoption-plan.html"><span class="card-num">10</span><h3>Change, support and project plan</h3><p>Communication, training, support tiers, plan template and checklists.</p></a>
+    </div>
+
+    <h2 id="related-playbooks">Related playbooks</h2>
+    <p>This playbook is the strategic spine. It summarizes and links to the detailed playbooks rather than repeating them.</p>
+    <ul>
+      <li>Data movement and layer design: <a href="../02-data-load-strategy/index.html">Data Load Strategy</a>, <a href="../03-medallion-architecture/index.html">Medallion Architecture</a>, <a href="../08-delta-partitioning/index.html">Delta Lake Partitioning</a>.</li>
+      <li>Orchestration: <a href="../04-cross-workspace-orchestration/index.html">Cross-Workspace Orchestration</a>, <a href="../10-control-table-pipelines/index.html">Control-Table-Driven Pipelines</a>.</li>
+      <li>Lifecycle management: <a href="../05-github-integration/index.html">GitHub Integration</a>, <a href="../07-deployment/index.html">Deployment Pipelines</a>, <a href="../09-variable-libraries/index.html">Variable Libraries</a>, <a href="../14-deployment-checklist/index.html">Deployment Checklist</a>.</li>
+      <li>Delivery and quality: <a href="../11-org-apps/index.html">Organizational Apps</a>, <a href="../12-power-bi-report-development/index.html">Report Development Standards</a>, <a href="../13-paginated-report-migration/index.html">Paginated Report Migration</a>, <a href="../15-qa-validation/index.html">QA Validation Frameworks</a>.</li>
+      <li>Governance: <a href="../16-tenant-settings/index.html">Tenant Settings Reference</a>. Vocabulary is in the <a href="../../glossary.html">glossary</a>; the end-state picture is in the <a href="../../reference-architecture.html">reference architecture</a>.</li>
+    </ul>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p>
+      <ul>
+        <li>Treat capacity migration and modernization as separate workstreams with separate finish lines; never let the rebuild gate the licensing deadline.</li>
+        <li>Run one inventory and let it feed both workstreams.</li>
+        <li>Decide per asset: reassign, rebind, consolidate, rebuild or retire. Record the decision and get it signed.</li>
+        <li>Put governance and CI/CD in place before the first rebuilt report, not after.</li>
+        <li>Decommissioning is a planned phase with an owner and dates relative to go-live, not a hope.</li>
+      </ul>
+    </div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/power-bi/support/premium-migration-overview">Power BI Premium to Microsoft Fabric migration overview</a></li>
+        <li><a href="https://learn.microsoft.com/power-bi/support/premium-migration-decision-guide">Power BI Premium P SKU to Fabric F SKU migration decision guide</a></li>
+        <li><a href="https://learn.microsoft.com/power-bi/support/premium-migration-how-to">Migrate workspaces from Power BI Premium to Microsoft Fabric</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/enterprise/licenses">Microsoft Fabric licenses</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/get-started/microsoft-fabric-overview">What is Microsoft Fabric?</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

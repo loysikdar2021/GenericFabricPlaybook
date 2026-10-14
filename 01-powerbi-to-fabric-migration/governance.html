@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Governance with Fabric and Purview · Power BI to Fabric</title>
+<meta name="description" content="A govern-first framework for a Power BI to Fabric migration: governance roles, domains, the OneLake catalog, sensitivity labels, data loss prevention, audit, access control and endorsement with certification criteria.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="01-powerbi-to-fabric-migration" data-page="governance.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 01 · Power BI to Fabric</p>
+      <h1>Governance with Fabric and Purview</h1>
+      <p class="lede">A single copy of data in OneLake is read by Spark, SQL and the Power BI engine. Controls therefore have to be defined once and applied consistently. This page sets out a govern-first baseline: who decides, what Fabric provides natively, what Microsoft Purview adds, and how trust is earned through endorsement.</p>
+      <ul class="chips"><li><b>Phase</b> I · Foundation</li><li><b>Audience</b> governance leads, security, Fabric admins, domain owners</li><li><b>Output</b> governance policy, tenant-setting baseline, certification criteria</li></ul>
+    </header>
+
+    <h2 id="govern-first">Why govern first</h2>
+    <p>In a Power BI estate each PBIX file was its own island, so governance meant policing sharing. In Fabric the same table is reachable through several engines, workspaces are created by many people, and semantic models fan out to hundreds of reports. Retrofitting controls after teams have built habits means renegotiating with every one of them. A small baseline put in place before the first production workload costs far less than a cleanup project later.</p>
+    <p>"Govern first" does not mean "govern everything first." It means five things exist before go-live: named owners, a domain structure, a tenant-setting baseline, a label and protection policy, and certification criteria.</p>
+
+    <div class="callout important"><p class="callout-title">What "Purview" means in a Fabric migration now</p><p>Fabric has its own built-in governance, centered on the OneLake catalog and its Govern experience: discovery, governance insights, recommended actions, domains, endorsement and lineage. The security insights that used to live in a separate Microsoft Purview hub page inside Fabric are now surfaced in the OneLake catalog. Microsoft Purview remains the layer for information protection (sensitivity labels), data loss prevention, audit, insider risk and AI-usage governance. Plan for both, and do not describe the Fabric experience as the Purview hub.</p></div>
+
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 340" role="img" aria-label="Fabric built-in governance (domains, endorsement, lineage, insights, tenant settings) organizes and endorses items; Microsoft Purview (labels, data loss prevention, audit, insider risk) classifies, protects and audits them; labels flow downstream from a lakehouse to semantic model to report to export">
+        <defs>
+          <marker id="fig-gov-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar purple" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-gov-1-b" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <text class="t-h" x="20" y="22">Fabric built-in governance</text>
+        <rect class="zone blue" x="10" y="32" width="282" height="296" rx="12"/>
+        <rect class="box blue" x="24" y="48" width="254" height="44" rx="8"/><text class="t-b" x="151" y="75" text-anchor="middle">Domains and workspaces</text>
+        <rect class="box blue" x="24" y="104" width="254" height="44" rx="8"/><text class="t-b" x="151" y="131" text-anchor="middle">Endorsement and certification</text>
+        <rect class="box blue" x="24" y="160" width="254" height="44" rx="8"/><text class="t-b" x="151" y="187" text-anchor="middle">Lineage and impact analysis</text>
+        <rect class="box blue" x="24" y="216" width="254" height="44" rx="8"/><text class="t-b" x="151" y="243" text-anchor="middle">Insights and recommended actions</text>
+        <rect class="box blue" x="24" y="272" width="254" height="44" rx="8"/><text class="t-b" x="151" y="299" text-anchor="middle">Tenant and capacity settings</text>
+
+        <text class="t-h" x="610" y="22">Microsoft Purview</text>
+        <rect class="zone purple" x="608" y="32" width="282" height="296" rx="12"/>
+        <rect class="box purple" x="622" y="48" width="254" height="44" rx="8"/><text class="t-b" x="749" y="75" text-anchor="middle">Sensitivity labels</text>
+        <rect class="box purple" x="622" y="104" width="254" height="44" rx="8"/><text class="t-b" x="749" y="131" text-anchor="middle">Data loss prevention</text>
+        <rect class="box purple" x="622" y="160" width="254" height="44" rx="8"/><text class="t-b" x="749" y="187" text-anchor="middle">Audit log</text>
+        <rect class="box purple" x="622" y="216" width="254" height="44" rx="8"/><text class="t-b" x="749" y="243" text-anchor="middle">Insider risk management</text>
+        <rect class="box purple" x="622" y="272" width="254" height="44" rx="8"/><text class="t-b" x="749" y="299" text-anchor="middle">AI-usage governance</text>
+
+        <text class="t-h" x="450" y="22" text-anchor="middle">Fabric items</text>
+        <rect class="box" x="350" y="48" width="200" height="48" rx="8"/><text class="t-b" x="450" y="77" text-anchor="middle">Lakehouse or warehouse</text>
+        <rect class="box" x="350" y="124" width="200" height="48" rx="8"/><text class="t-b" x="450" y="153" text-anchor="middle">Semantic model</text>
+        <rect class="box" x="350" y="200" width="200" height="48" rx="8"/><text class="t-b" x="450" y="229" text-anchor="middle">Report or app</text>
+        <rect class="box" x="350" y="276" width="200" height="48" rx="8"/><text class="t-b" x="450" y="305" text-anchor="middle">Export: file, Excel</text>
+        <path class="ln purple" d="M450 96V122" marker-end="url(#fig-gov-1-a)"/>
+        <path class="ln purple" d="M450 172V198" marker-end="url(#fig-gov-1-a)"/>
+        <path class="ln purple" d="M450 248V274" marker-end="url(#fig-gov-1-a)"/>
+        <text class="t-s" x="458" y="114">label flows downstream</text>
+
+        <path class="ln" d="M292 160H346" marker-end="url(#fig-gov-1-b)"/>
+        <text class="t-s" x="319" y="150" text-anchor="middle">organize</text>
+        <path class="ln purple" d="M608 160H554" marker-end="url(#fig-gov-1-a)"/>
+        <text class="t-s" x="581" y="150" text-anchor="middle">protect</text>
+      </svg>
+      <figcaption><b>Two layers, one item model.</b> Built-in governance makes data findable and trusted; Purview makes it protected and auditable. A label applied upstream is inherited along lineage and travels with supported exports.</figcaption>
+    </figure>
+
+    <h2 id="roles">Step 1: Define objectives and form the governance team</h2>
+    <p>Before configuring any technology, write down what governance must achieve in terms the business recognizes: protect sensitive data, make trusted data easy to find, keep cost visible, and be able to answer "who changed or viewed what." Map those to your actual regulatory and contractual obligations; do not copy a compliance statement from a template.</p>
+    <table>
+      <thead><tr><th>Role</th><th>Owns</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Executive sponsor</strong></td><td>Mandate, funding, escalation for policy conflicts.</td></tr>
+        <tr><td><strong>Fabric administrator</strong></td><td>Tenant settings, domains, delegation, capacity assignment policy.</td></tr>
+        <tr><td><strong>Domain administrator</strong></td><td>Workspaces in a business area, domain-level contributors, delegated settings such as who may certify.</td></tr>
+        <tr><td><strong>Data owner</strong></td><td>Accountability for a dataset: who may use it, for what, and with which classification.</td></tr>
+        <tr><td><strong>Data steward</strong></td><td>Quality, definitions, certification review for the domain.</td></tr>
+        <tr><td><strong>Security and compliance</strong></td><td>Label taxonomy, DLP policies, audit and investigation, insider-risk policy.</td></tr>
+        <tr><td><strong>Capacity administrator</strong></td><td>Capacity health, surge protection, workspace assignment, cost.</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="tenant-baseline">Step 2: Set the tenant-setting baseline</h2>
+    <p>Tenant settings decide who can create workspaces and Fabric items, share, export, publish externally, use service principals, apply labels and certify content. Decide them as a set, record the reason for each, and delegate to domains or capacities only where you have named owners. The full reference, with recommended values and the reasoning, is in the <a href="../16-tenant-settings/index.html">Tenant Settings Reference</a>.</p>
+    <ul class="checklist">
+      <li>Who may create workspaces, and who may create Fabric items, is a deliberate decision, not a default.</li>
+      <li>Certifiers are designated groups, and certification is delegated per domain only if domain owners are ready.</li>
+      <li>Sharing, export and publish-to-web settings match the label policy.</li>
+      <li>Service principals are allowed to call the APIs your automation needs, scoped to a security group.</li>
+      <li>Label settings (users may apply labels, default labels, mandatory labeling) are decided with the security team.</li>
+      <li>Setting changes are reviewed through the same change process as code.</li>
+    </ul>
+
+    <h2 id="domains">Step 3: Organize with domains and workspaces</h2>
+    <p>Domains group workspaces by business area and are the basis for federated governance. Create one per business area that has an owner, map every workspace to its domain, and let domain administrators manage their contributors. This is how federated governance is realized in practice. A domain with no owner is a signal to merge it, not to leave it.</p>
+    <p>Use the workspace naming convention from <a href="architecture.html#naming">Architecture</a> so that the domain, layer and environment are visible in every list, lineage view and audit record.</p>
+
+    <h2 id="labels-dlp">Step 4: Classify and protect with labels and data loss prevention</h2>
+    <p>Define a small label taxonomy with the security team: typically four levels from public to highly confidential. Keep it small enough that people choose correctly. Then decide what each label does, because a label with no consequences is only decoration.</p>
+    <table>
+      <thead><tr><th>Control</th><th>What it does</th><th>Apply it</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Sensitivity labels</strong></td><td>Classify items and, where configured, encrypt and restrict export. Set on Fabric items. With inheritance enabled, labels flow downstream through lineage, so a labeled lakehouse or model passes its label to derived reports.</td><td>Set default labels at tenant or workspace level so nothing is unlabeled; require labels on production workspaces.</td></tr>
+        <tr><td><strong>Sensitive information types</strong></td><td>Pattern-based detection of personal, financial or health data in content.</td><td>Use them as DLP conditions rather than asking people to remember to label.</td></tr>
+        <tr><td><strong>Protection policies</strong></td><td>Control access to items based on their label.</td><td>Reserve for the highest label after testing; they depend on licensing and supported item types.</td></tr>
+        <tr><td><strong>Data loss prevention</strong></td><td>Policies for supported Fabric structured data evaluate labels and sensitive information types, show policy tips, raise alerts and can restrict access.</td><td>Run in audit-only mode first; move to enforcement when false-positive rates are low.</td></tr>
+      </tbody>
+    </table>
+    <div class="callout warning"><p class="callout-title">Labels apply to items, not to tables or columns</p><p>It is common to read that you can label individual lakehouse tables or warehouse columns. In Fabric, sensitivity labels are set on items. Column-level classification and discovery of sensitive data inside tables is a data-catalog capability, not a Fabric label. Design your label policy around items, and use warehouse security features to control access to columns.</p></div>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>Information protection and DLP for Fabric need additional Microsoft Purview or Microsoft 365 licensing, support specific item types, and have specific conditions and actions. Read <a href="https://learn.microsoft.com/fabric/governance/information-protection">Information protection in Microsoft Fabric</a> and <a href="https://learn.microsoft.com/fabric/governance/data-loss-prevention-configure">Configure data loss prevention policies for Fabric</a> and confirm what your licenses and regions support. Sensitivity labels are also not supported by Power BI Desktop projects (PBIP), so apply them in the service.</p></div>
+
+    <h2 id="endorsement">Step 5: Earn trust with endorsement and certification</h2>
+    <p>Endorsement is how consumers tell the difference between a one-off and the model the finance team stands behind. Use the levels deliberately.</p>
+    <table>
+      <thead><tr><th>Level</th><th>Who can set it</th><th>Meaning</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Promoted</strong></td><td>Any user with write permission on the item.</td><td>"Ready for others to use." A signal from the owner, not a quality guarantee.</td></tr>
+        <tr><td><strong>Certified</strong></td><td>Only designated reviewers; can be delegated to domain administrators.</td><td>"Reviewed against our criteria and authorized as the source for this subject."</td></tr>
+        <tr><td><strong>Master data</strong></td><td>Designated users; applies to data items such as lakehouses and semantic models.</td><td>"The authoritative source for a core entity such as customers or products." Check its tenant-setting status.</td></tr>
+      </tbody>
+    </table>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 230" role="img" aria-label="Endorsement flow: an item is drafted, promoted by its author, certification is requested, a reviewer checks it against criteria, and it becomes certified; failed review returns it to the author and certified items are recertified on change or schedule">
+        <defs>
+          <marker id="fig-gov-2-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-gov-2-o" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar orange" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box gray" x="20" y="70" width="100" height="56" rx="10"/>
+        <text class="t-b" x="70" y="94" text-anchor="middle">Draft</text><text class="t-s" x="70" y="112" text-anchor="middle">owner builds</text>
+        <rect class="box blue" x="170" y="70" width="110" height="56" rx="10"/>
+        <text class="t-b" x="225" y="94" text-anchor="middle">Promoted</text><text class="t-s" x="225" y="112" text-anchor="middle">author flags it</text>
+        <rect class="box purple" x="330" y="70" width="130" height="56" rx="10"/>
+        <text class="t-b" x="395" y="94" text-anchor="middle">Certification</text><text class="t-s" x="395" y="112" text-anchor="middle">requested</text>
+        <rect class="box purple" x="510" y="70" width="150" height="56" rx="28"/>
+        <text class="t-b" x="585" y="94" text-anchor="middle">Review</text><text class="t-s" x="585" y="112" text-anchor="middle">against criteria</text>
+        <rect class="box green" x="710" y="70" width="170" height="56" rx="10"/>
+        <text class="t-b" x="795" y="94" text-anchor="middle">Certified</text><text class="t-s" x="795" y="112" text-anchor="middle">visible to all users</text>
+        <path class="ln" d="M120 98H168" marker-end="url(#fig-gov-2-a)"/>
+        <path class="ln" d="M280 98H328" marker-end="url(#fig-gov-2-a)"/>
+        <path class="ln" d="M460 98H508" marker-end="url(#fig-gov-2-a)"/>
+        <path class="ln" d="M660 98H708" marker-end="url(#fig-gov-2-a)"/>
+        <text class="t-s" x="144" y="90" text-anchor="middle">promote</text>
+        <text class="t-s" x="304" y="90" text-anchor="middle">request</text>
+        <text class="t-s" x="484" y="90" text-anchor="middle">assign</text>
+        <text class="t-s c-green" x="684" y="90" text-anchor="middle">pass</text>
+        <path class="ln orange" d="M540 126V170H225V128" marker-end="url(#fig-gov-2-o)"/>
+        <rect class="pill-bg" x="330" y="162" width="126" height="16"/>
+        <text class="t-s" x="393" y="174" text-anchor="middle">changes required</text>
+        <path class="ln dash orange" d="M795 126V200H640V128" marker-end="url(#fig-gov-2-o)"/>
+        <rect class="pill-bg" x="676" y="192" width="120" height="16"/>
+        <text class="t-s" x="736" y="204" text-anchor="middle">recertify on change</text>
+      </svg>
+      <figcaption><b>Certification is a gate, not a badge.</b> A model that skips review should not carry the certified label, and a certified model that changes materially goes back through review.</figcaption>
+    </figure>
+    <p>Publish the criteria so authors know what they are working toward. A workable checklist for a certified semantic model:</p>
+    <ul class="checklist">
+      <li>A named owner and a named steward, with a contact channel on the item description.</li>
+      <li>Documented definitions for every measure that business users see, using the naming standard.</li>
+      <li>Data lineage traced to certified or governed sources; no personal-workspace sources.</li>
+      <li>Reconciliation to the legacy report passed and recorded (see <a href="validate-release.html#reconciliation">Validate and release</a>).</li>
+      <li>Row-level and object-level security tested for each role.</li>
+      <li>A reliable refresh or Direct Lake framing path with alerting on failure.</li>
+      <li>A sensitivity label applied and consistent with its sources.</li>
+      <li>Performance reviewed with the Best Practice Analyzer rules and Performance Analyzer.</li>
+      <li>Reviewed by someone who did not build it.</li>
+    </ul>
+
+    <h2 id="access">Step 6: Access control, in the right place</h2>
+    <p>Apply each control at the layer designed for it. A common failure is to rely on a report filter for confidentiality or to give every consumer workspace access to raw layers.</p>
+    <table>
+      <thead><tr><th>Need</th><th>Mechanism</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td>Who can work in a workspace</td><td>Workspace roles (Admin, Member, Contributor, Viewer) via security groups</td><td>Grant by layer; consumers do not need workspace access if they use an app.</td></tr>
+        <tr><td>Who can use a specific item</td><td>Item permissions: read, build, reshare</td><td>Build permission lets report builders use a certified semantic model without write access.</td></tr>
+        <tr><td>Rows and objects in a model</td><td>Semantic model row-level and object-level security</td><td>Test with impersonation. See <a href="semantic-delivery.html#security">Semantic models and reports</a>.</td></tr>
+        <tr><td>Rows and columns in a warehouse</td><td>T-SQL permissions, row-level and column-level security</td><td>Interacts with Direct Lake behavior; read the Direct Lake security article before mixing.</td></tr>
+        <tr><td>Files and tables in OneLake</td><td>OneLake security data-access roles</td><td>Check status and which engines enforce it before you depend on it.</td></tr>
+        <tr><td>Exfiltration</td><td>Labels, DLP, export and sharing tenant settings</td><td>Align the settings to the labels so the policy is one policy.</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="monitor">Step 7: Monitor the governance posture</h2>
+    <p>The OneLake catalog's Govern experience gives domain and tenant owners insights into label coverage, endorsement coverage, item curation and recommended actions without leaving Fabric. Purview adds the audit trail and policy reports. Track a short list of measures and review them on a fixed cadence.</p>
+    <table>
+      <thead><tr><th>Measure</th><th>Why it matters</th><th>Source</th></tr></thead>
+      <tbody>
+        <tr><td>Share of items with a sensitivity label</td><td>Unlabeled items are unprotected by policy.</td><td>OneLake catalog Govern; Purview</td></tr>
+        <tr><td>Workspaces without a domain or an owner</td><td>Orphans escape governance and cost control.</td><td>OneLake catalog Govern; admin APIs</td></tr>
+        <tr><td>Certified models and reports built on them</td><td>Adoption of the trusted path.</td><td>Endorsement and lineage</td></tr>
+        <tr><td>Items shared externally or published to web</td><td>Highest-risk exposure.</td><td>Audit log, activity events</td></tr>
+        <tr><td>DLP matches by policy and workspace</td><td>Tells you whether to tighten or loosen a rule.</td><td>Purview</td></tr>
+        <tr><td>Capacity consumption by domain</td><td>Cost allocation and abuse detection.</td><td>Capacity Metrics app; Azure Cost Management</td></tr>
+      </tbody>
+    </table>
+    <div class="callout tip"><p class="callout-title">Optional: Purview Data Map scanning</p><p>If you need one catalog across Fabric and non-Fabric sources, register the Fabric tenant as a source in the Microsoft Purview Data Map and scan it, authorizing the Purview managed identity through a dedicated Microsoft Entra security group. It is not required for the Fabric-native governance in this page. The setup and permissions are in <a href="https://learn.microsoft.com/purview/register-scan-power-bi-tenant">Connect to and manage a Power BI tenant in Microsoft Purview</a>; confirm the steps for Fabric items there.</p></div>
+
+    <h2 id="governance-pitfalls">Common failure modes</h2>
+    <table>
+      <thead><tr><th>Symptom</th><th>Cause</th><th>Fix</th></tr></thead>
+      <tbody>
+        <tr><td>Certified models proliferate and nobody trusts the badge</td><td>No published criteria or reviewer independence.</td><td>Publish the checklist; require a reviewer who did not build it; recertify on material change.</td></tr>
+        <tr><td>Everyone creates workspaces on a production capacity</td><td>Default create-workspace permissions.</td><td>Restrict to named groups; provision through a request process; assign by domain.</td></tr>
+        <tr><td>DLP blocks legitimate work at launch</td><td>Enforced before tuning.</td><td>Start in audit mode, tune conditions, then enforce for the highest-risk cases.</td></tr>
+        <tr><td>Labels differ between a model and its reports</td><td>Labels applied manually and inconsistently.</td><td>Set defaults and rely on downstream inheritance; make labeling mandatory for production.</td></tr>
+        <tr><td>Consumers can query raw layers</td><td>Workspace roles granted too broadly.</td><td>Separate workspaces by layer; consumers use apps or Build permission on models.</td></tr>
+        <tr><td>Governance depends on one person</td><td>Roles undefined.</td><td>Name owners per domain and capacity; document the escalation path.</td></tr>
+      </tbody>
+    </table>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p>
+      <ul>
+        <li>Put owners, domains, a tenant-setting baseline, a label policy and certification criteria in place before the first production workload.</li>
+        <li>Use the OneLake catalog for Fabric-native governance and Microsoft Purview for labels, DLP, audit and insider risk. They are complementary.</li>
+        <li>Labels apply to items and flow downstream; plan around items, and use warehouse security for column control.</li>
+        <li>Certification needs published criteria and an independent reviewer, or it becomes decoration.</li>
+        <li>Roll out DLP in audit mode first and review a short set of measures on a fixed cadence.</li>
+      </ul>
+    </div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/fabric/governance/microsoft-purview-fabric">Use Microsoft Purview with Microsoft Fabric</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/governance/governance-compliance-overview">Governance and compliance in Microsoft Fabric</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/governance/onelake-catalog-govern">Govern your Fabric data with the OneLake catalog</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/governance/endorsement-overview">Endorsement overview</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/governance/information-protection">Information protection in Microsoft Fabric</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/governance/data-loss-prevention-configure">Configure data loss prevention policies for Fabric</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/admin/track-user-activities">Track user activities in Microsoft Fabric</a></li>
+        <li><a href="https://learn.microsoft.com/purview/register-scan-power-bi-tenant">Connect to and manage a Power BI tenant in Microsoft Purview</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/fundamentals/direct-lake-security-integration">Integrate Direct Lake security</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

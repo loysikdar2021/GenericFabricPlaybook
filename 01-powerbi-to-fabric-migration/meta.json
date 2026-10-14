@@ -1,0 +1,23 @@
+{
+  "id": "01-powerbi-to-fabric-migration",
+  "number": "01",
+  "title": "Power BI to Fabric Migration",
+  "short": "Power BI to Fabric",
+  "summary": "A strategic and technical playbook for moving a Power BI Premium or Pro estate to Microsoft Fabric: capacity migration, rationalization, medallion rebuild, validation, go-live and adoption.",
+  "category": "strategy",
+  "level": "Intermediate",
+  "audience": "Platform leads, architects, BI and data engineers, program managers",
+  "readingTime": "120 min",
+  "pages": [
+    { "file": "index.html", "title": "Overview and execution map", "description": "Why the migration has two workstreams, the four execution phases, and how the pages of this playbook fit together." },
+    { "file": "strategy-licensing.html", "title": "Strategy, licensing and capacity", "description": "Strategic case, migration paths, F SKU licensing rules, cost levers, smoothing and throttling, and the Premium-to-Fabric capacity runbook." },
+    { "file": "architecture.html", "title": "Architecture and environments", "description": "Medallion layers, All-Lakehouse versus Hybrid decision matrix, workspace strategy, naming convention, Git and CI/CD foundation." },
+    { "file": "governance.html", "title": "Governance with Fabric and Purview", "description": "A govern-first framework: OneLake catalog, domains, endorsement, sensitivity labels, DLP, audit and access control." },
+    { "file": "assessment.html", "title": "Assessment and rationalization", "description": "Automated inventory, usage analysis within activity-log retention limits, the decision tree and the report rationalization matrix template." },
+    { "file": "reverse-engineering.html", "title": "Reverse-engineering legacy assets", "description": "Extract models, DAX, M, security and query patterns with Tabular Editor, DAX Studio, Semantic Link, BPA and PBIP/TMDL; write the specification and mapping documents." },
+    { "file": "build-data.html", "title": "Build the data layers", "description": "Medallion build guidance for a Power BI migration, replacing Dataflow Gen1, Warehouse SCD Type 2 pattern, and metadata-driven orchestration." },
+    { "file": "semantic-delivery.html", "title": "Semantic models and reports", "description": "Choose Import, Direct Lake or DirectQuery, rebuild certified semantic models and thin reports, rebind keepers, and migrate security." },
+    { "file": "validate-release.html", "title": "Validate, deploy and go live", "description": "Data reconciliation, functional, performance and security QA, UAT, production deployment, parallel run and decommissioning." },
+    { "file": "adoption-plan.html", "title": "Change, support and project plan", "description": "Communication and training plan, post-migration support model, a phased project plan template with a relative-week timeline, and checklists." }
+  ]
+}

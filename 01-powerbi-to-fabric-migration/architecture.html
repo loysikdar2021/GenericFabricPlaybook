@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Architecture and environments · Power BI to Fabric</title>
+<meta name="description" content="Target architecture for a Power BI migration: medallion layers, the All-Lakehouse versus Hybrid decision matrix, workspace strategy and naming, and the Git and CI/CD foundation for DEV, TST and PRD.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="01-powerbi-to-fabric-migration" data-page="architecture.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 01 · Power BI to Fabric</p>
+      <h1>Target architecture and environments</h1>
+      <p class="lede">The layers your data moves through, the choice between an All-Lakehouse and a Hybrid pattern, how to cut workspaces so access and releases stay manageable, and the Git and deployment foundation you need before the first asset is rebuilt.</p>
+      <ul class="chips"><li><b>Phase</b> I and II · Foundation, Implementation</li><li><b>Audience</b> architects, platform leads</li><li><b>Output</b> architecture decision record, workspace map, CI/CD design</li></ul>
+    </header>
+
+    <h2 id="medallion-layers">Medallion layers and where they live</h2>
+    <p>The medallion pattern organizes data into layers that progressively improve structure and quality. In Fabric the layers are a convention you implement with items and workspaces, not a product feature. This playbook uses five layer codes so that workspace and item names read the same way across the whole estate.</p>
+    <table>
+      <thead><tr><th>Layer</th><th>Code</th><th>Contents</th><th>Item types</th><th>Written by</th><th>Read by</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Bronze</strong></td><td><code>BRZ</code></td><td>Source data as delivered: unaltered, append-only history, minimal validation. Schema drift is tolerated and recorded.</td><td>Lakehouse</td><td>Pipelines (Copy), mirroring, shortcuts</td><td>Data engineers</td></tr>
+        <tr><td><strong>Silver</strong></td><td><code>SLV</code></td><td>Validated, typed, deduplicated and conformed data. Business rules applied; bad records quarantined or flagged.</td><td>Lakehouse</td><td>Spark notebooks, Spark SQL</td><td>Engineers, data scientists, ad-hoc analysis</td></tr>
+        <tr><td><strong>Gold</strong></td><td><code>GLD</code></td><td>Curated business entities and conformed dimensions ready for reuse across domains.</td><td>Lakehouse</td><td>Notebooks or T-SQL</td><td>BI developers, data science</td></tr>
+        <tr><td><strong>Consumption</strong></td><td><code>CNSM</code></td><td>Serving structures: the star-schema warehouse, semantic models, and any lakehouse built for data science.</td><td>Warehouse, semantic model, lakehouse</td><td>T-SQL, modeling tools</td><td>BI developers, report builders</td></tr>
+        <tr><td><strong>Delivery</strong></td><td><code>DLV</code></td><td>Thin reports, paginated reports and apps for end users.</td><td>Report, paginated report, app</td><td>Report developers</td><td>Business users</td></tr>
+      </tbody>
+    </table>
+    <p>Some organizations add a specialized "platinum" layer for narrowly shaped data products. Treat that as another layer with its own workspace and naming code, not as a different technology. Small estates can fold Gold into Consumption; do it deliberately and keep the star schema as the contract.</p>
+
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 312" role="img" aria-label="Target architecture: sources are copied by pipelines into a Bronze lakehouse, refined by Spark into Silver and Gold lakehouses, modeled by T-SQL into a consumption warehouse and certified semantic model, and served live to thin reports; each layer is its own workspace and a hub pipeline sequences them">
+        <defs>
+          <marker id="fig-arch-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-arch-1-t" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar teal" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box teal" x="140" y="8" width="740" height="34" rx="8"/>
+        <text class="t-b" x="510" y="30" text-anchor="middle">Hub pipeline (PRD_ORCH_HUB) sequences the spokes and owns retries</text>
+        <path class="ln teal" d="M194 42V60" marker-end="url(#fig-arch-1-t)"/>
+        <path class="ln teal" d="M352 42V60" marker-end="url(#fig-arch-1-t)"/>
+        <path class="ln teal" d="M510 42V60" marker-end="url(#fig-arch-1-t)"/>
+        <path class="ln teal" d="M668 42V60" marker-end="url(#fig-arch-1-t)"/>
+        <path class="ln teal" d="M826 42V60" marker-end="url(#fig-arch-1-t)"/>
+
+        <rect class="box gray" x="10" y="123" width="80" height="60" rx="10"/>
+        <text class="t-b" x="50" y="150" text-anchor="middle">Sources</text>
+        <text class="t-s" x="50" y="168" text-anchor="middle">DBs, files</text>
+
+        <rect class="zone" x="140" y="62" width="108" height="236" rx="10"/>
+        <text class="t-h" x="194" y="84" text-anchor="middle">Bronze</text>
+        <text class="t-m" x="194" y="100" text-anchor="middle">PRD_SALES_BRZ</text>
+        <rect class="box bronze" x="146" y="116" width="96" height="74" rx="8"/>
+        <text class="t-b" x="194" y="140" text-anchor="middle">Lakehouse</text>
+        <text class="t-m" x="194" y="158" text-anchor="middle">LH_SALES_BRZ</text>
+        <text class="t-s" x="194" y="176" text-anchor="middle">raw history</text>
+
+        <rect class="zone" x="298" y="62" width="108" height="236" rx="10"/>
+        <text class="t-h" x="352" y="84" text-anchor="middle">Silver</text>
+        <text class="t-m" x="352" y="100" text-anchor="middle">PRD_SALES_SLV</text>
+        <rect class="box silver" x="304" y="116" width="96" height="74" rx="8"/>
+        <text class="t-b" x="352" y="140" text-anchor="middle">Lakehouse</text>
+        <text class="t-m" x="352" y="158" text-anchor="middle">LH_SALES_SLV</text>
+        <text class="t-s" x="352" y="176" text-anchor="middle">conformed</text>
+
+        <rect class="zone" x="456" y="62" width="108" height="236" rx="10"/>
+        <text class="t-h" x="510" y="84" text-anchor="middle">Gold</text>
+        <text class="t-m" x="510" y="100" text-anchor="middle">PRD_SALES_GLD</text>
+        <rect class="box gold" x="462" y="116" width="96" height="74" rx="8"/>
+        <text class="t-b" x="510" y="140" text-anchor="middle">Lakehouse</text>
+        <text class="t-m" x="510" y="158" text-anchor="middle">LH_SALES_GLD</text>
+        <text class="t-s" x="510" y="176" text-anchor="middle">curated</text>
+
+        <rect class="zone" x="614" y="62" width="108" height="236" rx="10"/>
+        <text class="t-h" x="668" y="84" text-anchor="middle">Consumption</text>
+        <text class="t-m" x="668" y="100" text-anchor="middle">PRD_SALES_CNSM</text>
+        <rect class="box blue" x="620" y="116" width="96" height="74" rx="8"/>
+        <text class="t-b" x="668" y="140" text-anchor="middle">Warehouse</text>
+        <text class="t-m" x="668" y="158" text-anchor="middle">WH_SALES_CNSM</text>
+        <text class="t-s" x="668" y="176" text-anchor="middle">star schema</text>
+        <rect class="box green" x="620" y="216" width="96" height="74" rx="8"/>
+        <text class="t-b" x="668" y="240" text-anchor="middle">Model</text>
+        <text class="t-m" x="668" y="258" text-anchor="middle">SM_SALES_CNSM</text>
+        <text class="t-s" x="668" y="276" text-anchor="middle">certified</text>
+
+        <rect class="zone" x="772" y="62" width="108" height="236" rx="10"/>
+        <text class="t-h" x="826" y="84" text-anchor="middle">Delivery</text>
+        <text class="t-m" x="826" y="100" text-anchor="middle">PRD_SALES_DLV</text>
+        <rect class="box" x="778" y="116" width="96" height="74" rx="8"/>
+        <text class="t-b" x="826" y="146" text-anchor="middle">App</text>
+        <text class="t-s" x="826" y="166" text-anchor="middle">audiences</text>
+        <rect class="box" x="778" y="216" width="96" height="74" rx="8"/>
+        <text class="t-b" x="826" y="240" text-anchor="middle">Reports</text>
+        <text class="t-m" x="826" y="258" text-anchor="middle">RPT_SALES_DLV</text>
+        <text class="t-s" x="826" y="276" text-anchor="middle">thin, live</text>
+
+        <path class="ln" d="M90 153H144" marker-end="url(#fig-arch-1-a)"/>
+        <path class="ln" d="M242 153H302" marker-end="url(#fig-arch-1-a)"/>
+        <path class="ln" d="M400 153H460" marker-end="url(#fig-arch-1-a)"/>
+        <path class="ln" d="M558 153H618" marker-end="url(#fig-arch-1-a)"/>
+        <path class="ln" d="M668 190V214" marker-end="url(#fig-arch-1-a)"/>
+        <path class="ln" d="M716 253H776" marker-end="url(#fig-arch-1-a)"/>
+        <path class="ln" d="M826 216V192" marker-end="url(#fig-arch-1-a)"/>
+        <text class="t-s" x="117" y="144" text-anchor="middle">copy</text>
+        <text class="t-s" x="272" y="144" text-anchor="middle">Spark</text>
+        <text class="t-s" x="430" y="144" text-anchor="middle">Spark</text>
+        <text class="t-s" x="588" y="144" text-anchor="middle">T-SQL</text>
+        <text class="t-s" x="690" y="206">reads</text>
+        <text class="t-s" x="746" y="244" text-anchor="middle">live</text>
+      </svg>
+      <figcaption><b>Hybrid target state.</b> Every layer is its own workspace so access, capacity and release cadence can differ by layer. The hub pipeline lives in a separate orchestration workspace; see <a href="../04-cross-workspace-orchestration/index.html">Cross-Workspace Orchestration</a>.</figcaption>
+    </figure>
+
+    <div class="callout learn"><p class="callout-title">Correction to a common recommendation</p><p>Many guides tell you to land Bronze as <em>partitioned</em> Delta tables by default. Partitioning small or medium tables produces many small files and slows reads. Partition only large tables, on a stable, low-cardinality column that queries actually filter on, and compact regularly. See <a href="../08-delta-partitioning/index.html">Delta Lake Partitioning Strategy</a> and <a href="../03-medallion-architecture/index.html">Medallion Architecture</a> for the layer-level detail.</p></div>
+
+    <h2 id="pattern-decision">All-Lakehouse or Hybrid</h2>
+    <p>The only real architectural fork is the technology used to shape the Gold and Consumption layers. Bronze and Silver are lakehouses in both patterns.</p>
+    <ul>
+      <li><strong>Pattern 1, All-Lakehouse.</strong> Gold is a lakehouse written by Spark. Consumers reach it through the lakehouse's SQL analytics endpoint (read-only T-SQL) or through a Direct Lake semantic model.</li>
+      <li><strong>Pattern 2, Hybrid.</strong> Gold-and-above is a Fabric Warehouse built with T-SQL (CTAS, INSERT, UPDATE, DELETE, MERGE, stored procedures) from Silver lakehouse tables. Consumers use the warehouse's SQL endpoint, or a Direct Lake semantic model over its tables.</li>
+    </ul>
+    <p>Both store their tables as Delta in OneLake and both can feed Direct Lake. The choice is therefore about who builds and maintains the transformation logic and which engine runs it, not about storage format.</p>
+
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 372" role="img" aria-label="Side by side: in the All-Lakehouse pattern Spark notebooks write gold lakehouse tables that have a read-only SQL endpoint; in the Hybrid pattern T-SQL in the warehouse writes warehouse tables with full DML; both feed a Direct Lake semantic model">
+        <defs>
+          <marker id="fig-arch-2-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <text class="t-h" x="20" y="22">Pattern 1: All-Lakehouse</text>
+        <rect class="zone" x="10" y="34" width="430" height="326" rx="12"/>
+        <rect class="box silver" x="50" y="50" width="350" height="44" rx="8"/>
+        <text class="t-b" x="225" y="77" text-anchor="middle">Silver lakehouse</text>
+        <rect class="box accent" x="50" y="120" width="350" height="54" rx="8"/>
+        <text class="t-h t-w" x="225" y="144" text-anchor="middle">Spark notebooks</text>
+        <text class="t-s t-w" x="225" y="162" text-anchor="middle">PySpark or Spark SQL, Delta MERGE</text>
+        <rect class="box gold" x="50" y="202" width="350" height="62" rx="8"/>
+        <text class="t-b" x="225" y="228" text-anchor="middle">Gold lakehouse tables</text>
+        <text class="t-s" x="225" y="248" text-anchor="middle">SQL analytics endpoint is read-only T-SQL</text>
+        <rect class="box green" x="50" y="300" width="350" height="44" rx="8"/>
+        <text class="t-b" x="225" y="327" text-anchor="middle">Direct Lake semantic model</text>
+        <path class="ln" d="M225 94V118" marker-end="url(#fig-arch-2-a)"/>
+        <path class="ln" d="M225 174V200" marker-end="url(#fig-arch-2-a)"/>
+        <path class="ln" d="M225 264V298" marker-end="url(#fig-arch-2-a)"/>
+        <text class="t-s" x="233" y="110">read</text>
+        <text class="t-s" x="233" y="192">write</text>
+        <text class="t-s" x="233" y="286">serve</text>
+
+        <text class="t-h" x="480" y="22">Pattern 2: Hybrid</text>
+        <rect class="zone" x="460" y="34" width="430" height="326" rx="12"/>
+        <rect class="box silver" x="500" y="50" width="350" height="44" rx="8"/>
+        <text class="t-b" x="675" y="77" text-anchor="middle">Silver lakehouse</text>
+        <rect class="box accent" x="500" y="120" width="350" height="54" rx="8"/>
+        <text class="t-h t-w" x="675" y="144" text-anchor="middle">T-SQL in the Warehouse</text>
+        <text class="t-s t-w" x="675" y="162" text-anchor="middle">CTAS, MERGE, stored procedures</text>
+        <rect class="box gold" x="500" y="202" width="350" height="62" rx="8"/>
+        <text class="t-b" x="675" y="228" text-anchor="middle">Warehouse tables (Delta in OneLake)</text>
+        <text class="t-s" x="675" y="248" text-anchor="middle">full T-SQL DML, multi-table transactions</text>
+        <rect class="box green" x="500" y="300" width="350" height="44" rx="8"/>
+        <text class="t-b" x="675" y="327" text-anchor="middle">Direct Lake semantic model</text>
+        <path class="ln" d="M675 94V118" marker-end="url(#fig-arch-2-a)"/>
+        <path class="ln" d="M675 174V200" marker-end="url(#fig-arch-2-a)"/>
+        <path class="ln" d="M675 264V298" marker-end="url(#fig-arch-2-a)"/>
+        <text class="t-s" x="683" y="110">read</text>
+        <text class="t-s" x="683" y="192">write</text>
+        <text class="t-s" x="683" y="286">serve</text>
+      </svg>
+      <figcaption><b>The edge that changes.</b> Only the highlighted step differs: who writes the star schema and with which engine. Storage, Direct Lake and the semantic model are the same on both sides.</figcaption>
+    </figure>
+
+    <h3 id="decision-matrix">Architectural pattern decision matrix</h3>
+    <table>
+      <thead><tr><th>Criterion</th><th>All-Lakehouse (Spark)</th><th>Hybrid (T-SQL Warehouse)</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Primary skills</strong></td><td>PySpark, Spark SQL, data engineering</td><td>T-SQL, dimensional modeling, BI development</td></tr>
+        <tr><td><strong>Typical use</strong></td><td>Mixed BI and data science, large-scale ETL</td><td>Enterprise BI, reporting, SQL-first analytics</td></tr>
+        <tr><td><strong>Transformation engine</strong></td><td>Spark notebooks and jobs</td><td>Warehouse T-SQL: CTAS, INSERT/UPDATE/DELETE, MERGE, stored procedures</td></tr>
+        <tr><td><strong>DML on the serving tables</strong></td><td>Delta <code>MERGE</code>, <code>UPDATE</code>, <code>DELETE</code> from Spark; the SQL analytics endpoint is read-only for tables</td><td>Full T-SQL DML subject to the Warehouse T-SQL surface area</td></tr>
+        <tr><td><strong>Transaction scope</strong></td><td>ACID per Delta table</td><td>Multi-table transactions with snapshot isolation; table-level locking means concurrent writers to one table can conflict</td></tr>
+        <tr><td><strong>BI query path</strong></td><td>Direct Lake over Delta; SQL endpoint for T-SQL consumers</td><td>Direct Lake over warehouse tables; SQL endpoint for T-SQL consumers and DirectQuery</td></tr>
+        <tr><td><strong>Schema handling</strong></td><td>Delta enforces schema on write; flexible schema evolution; unstructured Files area available</td><td>Schema defined by T-SQL DDL; changes are explicit</td></tr>
+        <tr><td><strong>Data science access</strong></td><td>Native Spark and Python notebooks</td><td>Data is Delta in OneLake, so Spark can read it; authoring stays in T-SQL</td></tr>
+        <tr><td><strong>Security surface</strong></td><td>Workspace roles, OneLake data access roles, SQL endpoint permissions</td><td>Adds T-SQL GRANT/DENY, row-level and column-level security on the warehouse</td></tr>
+        <tr><td><strong>Overall complexity</strong></td><td>Higher for traditional BI teams</td><td>Lower for traditional BI teams</td></tr>
+      </tbody>
+    </table>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>The Warehouse supports a subset of SQL Server T-SQL, and that subset grows. Check <a href="https://learn.microsoft.com/fabric/data-warehouse/tsql-surface-area">T-SQL surface area in Fabric Data Warehouse</a> and <a href="https://learn.microsoft.com/fabric/data-warehouse/limitations">Limitations</a> before committing logic to a feature. Also check how a warehouse reads Silver in your topology (same-workspace cross-database queries, shortcuts, or pipeline copy).</p></div>
+
+    <h3 id="decision-rules">How to decide</h3>
+    <ul>
+      <li><strong>Start with the people who will maintain the star schema.</strong> If they are BI developers fluent in T-SQL and migrating from import models, choose Hybrid. If they are Spark engineers who also serve data science, choose All-Lakehouse. Forcing an unfamiliar paradigm on the team is the main risk in either direction.</li>
+      <li><strong>Do not make it a religious choice.</strong> One domain can be Hybrid while another is All-Lakehouse. Both write Delta to OneLake and both feed the same kind of semantic model.</li>
+      <li><strong>Keep Bronze and Silver as lakehouses.</strong> The Hybrid pattern is about Gold and above, not about replacing the lakehouse.</li>
+      <li><strong>Write the decision down</strong> as an architecture decision record: context, options, decision, consequences, and who can revisit it.</li>
+    </ul>
+
+    <h2 id="workspace-strategy">Workspace strategy</h2>
+    <p>Workspaces are the unit of access control, capacity assignment, Git connection and deployment. There are two common ways to cut them.</p>
+    <table>
+      <thead><tr><th></th><th>Option A: one workspace per environment</th><th>Option B: one workspace per layer per environment</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Shape</strong></td><td><code>DEV_SALES</code>, <code>TST_SALES</code>, <code>PRD_SALES</code> hold every layer as items.</td><td><code>DEV_SALES_BRZ</code> through <code>PRD_SALES_DLV</code>: five layers by three environments.</td></tr>
+        <tr><td><strong>Strengths</strong></td><td>Few workspaces and pipelines; simple lineage; fewer cross-workspace references.</td><td>Least-privilege access by layer; consumers never see raw data; independent capacities and release cadence; smaller blast radius; fits the hub-and-spoke orchestration.</td></tr>
+        <tr><td><strong>Costs</strong></td><td>Everyone with access to the workspace sees every layer; one item-count ceiling; one Git repository folder for everything; any release deploys everything.</td><td>More objects to manage; cross-workspace references (shortcuts, default lakehouse, pipeline targets) must be parameterized per environment.</td></tr>
+        <tr><td><strong>Choose it when</strong></td><td>One small team owns the whole domain end to end.</td><td>Several roles with different access, regulated or sensitive data, or a shared platform with many domains.</td></tr>
+      </tbody>
+    </table>
+    <p>This playbook family uses Option B, because migrations usually exist to give business users governed access to curated data without handing them raw data. If you choose Option A, keep the same item names and the same environment suffixes so the rest of the guidance still applies.</p>
+
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 346" role="img" aria-label="Grid of workspaces: five layers by three environments for the SALES domain, with one deployment pipeline per layer promoting DEV to TST to PRD, and only the DEV workspaces connected to Git">
+        <defs>
+          <marker id="fig-arch-3-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar teal" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <text class="t-h" x="180" y="22" text-anchor="middle">DEV</text>
+        <text class="t-s" x="180" y="36" text-anchor="middle">Git-connected</text>
+        <text class="t-h" x="390" y="22" text-anchor="middle">TST</text>
+        <text class="t-s" x="390" y="36" text-anchor="middle">UAT and testing</text>
+        <text class="t-h" x="600" y="22" text-anchor="middle">PRD</text>
+        <text class="t-s" x="600" y="36" text-anchor="middle">production</text>
+        <text class="t-h" x="800" y="22" text-anchor="middle">Promotion pipeline</text>
+
+        <rect class="lane" x="10" y="44" width="880" height="50" rx="8"/>
+        <rect class="box bronze" x="90" y="50" width="180" height="38" rx="8"/><text class="t-m" x="180" y="74" text-anchor="middle">DEV_SALES_BRZ</text>
+        <rect class="box bronze" x="300" y="50" width="180" height="38" rx="8"/><text class="t-m" x="390" y="74" text-anchor="middle">TST_SALES_BRZ</text>
+        <rect class="box bronze" x="510" y="50" width="180" height="38" rx="8"/><text class="t-m" x="600" y="74" text-anchor="middle">PRD_SALES_BRZ</text>
+        <text class="t-m" x="800" y="74" text-anchor="middle">DPLY_SALES_BRZ</text>
+        <path class="ln teal" d="M270 69H298" marker-end="url(#fig-arch-3-a)"/>
+        <path class="ln teal" d="M480 69H508" marker-end="url(#fig-arch-3-a)"/>
+
+        <rect class="lane" x="10" y="100" width="880" height="50" rx="8"/>
+        <rect class="box silver" x="90" y="106" width="180" height="38" rx="8"/><text class="t-m" x="180" y="130" text-anchor="middle">DEV_SALES_SLV</text>
+        <rect class="box silver" x="300" y="106" width="180" height="38" rx="8"/><text class="t-m" x="390" y="130" text-anchor="middle">TST_SALES_SLV</text>
+        <rect class="box silver" x="510" y="106" width="180" height="38" rx="8"/><text class="t-m" x="600" y="130" text-anchor="middle">PRD_SALES_SLV</text>
+        <text class="t-m" x="800" y="130" text-anchor="middle">DPLY_SALES_SLV</text>
+        <path class="ln teal" d="M270 125H298" marker-end="url(#fig-arch-3-a)"/>
+        <path class="ln teal" d="M480 125H508" marker-end="url(#fig-arch-3-a)"/>
+
+        <rect class="lane" x="10" y="156" width="880" height="50" rx="8"/>
+        <rect class="box gold" x="90" y="162" width="180" height="38" rx="8"/><text class="t-m" x="180" y="186" text-anchor="middle">DEV_SALES_GLD</text>
+        <rect class="box gold" x="300" y="162" width="180" height="38" rx="8"/><text class="t-m" x="390" y="186" text-anchor="middle">TST_SALES_GLD</text>
+        <rect class="box gold" x="510" y="162" width="180" height="38" rx="8"/><text class="t-m" x="600" y="186" text-anchor="middle">PRD_SALES_GLD</text>
+        <text class="t-m" x="800" y="186" text-anchor="middle">DPLY_SALES_GLD</text>
+        <path class="ln teal" d="M270 181H298" marker-end="url(#fig-arch-3-a)"/>
+        <path class="ln teal" d="M480 181H508" marker-end="url(#fig-arch-3-a)"/>
+
+        <rect class="lane" x="10" y="212" width="880" height="50" rx="8"/>
+        <rect class="box blue" x="90" y="218" width="180" height="38" rx="8"/><text class="t-m" x="180" y="242" text-anchor="middle">DEV_SALES_CNSM</text>
+        <rect class="box blue" x="300" y="218" width="180" height="38" rx="8"/><text class="t-m" x="390" y="242" text-anchor="middle">TST_SALES_CNSM</text>
+        <rect class="box blue" x="510" y="218" width="180" height="38" rx="8"/><text class="t-m" x="600" y="242" text-anchor="middle">PRD_SALES_CNSM</text>
+        <text class="t-m" x="800" y="242" text-anchor="middle">DPLY_SALES_CNSM</text>
+        <path class="ln teal" d="M270 237H298" marker-end="url(#fig-arch-3-a)"/>
+        <path class="ln teal" d="M480 237H508" marker-end="url(#fig-arch-3-a)"/>
+
+        <rect class="lane" x="10" y="268" width="880" height="50" rx="8"/>
+        <rect class="box green" x="90" y="274" width="180" height="38" rx="8"/><text class="t-m" x="180" y="298" text-anchor="middle">DEV_SALES_DLV</text>
+        <rect class="box green" x="300" y="274" width="180" height="38" rx="8"/><text class="t-m" x="390" y="298" text-anchor="middle">TST_SALES_DLV</text>
+        <rect class="box green" x="510" y="274" width="180" height="38" rx="8"/><text class="t-m" x="600" y="298" text-anchor="middle">PRD_SALES_DLV</text>
+        <text class="t-m" x="800" y="298" text-anchor="middle">DPLY_SALES_DLV</text>
+        <path class="ln teal" d="M270 293H298" marker-end="url(#fig-arch-3-a)"/>
+        <path class="ln teal" d="M480 293H508" marker-end="url(#fig-arch-3-a)"/>
+
+        <text class="t-s" x="450" y="338" text-anchor="middle">Orchestration hubs sit in their own workspaces (DEV_ORCH_HUB, TST_ORCH_HUB, PRD_ORCH_HUB)</text>
+      </svg>
+      <figcaption><b>One domain, fifteen workspaces.</b> The count looks high until you see that each cell has a different audience. Consumers get PRD_SALES_DLV; engineers get BRZ and SLV; BI developers get CNSM and DLV.</figcaption>
+    </figure>
+
+    <h3 id="naming">Naming convention</h3>
+    <p>Decide names once, enforce them in code review, and put them in the Git repository so the next team inherits them. Fabric item names are part of lineage, search and every error message.</p>
+    <table>
+      <thead><tr><th>Object</th><th>Pattern</th><th>Examples</th></tr></thead>
+      <tbody>
+        <tr><td>Workspace</td><td><code>&lt;ENV&gt;_&lt;DOMAIN&gt;_&lt;LAYER&gt;[_&lt;Qualifier&gt;]</code>; ENV is DEV, TST or PRD; LAYER is BRZ, SLV, GLD, CNSM or DLV</td><td><code>DEV_SALES_BRZ</code>, <code>PRD_SALES_GLD</code>, <code>PRD_FINANCE_CNSM</code></td></tr>
+        <tr><td>Item</td><td><code>&lt;ARTIFACT&gt;_&lt;DOMAIN&gt;_&lt;LAYER&gt;_&lt;Function&gt;</code></td><td><code>LH_SALES_BRZ</code>, <code>NB_SALES_SLV_ConformOrders</code>, <code>PL_SALES_BRZ_IngestOrders</code>, <code>WH_SALES_CNSM</code>, <code>SM_SALES_CNSM_Orders</code>, <code>RPT_SALES_DLV_Executive</code></td></tr>
+        <tr><td>Artifact codes</td><td>LH lakehouse, WH warehouse, NB notebook, PL pipeline, DFL dataflow, SM semantic model, RPT report, ENV environment, VL variable library, ES eventstream, SJ Spark job definition</td><td></td></tr>
+        <tr><td>Orchestration workspace</td><td><code>&lt;ENV&gt;_ORCH_HUB</code></td><td><code>PRD_ORCH_HUB</code></td></tr>
+        <tr><td>Deployment pipeline</td><td><code>DPLY_&lt;DOMAIN&gt;_&lt;LAYER&gt;</code></td><td><code>DPLY_SALES_GLD</code></td></tr>
+      </tbody>
+    </table>
+
+    <h3 id="domains-capacity-access">Domains, capacity and access</h3>
+    <ul>
+      <li><strong>Domains.</strong> Assign every workspace to a Fabric domain that matches the business area (Sales, Finance, HR). Domains give you federated ownership: domain admins can be delegated some governance settings, including who may certify items. See <a href="governance.html#domains">Governance</a>.</li>
+      <li><strong>Capacity.</strong> Assign by environment first: production workspaces to a production capacity, DEV and TST to a non-production capacity that can be paused. Isolate heavy engineering layers from interactive Delivery workspaces if they would otherwise compete.</li>
+      <li><strong>Access.</strong> Use security groups, not individuals, and grant by layer.</li>
+    </ul>
+    <table>
+      <thead><tr><th>Layer</th><th>Typical audience</th><th>Workspace roles</th></tr></thead>
+      <tbody>
+        <tr><td>BRZ, SLV</td><td>Data engineers, platform team</td><td>Admin and Member for engineers; no business users</td></tr>
+        <tr><td>GLD</td><td>Engineers, BI developers, data scientists</td><td>Contributor for BI developers; read access to tables through item permissions rather than workspace roles where possible</td></tr>
+        <tr><td>CNSM</td><td>BI developers, semantic model owners</td><td>Contributor or Member; Build permission on models for report builders</td></tr>
+        <tr><td>DLV</td><td>Report developers; business users through apps</td><td>Contributor for developers; Viewer or app audiences for consumers</td></tr>
+      </tbody>
+    </table>
+    <p>Report consumers never need access to the lakehouses behind a semantic model, provided the model uses an appropriate identity for reading data. See <a href="semantic-delivery.html#security">Semantic models and reports</a> and the <a href="../16-tenant-settings/index.html">Tenant Settings Reference</a>.</p>
+
+    <h2 id="environment-cicd">Environment and CI/CD foundation</h2>
+    <p>Do this before the first rebuilt asset. Retrofitting source control onto a team that has been publishing PBIX files from desktops is harder than starting with it, and a team that bypasses Git undermines every deployment guarantee downstream.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 330" role="img" aria-label="Three lanes: in Git a feature branch becomes a pull request and merges to main; in Fabric a branch workspace feeds the branch, main syncs to DEV, and DEV promotes to TST and PRD; automation workflows deploy to TST and PRD with an approval gate">
+        <defs>
+          <marker id="fig-arch-4-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-arch-4-t" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar teal" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="lane" x="10" y="10" width="880" height="96" rx="8"/>
+        <text class="t-h" x="22" y="30">Git (GitHub or Azure DevOps)</text>
+        <rect class="box purple" x="20" y="44" width="140" height="48" rx="8"/><text class="t-b" x="90" y="73" text-anchor="middle">Feature branch</text>
+        <rect class="box purple" x="200" y="44" width="140" height="48" rx="8"/><text class="t-b" x="270" y="73" text-anchor="middle">Pull request</text>
+        <rect class="box purple" x="380" y="44" width="140" height="48" rx="8"/><text class="t-b" x="450" y="73" text-anchor="middle">main (protected)</text>
+        <path class="ln" d="M160 68H198" marker-end="url(#fig-arch-4-a)"/>
+        <path class="ln" d="M340 68H378" marker-end="url(#fig-arch-4-a)"/>
+        <text class="t-s" x="179" y="60" text-anchor="middle">open</text>
+        <text class="t-s" x="359" y="60" text-anchor="middle">merge</text>
+
+        <rect class="lane" x="10" y="118" width="880" height="96" rx="8"/>
+        <text class="t-h" x="22" y="138">Fabric workspaces</text>
+        <rect class="box blue" x="20" y="152" width="140" height="48" rx="8"/><text class="t-b" x="90" y="181" text-anchor="middle">Branch workspace</text>
+        <rect class="box blue" x="380" y="152" width="140" height="48" rx="8"/><text class="t-b" x="450" y="181" text-anchor="middle">DEV</text>
+        <rect class="box blue" x="560" y="152" width="140" height="48" rx="8"/><text class="t-b" x="630" y="181" text-anchor="middle">TST</text>
+        <rect class="box blue" x="740" y="152" width="140" height="48" rx="8"/><text class="t-b" x="810" y="181" text-anchor="middle">PRD</text>
+        <path class="ln" d="M90 152V94" marker-start="url(#fig-arch-4-a)" marker-end="url(#fig-arch-4-a)"/>
+        <rect class="pill-bg" x="98" y="116" width="86" height="14"/>
+        <text class="t-s" x="102" y="127">commit, sync</text>
+        <path class="ln" d="M450 94V150" marker-end="url(#fig-arch-4-a)"/>
+        <text class="t-s" x="458" y="124">sync</text>
+        <path class="ln" d="M520 176H558" marker-end="url(#fig-arch-4-a)"/>
+        <path class="ln" d="M700 176H738" marker-end="url(#fig-arch-4-a)"/>
+        <text class="t-s" x="539" y="168" text-anchor="middle">promote</text>
+        <text class="t-s" x="719" y="168" text-anchor="middle">promote</text>
+
+        <rect class="lane" x="10" y="226" width="880" height="94" rx="8"/>
+        <text class="t-h" x="22" y="246">Automation (service principal)</text>
+        <rect class="box teal" x="380" y="260" width="140" height="48" rx="8"/><text class="t-b" x="450" y="282" text-anchor="middle">Merge workflow</text><text class="t-s" x="450" y="298" text-anchor="middle">tests, build</text>
+        <rect class="box teal" x="560" y="260" width="140" height="48" rx="8"/><text class="t-b" x="630" y="282" text-anchor="middle">Deploy to TST</text><text class="t-s" x="630" y="298" text-anchor="middle">smoke tests</text>
+        <rect class="box orange" x="740" y="260" width="140" height="48" rx="8"/><text class="t-b" x="810" y="282" text-anchor="middle">Approve, deploy</text><text class="t-s" x="810" y="298" text-anchor="middle">to PRD</text>
+        <path class="ln teal" d="M520 284H558" marker-end="url(#fig-arch-4-t)"/>
+        <path class="ln teal" d="M700 284H738" marker-end="url(#fig-arch-4-t)"/>
+        <path class="ln teal" d="M630 260V202" marker-end="url(#fig-arch-4-t)"/>
+        <path class="ln teal" d="M810 260V202" marker-end="url(#fig-arch-4-t)"/>
+      </svg>
+      <figcaption><b>Release path.</b> Developers work in branch workspaces and merge by pull request; only DEV tracks <code>main</code>. TST and PRD are populated by a deployment pipeline or an automation workflow, never by hand.</figcaption>
+    </figure>
+
+    <ol class="steps">
+      <li><strong>Provision the workspaces and assign capacity</strong><p>Create the workspaces for the domain with the naming convention, attach each to the right capacity, set the domain, and grant roles through security groups. Confirm the tenant settings that gate this work are enabled for the right people: creating Fabric items, creating workspaces, and synchronizing items with Git.</p></li>
+      <li><strong>Connect DEV to Git</strong><p>Connect each DEV workspace to its own folder in the repository, on the <code>main</code> branch. Use a short-lived feature-branch model (GitHub Flow or a simplified Git Flow): <code>main</code> is always releasable, work happens on feature or fix branches, and every change merges by pull request. Developers use "branch out" to get an isolated workspace for a branch, so one person's work-in-progress never breaks another's.</p></li>
+      <li><strong>Protect <code>main</code></strong><p>Require pull requests, at least one reviewer from the owning team, and passing checks. Use a CODEOWNERS file to route reviews; see <a href="../17-pr-notifications-codeowners/index.html">Pull-Request Notifications with CODEOWNERS</a> and <a href="../05-github-integration/index.html">GitHub Integration and Branching</a>.</p></li>
+      <li><strong>Create one deployment pipeline per domain and layer</strong><p>Assign the DEV, TST and PRD workspaces to the three stages of <code>DPLY_&lt;DOMAIN&gt;_&lt;LAYER&gt;</code>. Deployment pipelines compare stages, show differences and promote selected items. Details are in <a href="../07-deployment/index.html">Deployment Pipelines and Promotion</a>.</p></li>
+      <li><strong>Parameterize what differs between stages</strong><p>Deployment rules exist for only a few item types, so do not rely on them for everything. Prefer variable libraries for connection endpoints, workspace and lakehouse references, and feature switches. See <a href="../09-variable-libraries/index.html">Variable Libraries</a>.</p></li>
+      <li><strong>Automate when the manual path is stable</strong><p>A workflow triggered by merges authenticates with a service principal and calls Fabric APIs, or uses the open-source <code>fabric-cicd</code> library, to publish from Git into TST and then, after approval, PRD. It costs more to set up and gives you an auditable, repeatable release. Start manual, then automate the path that is already boring.</p></li>
+    </ol>
+
+    <h3 id="release-options">Three ways to move content between stages</h3>
+    <table>
+      <thead><tr><th>Mechanism</th><th>How it works</th><th>Choose when</th><th>Watch out for</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Deployment pipelines</strong></td><td>Fabric-native stages with comparison, selective promotion and rules.</td><td>BI-heavy teams who want a visual release process.</td><td>Rules cover only dataflows Gen1, semantic models, paginated reports, mirrored databases and notebook default lakehouse. Everything else needs variables.</td></tr>
+        <tr><td><strong>Code-first from Git (API or fabric-cicd)</strong></td><td>A workflow publishes item definitions from the repository to a target workspace with per-environment parameter replacement.</td><td>Engineering-led teams, many workspaces per release, strict audit needs.</td><td>You own the pipeline code. Orphan cleanup can delete items, so test it outside PRD first.</td></tr>
+        <tr><td><strong>Git-connected stages</strong></td><td>Each stage workspace tracks its own branch; promotion is a merge.</td><td>Teams that want Git history to be the only release record.</td><td>Environment differences must still be parameterized; data and runtime state are not in Git.</td></tr>
+      </tbody>
+    </table>
+
+    <h3 id="cicd-example">Example: GitHub Actions with fabric-cicd</h3>
+    <p>This sketch publishes one workspace folder to TST on merge and to PRD after an environment approval. The repository layout (<code>workspaces/SALES_SLV</code>) and secrets are placeholders.</p>
+    <div class="tabs">
+      <div class="tab" data-title="Workflow">
+<pre data-title=".github/workflows/deploy-sales-slv.yml"><code class="language-yaml">name: deploy-sales-slv
+on:
+  push:
+    branches: [main]
+    paths: ["workspaces/SALES_SLV/**"]
+permissions:
+  id-token: write      # OIDC federation to Microsoft Entra ID
+  contents: read
+jobs:
+  deploy-tst:
+    runs-on: ubuntu-latest
+    environment: tst
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install fabric-cicd azure-identity   # pin a tested version
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          allow-no-subscriptions: true
+      - run: >
+          python .github/scripts/deploy.py
+          --workspace-id ${{ vars.TST_SALES_SLV_WORKSPACE_ID }}
+          --environment TST
+          --folder workspaces/SALES_SLV
+  deploy-prd:
+    needs: deploy-tst
+    runs-on: ubuntu-latest
+    environment: prd     # configure required reviewers on this environment
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install fabric-cicd azure-identity
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          allow-no-subscriptions: true
+      - run: >
+          python .github/scripts/deploy.py
+          --workspace-id ${{ vars.PRD_SALES_SLV_WORKSPACE_ID }}
+          --environment PRD
+          --folder workspaces/SALES_SLV</code></pre>
+      </div>
+      <div class="tab" data-title="deploy.py">
+<pre data-title=".github/scripts/deploy.py · Python"><code class="language-python">import argparse
+
+from azure.identity import AzureCliCredential
+from fabric_cicd import FabricWorkspace, publish_all_items, unpublish_all_orphan_items
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--workspace-id", required=True)
+parser.add_argument("--environment", required=True)   # DEV, TST or PRD: selects parameter values
+parser.add_argument("--folder", required=True)        # for example workspaces/SALES_SLV
+args = parser.parse_args()
+
+workspace = FabricWorkspace(
+    workspace_id=args.workspace_id,
+    environment=args.environment,
+    repository_directory=args.folder,
+    item_type_in_scope=["VariableLibrary", "Environment", "Notebook", "DataPipeline"],
+    token_credential=AzureCliCredential(),   # uses the identity from azure/login
+)
+
+publish_all_items(workspace)
+unpublish_all_orphan_items(workspace)        # deletes items no longer in Git: test before enabling in PRD</code></pre>
+      </div>
+    </div>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>Git integration supports a specific list of item types, and individual types move between preview and general availability. Check <a href="https://learn.microsoft.com/fabric/cicd/git-integration/intro-to-git-integration">Overview of Fabric Git integration</a> for the current list and the tenant settings it requires. For <code>fabric-cicd</code>, confirm the supported <code>item_type_in_scope</code> values and the parameter-file format in the library's own documentation, and make sure the service principal is allowed to call Fabric APIs under the tenant settings.</p></div>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p>
+      <ul>
+        <li>Bronze and Silver are lakehouses in every pattern. The choice is who writes the star schema, and with what: choose by team skills and record it in a decision record.</li>
+        <li>Prefer one workspace per layer per environment for estates with several audiences; keep the naming convention identical either way.</li>
+        <li>Only DEV is Git-connected. TST and PRD are populated by a pipeline or a workflow, and rules or variables carry per-stage differences.</li>
+        <li>Protect <code>main</code>, route reviews with CODEOWNERS, and automate the release path only after the manual path is stable.</li>
+        <li>Do not partition Delta tables by default; partition only large tables on a stable filter column.</li>
+      </ul>
+    </div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/fabric/onelake/onelake-medallion-lakehouse-architecture">Implement medallion lakehouse architecture in Fabric</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-warehouse/tsql-surface-area">T-SQL surface area in Fabric Data Warehouse</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-warehouse/transactions">Transactions in Fabric Data Warehouse</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/fundamentals/direct-lake-overview">Direct Lake overview</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/cicd/git-integration/intro-to-git-integration">Overview of Fabric Git integration</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/cicd/git-integration/branched-workspace">Development process using a branch workspace</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/cicd/deployment-pipelines/create-rules">Create deployment rules</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/cicd/deployment-pipelines/pipeline-automation">Automate deployment pipelines with APIs and DevOps</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/governance/governance-compliance-overview">Governance and compliance in Microsoft Fabric</a></li>
+        <li><a href="https://learn.microsoft.com/azure/architecture/data-guide/technology-choices/fabric-deployment-patterns">Choose a Microsoft Fabric deployment pattern</a></li>
+        <li><a href="https://microsoft.github.io/fabric-cicd/latest/">fabric-cicd documentation</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>
