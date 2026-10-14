@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Implementation examples · Delta Partitioning</title>
+<meta name="description" content="Working examples for Fabric Delta tables: create partitioned and liquid clustered tables, append, replace a slice with replaceWhere, run concurrent merges safely and change a layout with a rewrite.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="08-delta-partitioning" data-page="implementation.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 08 · Delta Partitioning</p>
+      <h1>Implementation examples</h1>
+      <p class="lede">The code behind the decisions: creating partitioned and clustered tables, appending with sensible settings, replacing one slice atomically, running concurrent merges that do not collide, and changing a layout without taking the table offline.</p>
+    </header>
+
+    <p>The examples use a neutral orders domain: <code>silver.orders</code> partitioned by <code>order_month</code>, a <code>gold.sales</code> table for clustering and a <code>bronze.device_events</code> table for telemetry. Table names, columns and settings are illustrative; adapt them to your standards. Run the examples in a notebook attached to a lakehouse on Fabric Runtime 2.0, unless a note says otherwise.</p>
+
+    <h2 id="create-tables">Create tables</h2>
+    <h3 id="create-partitioned">A partitioned table</h3>
+    <p>Declare the partition column as part of the schema. For a monthly grain, add a derived <code>order_month</code> column rather than partitioning by the raw date, and enable the write-time features that keep partitioned writes healthy.</p>
+<pre data-title="Spark SQL · monthly partitioned Silver table"><code class="language-sql">CREATE TABLE silver.orders (
+    order_id    BIGINT,
+    customer_id BIGINT,
+    order_ts    TIMESTAMP,
+    order_date  DATE,
+    order_month STRING,          -- 'YYYY-MM', derived by the pipeline
+    region      STRING,
+    status      STRING,
+    amount      DECIMAL(18,2)
+)
+USING DELTA
+PARTITIONED BY (order_month)
+TBLPROPERTIES (
+    'delta.autoOptimize.optimizeWrite' = 'true',
+    'delta.autoOptimize.autoCompact'   = 'true'
+);</code></pre>
+<pre data-title="Spark SQL · Bronze telemetry partitioned by day"><code class="language-sql">-- Daily partitions are reasonable here only because each day holds tens of GB
+CREATE TABLE bronze.device_events (
+    event_id    STRING,
+    device_id   STRING,
+    event_ts    TIMESTAMP,
+    event_date  DATE,
+    payload     STRING
+)
+USING DELTA
+PARTITIONED BY (event_date)
+TBLPROPERTIES (
+    'delta.autoOptimize.optimizeWrite' = 'true',
+    'delta.autoOptimize.autoCompact'   = 'true'
+);</code></pre>
+    <h3 id="create-clustered">A liquid clustered table</h3>
+    <p>When the goal is faster selective reads rather than writer isolation, cluster instead of partitioning. Clustering is applied by <code>OPTIMIZE</code>, so schedule it or rely on auto compaction on Runtime 2.0.</p>
+<pre data-title="Spark SQL · liquid clustered Gold table"><code class="language-sql">CREATE TABLE gold.sales (
+    order_id    BIGINT,
+    order_date  DATE,
+    region      STRING,
+    product_id  BIGINT,
+    amount      DECIMAL(18,2)
+)
+CLUSTER BY (order_date, region)
+TBLPROPERTIES (
+    'delta.parquet.vorder.enabled'     = 'true',     -- Direct Lake reads this table
+    'delta.autoOptimize.autoCompact'   = 'true'      -- Runtime 2.0 or later
+);</code></pre>
+    <div class="callout warning"><p class="callout-title">Pick one scheme per table</p><p>A table cannot be both partitioned and liquid clustered. Combining <code>PARTITIONED BY</code> with <code>CLUSTER BY</code> is not supported, and Z-Order is also incompatible with clustering. On Runtime 1.3, do not pair clustering with auto compaction.</p></div>
+
+    <h2 id="append">Append with the right settings</h2>
+    <p>Appends are the friendliest write pattern: they add files and leave existing ones alone. Derive the partition column in the pipeline so every row lands in the right directory, and set the session options that suit the table.</p>
+<pre data-title="PySpark · append to a partitioned table"><code class="language-python">from pyspark.sql import functions as F
+
+# Session hints; adjust per workload. For a Gold table read by Direct Lake:
+spark.conf.set("spark.sql.parquet.vorder.default", "true")
+# Optimize write is not on by default under the writeHeavy profile; set it explicitly
+spark.conf.set("spark.databricks.delta.optimizeWrite.enabled", "true")
+
+(df_new_orders                                          # columns include order_date
+    .withColumn("order_month", F.date_format("order_date", "yyyy-MM"))
+    .write.format("delta")
+    .mode("append")
+    .partitionBy("order_month")                         # must match the table's existing partitioning
+    .saveAsTable("silver.orders"))</code></pre>
+    <ul>
+      <li>When appending to an existing partitioned table, <code>partitionBy</code> must match the table or be omitted; a mismatch fails.</li>
+      <li>Check for a null or malformed partition value before the write. A single bad date creates a stray partition such as <code>order_month=__HIVE_DEFAULT_PARTITION__</code>.</li>
+      <li>V-Order applies to files written in this session when the session setting is on, and to the table's future writes when the table property is set.</li>
+    </ul>
+
+    <h2 id="selective-overwrite">Replace one slice atomically</h2>
+    <p>To rebuild one month, use <code>replaceWhere</code>. It replaces only the rows matching the predicate, in a single atomic commit, and leaves every other file untouched, which is exactly what keeps Direct Lake's loaded data valid for the other months.</p>
+<pre data-title="PySpark · replace February 2026 in a partitioned table"><code class="language-python">(df_feb2026                                              # only rows for 2026-02
+    .write.format("delta")
+    .mode("overwrite")
+    .option("replaceWhere", "order_month = '2026-02'")
+    .saveAsTable("silver.orders"))</code></pre>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 234" role="img" aria-label="A replaceWhere commit moves the table from version 12 to version 13 by replacing only the February file, leaving the January and March files untouched, as one atomic commit">
+        <defs>
+          <marker id="fig-impl-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <text class="t-b" x="20" y="72">v12</text>
+        <rect class="box gray" x="70" y="44" width="130" height="44" rx="6"/><text class="t-s" x="135" y="71" text-anchor="middle">Jan file</text>
+        <rect class="box red" x="220" y="44" width="130" height="44" rx="6"/><text class="t-s" x="285" y="71" text-anchor="middle">Feb file</text>
+        <rect class="box gray" x="370" y="44" width="130" height="44" rx="6"/><text class="t-s" x="435" y="71" text-anchor="middle">Mar file</text>
+        <text class="t-b" x="20" y="172">v13</text>
+        <rect class="box gray" x="70" y="144" width="130" height="44" rx="6"/><text class="t-s" x="135" y="171" text-anchor="middle">Jan file (kept)</text>
+        <rect class="box green" x="220" y="144" width="130" height="44" rx="6"/><text class="t-s" x="285" y="171" text-anchor="middle">Feb file (new)</text>
+        <rect class="box gray" x="370" y="144" width="130" height="44" rx="6"/><text class="t-s" x="435" y="171" text-anchor="middle">Mar file (kept)</text>
+        <path class="ln" d="M135 88V142" marker-end="url(#fig-impl-1-a)"/>
+        <text class="t-s" x="143" y="120">kept</text>
+        <path class="ln orange dash" d="M285 88V142" marker-end="url(#fig-impl-1-a)"/>
+        <text class="t-s" x="293" y="120">replaced</text>
+        <path class="ln" d="M435 88V142" marker-end="url(#fig-impl-1-a)"/>
+        <text class="t-s" x="443" y="120">kept</text>
+        <rect class="box blue" x="560" y="44" width="320" height="144" rx="8"/>
+        <text class="t-b" x="720" y="76" text-anchor="middle">replaceWhere</text>
+        <text class="t-s" x="720" y="100" text-anchor="middle">order_month = '2026-02'</text>
+        <text class="t-s" x="720" y="126" text-anchor="middle">One atomic commit, v12 to v13</text>
+        <text class="t-s" x="720" y="148" text-anchor="middle">Readers see v12 or v13, never both</text>
+        <text class="t-s" x="720" y="170" text-anchor="middle">Rows outside the predicate fail the write</text>
+        <text class="t-s" x="70" y="218">Other months are never touched, so Direct Lake can keep their loaded data.</text>
+      </svg>
+      <figcaption><b>Slice replacement in the Delta log.</b> Only the files matching the predicate change. By default the DataFrame must contain only rows that satisfy the predicate, otherwise the write is rejected.</figcaption>
+    </figure>
+    <table>
+      <thead><tr><th>Approach</th><th>Behavior</th><th>Use when</th><th>Caution</th></tr></thead>
+      <tbody>
+        <tr><td><strong><code>replaceWhere</code></strong></td><td>Replaces rows matching an explicit predicate in one atomic commit; works on partitioned and unpartitioned tables</td><td>Rebuilding a month, a date range or a region from a recomputed DataFrame</td><td>Rows in the DataFrame outside the predicate are rejected by default, which is a useful safety check</td></tr>
+        <tr><td><strong>Dynamic partition overwrite</strong></td><td>Replaces every partition that appears in the DataFrame, with no explicit predicate</td><td>A job that always writes complete partitions</td><td>One stray row from another month silently replaces that whole month. Partitioned tables only; not combinable with <code>replaceWhere</code></td></tr>
+        <tr><td><strong><code>MERGE</code></strong></td><td>Row-level upsert and delete</td><td>Changes are a small share of each partition</td><td>Include the partition column in the condition</td></tr>
+        <tr><td><strong><code>DELETE</code> then append</strong></td><td>Two separate commits</td><td>Almost never</td><td>Readers can see the gap between the commits; use <code>replaceWhere</code> instead</td></tr>
+      </tbody>
+    </table>
+<pre data-title="PySpark · dynamic partition overwrite, if you accept the trade-off"><code class="language-python">spark.conf.set("spark.sql.sources.partitionOverwriteMode", "dynamic")
+
+# insertInto matches columns by position, so select in the table's column order
+cols = spark.table("silver.orders").columns
+df_month.select(*cols).write.mode("overwrite").insertInto("silver.orders")</code></pre>
+
+    <h2 id="concurrent-merge">Run merges concurrently without conflicts</h2>
+    <p>Two merges into one table can proceed side by side when each targets a different partition and says so in the condition. Both the target and the source predicate belong in the <code>ON</code> clause, as literals or parameters, not only in the source data.</p>
+<pre data-title="Spark SQL · pipeline A merges only the EMEA slice"><code class="language-sql">-- Table is partitioned by region
+MERGE INTO silver.orders_by_region AS t
+USING staged_orders_emea AS s
+   ON t.order_id = s.order_id
+  AND t.region   = 'EMEA'
+  AND s.region   = 'EMEA'
+WHEN MATCHED THEN UPDATE SET *
+WHEN NOT MATCHED THEN INSERT *;</code></pre>
+<pre data-title="PySpark · the same merge with a bounded retry"><code class="language-python">import time
+from delta.tables import DeltaTable
+
+def merge_region(region: str, source_df, attempts: int = 3):
+    target = DeltaTable.forName(spark, "silver.orders_by_region")
+    for i in range(attempts):
+        try:
+            (target.alias("t")
+                .merge(source_df.alias("s"),
+                       f"t.order_id = s.order_id AND t.region = '{region}' AND s.region = '{region}'")
+                .whenMatchedUpdateAll()
+                .whenNotMatchedInsertAll()
+                .execute())
+            return
+        except Exception as e:
+            # Concurrent-modification exceptions name themselves in the message
+            if "Concurrent" not in str(e) or i == attempts - 1:
+                raise
+            time.sleep(5 * (i + 1))                      # back off, then retry the whole merge</code></pre>
+    <ul>
+      <li><strong>Without the partition column in the condition</strong> Delta cannot prove the file sets are disjoint, and the second commit can fail even though the rows differ.</li>
+      <li><strong>Partitioning removes conflicts between disjoint slices, not all conflicts.</strong> Schema changes, <code>OPTIMIZE</code> over the same files and writers that overlap on a partition can still collide, so keep a bounded retry.</li>
+      <li><strong>Pruning is a free benefit.</strong> The same predicate lets a single merge read only the target files it needs, even with no concurrency.</li>
+    </ul>
+
+    <h2 id="change-layout">Change a layout with a rewrite</h2>
+    <p>Delta does not support changing partition columns in place. Moving from daily to monthly partitions, from one partition column to another, or between partitioning and liquid clustering is a rewrite. Treat it as a planned operation with validation, not an overwrite you run and hope for.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 158" role="img" aria-label="Five steps to change a layout: decide and size the new grain, write a new table, validate counts and checksums, switch consumers and reframe models, then retire the old table after the retention period; the old table keeps serving until the switch">
+        <defs>
+          <marker id="fig-impl-2-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box blue" x="10" y="20" width="152" height="80" rx="8"/>
+        <text class="t-b" x="86" y="54" text-anchor="middle">1 Decide and size</text>
+        <text class="t-s" x="86" y="76" text-anchor="middle">new grain, arithmetic</text>
+        <rect class="box blue" x="192" y="20" width="152" height="80" rx="8"/>
+        <text class="t-b" x="268" y="54" text-anchor="middle">2 Write new table</text>
+        <text class="t-s" x="268" y="76" text-anchor="middle">CTAS or DataFrame</text>
+        <rect class="box blue" x="374" y="20" width="152" height="80" rx="8"/>
+        <text class="t-b" x="450" y="54" text-anchor="middle">3 Validate</text>
+        <text class="t-s" x="450" y="76" text-anchor="middle">counts and checksums</text>
+        <rect class="box green" x="556" y="20" width="152" height="80" rx="8"/>
+        <text class="t-b" x="632" y="54" text-anchor="middle">4 Switch consumers</text>
+        <text class="t-s" x="632" y="76" text-anchor="middle">repoint, reframe models</text>
+        <rect class="box gray" x="738" y="20" width="152" height="80" rx="8"/>
+        <text class="t-b" x="814" y="54" text-anchor="middle">5 Retire old table</text>
+        <text class="t-s" x="814" y="76" text-anchor="middle">after retention period</text>
+        <path class="ln" d="M162 60H190" marker-end="url(#fig-impl-2-a)"/>
+        <path class="ln" d="M344 60H372" marker-end="url(#fig-impl-2-a)"/>
+        <path class="ln" d="M526 60H554" marker-end="url(#fig-impl-2-a)"/>
+        <path class="ln" d="M708 60H736" marker-end="url(#fig-impl-2-a)"/>
+        <path class="ln thin dash" d="M10 126H632"/>
+        <text class="t-s" x="10" y="148">The old table keeps serving readers until step 4</text>
+      </svg>
+      <figcaption><b>Never overwrite the live table in place.</b> Writing to a new name keeps the old table available for rollback, and lets you validate before any consumer changes.</figcaption>
+    </figure>
+<pre data-title="Spark SQL · rewrite from daily to monthly partitions"><code class="language-sql">CREATE TABLE silver.orders_v2
+USING DELTA
+PARTITIONED BY (order_month)
+AS
+SELECT *, date_format(order_date, 'yyyy-MM') AS order_month
+FROM   silver.orders_v1;                  -- previously partitioned by order_date</code></pre>
+<pre data-title="Spark SQL · validate the copy before switching"><code class="language-sql">SELECT
+  (SELECT COUNT(*) FROM silver.orders_v1)                    AS old_rows,
+  (SELECT COUNT(*) FROM silver.orders_v2)                    AS new_rows,
+  (SELECT SUM(hash(order_id, amount)) FROM silver.orders_v1) AS old_checksum,
+  (SELECT SUM(hash(order_id, amount)) FROM silver.orders_v2) AS new_checksum;</code></pre>
+<pre data-title="Spark SQL · move from partitioning to liquid clustering"><code class="language-sql">-- Partitioning and clustering are incompatible, so write a new, clustered table
+CREATE TABLE silver.orders_clustered
+CLUSTER BY (order_date, region)
+AS
+SELECT order_id, customer_id, order_ts, order_date, region, status, amount   -- order_month dropped
+FROM   silver.orders;
+
+OPTIMIZE silver.orders_clustered;          -- applies the clustering</code></pre>
+    <ul>
+      <li><strong>Switching consumers</strong> means repointing notebooks, pipelines, SQL views and semantic models, then reframing any Direct Lake model that read the old table. Use a short freeze on writes, or load the new table in parallel until the last batch is reconciled.</li>
+      <li><strong>Unpartitioned to clustered</strong> needs no rewrite: <code>ALTER TABLE ... CLUSTER BY (...)</code> followed by <code>OPTIMIZE</code> reorganizes files over time.</li>
+      <li><strong>Keep partitioning, add skipping:</strong> on an existing partitioned table, Z-Order within recent partitions instead of changing the scheme: <code>OPTIMIZE silver.orders WHERE order_month &gt;= '2026-01' ZORDER BY (region)</code>.</li>
+      <li><strong>Retire the old table</strong> only after its retention period has passed and consumers have run cleanly on the new one.</li>
+    </ul>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>The documentation states that partitioning and liquid clustering are incompatible and that changing partition columns needs a full rewrite. Behavior at the edges, such as the error returned when you try to add clustering to a partitioned table, can vary by runtime, so test on a scratch table. See <a href="https://learn.microsoft.com/fabric/data-engineering/delta-lake-partitioning">Partitioning for Delta tables</a> and <a href="https://learn.microsoft.com/fabric/data-engineering/liquid-clustering">Liquid clustering</a>.</p></div>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p><ul>
+      <li>Derive the partition column in the pipeline, keep <code>partitionBy</code> consistent with the table, and guard against null or malformed partition values.</li>
+      <li>Use <code>replaceWhere</code> to rebuild a slice atomically; avoid dynamic partition overwrite unless every write is a complete partition set.</li>
+      <li>Put the partition column in the <code>MERGE</code> condition for pruning and for concurrent merges, and keep a bounded retry for the conflicts that remain.</li>
+      <li>Changing a partition scheme is a rewrite: write a new table, validate, switch, then retire the old one.</li>
+      <li>Moving from partitioning to liquid clustering is also a rewrite; moving an unpartitioned table to clustering is not.</li>
+    </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/delta-lake-partitioning">Partitioning for Delta tables</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/delta-lake-concurrency-control">Concurrency control and conflict resolution</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/liquid-clustering">Apply liquid clustering on Delta tables</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/delta-optimization-and-v-order">Optimize Delta Lake tables with V-Order</a></li>
+        <li><a href="https://docs.delta.io/latest/delta-batch.html#-replace-where">Delta Lake: selective overwrite with replaceWhere</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

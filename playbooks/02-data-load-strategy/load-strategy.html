@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Full vs incremental loads · Data Load Strategy</title>
+<meta name="description" content="Characteristics, eligibility thresholds, failure modes and a side-by-side comparison of destructive full loads and incremental loads for Fabric lakehouse tables.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="02-data-load-strategy" data-page="load-strategy.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 02 · Data Load Strategy</p>
+      <h1>Full vs incremental loads</h1>
+      <p class="lede">The choice between replacing a table and applying changes to it is a strategic trade-off between simplicity, freshness and cost. This page defines both patterns, gives explicit thresholds for when a full load is still the right answer, and lists how each approach fails.</p>
+    </header>
+
+    <h2 id="why-it-matters">Why this decision matters</h2>
+    <p>Load style is not an implementation detail. It sets how fresh the data can be, how much capacity each refresh consumes, how much logic you must build and monitor, and how the pipeline recovers from a bad run. The wrong default is expensive in both directions: incremental logic on a tiny lookup table is maintenance for no benefit, and a nightly full reload of a billion-row fact table eventually stops fitting in its window.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 236" role="img" aria-label="A full load reads every source row and replaces all target files on every run, while an incremental load reads only changed rows and merges them into the existing target">
+        <defs>
+          <marker id="fig-load-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-load-1-ab" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar blue" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <text class="t-h" x="10" y="20">Full load: replace everything</text>
+        <rect class="zone orange" x="10" y="30" width="430" height="196" rx="12"/>
+        <rect class="box gray" x="30" y="84" width="120" height="70" rx="8"/>
+        <text class="t-b" x="90" y="114" text-anchor="middle">Source table</text>
+        <text class="t-s" x="90" y="134" text-anchor="middle">all rows read</text>
+        <rect class="box orange" x="290" y="84" width="130" height="70" rx="8"/>
+        <text class="t-b" x="355" y="114" text-anchor="middle">Target table</text>
+        <text class="t-s" x="355" y="134" text-anchor="middle">all files replaced</text>
+        <path class="ln orange" d="M150 119H288" marker-end="url(#fig-load-1-a)"/>
+        <text class="t-s" x="219" y="110" text-anchor="middle">read everything</text>
+        <text class="t-s" x="225" y="184" text-anchor="middle">Cost grows with table size</text>
+        <text class="t-s" x="225" y="202" text-anchor="middle">Heals drift and schema changes</text>
+        <text class="t-h" x="460" y="20">Incremental load: apply changes</text>
+        <rect class="zone blue" x="460" y="30" width="430" height="196" rx="12"/>
+        <rect class="box gray" x="478" y="84" width="100" height="70" rx="8"/>
+        <text class="t-b" x="528" y="114" text-anchor="middle">Source</text>
+        <text class="t-s" x="528" y="134" text-anchor="middle">change signal</text>
+        <rect class="box blue" x="624" y="94" width="96" height="50" rx="8"/>
+        <text class="t-b" x="672" y="116" text-anchor="middle">Delta</text>
+        <text class="t-s" x="672" y="132" text-anchor="middle">changed rows</text>
+        <rect class="box green" x="768" y="84" width="104" height="70" rx="8"/>
+        <text class="t-b" x="820" y="114" text-anchor="middle">Target</text>
+        <text class="t-s" x="820" y="134" text-anchor="middle">rows kept</text>
+        <path class="ln blue" d="M578 119H622" marker-end="url(#fig-load-1-ab)"/>
+        <path class="ln blue" d="M720 119H766" marker-end="url(#fig-load-1-ab)"/>
+        <text class="t-s" x="600" y="110" text-anchor="middle">pull</text>
+        <text class="t-s" x="743" y="110" text-anchor="middle">MERGE</text>
+        <text class="t-s" x="675" y="184" text-anchor="middle">Cost grows with change volume</text>
+        <text class="t-s" x="675" y="202" text-anchor="middle">Correct only if the signal is complete</text>
+      </svg>
+      <figcaption><b>Same destination, different work.</b> A full load re-derives the target from the whole source; an incremental load trusts a change signal and touches only what changed.</figcaption>
+    </figure>
+
+    <h2 id="full-load">Full load (destructive refresh)</h2>
+    <p>A full load extracts the entire dataset from the source and uses it to replace the contents of the target table, so the target becomes a point-in-time snapshot of the source. In a Delta lakehouse there are three ways to do it, and they are not equivalent.</p>
+    <table>
+      <thead><tr><th>Technique</th><th>What happens</th><th>Use it when</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Overwrite</strong> (<code>mode("overwrite")</code> or <code>INSERT OVERWRITE</code>)</td><td>One atomic Delta commit. Readers see the previous version or the new one, never an empty table, and the previous version stays available for time travel until vacuumed.</td><td>The default for full reloads</td></tr>
+        <tr><td><strong>Truncate then insert</strong></td><td>Two commits. Between them the table is empty, and a failed load leaves it that way.</td><td>Avoid. There is no benefit over overwrite</td></tr>
+        <tr><td><strong>Drop and recreate</strong></td><td>Removes the table definition, permissions and properties as well as the data.</td><td>Only when you deliberately change the schema and have scripted everything that is lost</td></tr>
+      </tbody>
+    </table>
+<pre data-title="PySpark · notebook cell (full reload of a small dimension)"><code class="language-python">from pyspark.sql import functions as F
+
+# One row per product_id: a complete snapshot of the source, already landed in Bronze.
+snapshot = spark.table("bronze.products_snapshot")
+
+(snapshot
+    .withColumn("_loaded_at", F.current_timestamp())
+    .write.format("delta")
+    .mode("overwrite")                 # single atomic commit
+    # .option("overwriteSchema", "true")  # add only when you intend to accept a changed schema
+    .saveAsTable("silver.products"))</code></pre>
+    <p><strong>What a full load gives you.</strong> There is no change-tracking logic to build, which makes the pipeline easy to write, test and debug. The target is a faithful copy of the source at run time, so schema drift, data drift and the accumulated errors of a faulty incremental process all disappear on the next run. That makes a full load the standard recovery tool: when anything is in doubt, rebuild.</p>
+    <p><strong>What it costs.</strong> Every run extracts and writes the whole table, so cost scales with total size rather than change volume. It loads the source system, uses capacity for the full duration, and wipes any history you were accumulating in that table unless you archive it separately. Because every Parquet file is replaced, a Direct Lake model that reads the table must reload its column data after each run (see <a href="gold-direct-lake.html#direct-lake">Gold layer and Direct Lake</a>).</p>
+    <p><strong>Where it fits.</strong> Initial population of any table, small tables, periodic resynchronization of tables that are otherwise loaded incrementally, snapshot sources that offer nothing else, and rebuilds after a logic change.</p>
+
+    <h2 id="eligibility">Full-load eligibility: all of these must hold</h2>
+    <p>Keep a table on full loads only while every one of the following is true. These thresholds are practitioner rules of thumb, not Fabric limits: calibrate them against your own capacity size, run windows and SLAs, and re-check them as tables grow.</p>
+    <table>
+      <thead><tr><th>Factor</th><th>Rule of thumb</th><th>How to check</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Small footprint</strong></td><td>Under roughly 20 to 30 GB or 50 million rows, with small daily growth</td><td><code>DESCRIBE DETAIL</code> for <code>sizeInBytes</code>, plus a row count trend</td></tr>
+        <tr><td><strong>Short run time</strong></td><td>End-to-end under roughly 10 to 15 minutes, without competing with other SLAs on the same capacity</td><td>Monitoring hub run history, trended over weeks</td></tr>
+        <tr><td><strong>Low ripple effect</strong></td><td>Downstream transforms and semantic models do not reprocess large history on every run, or reprocessing is limited to partition-scoped overwrites</td><td>Lineage view, downstream run times</td></tr>
+        <tr><td><strong>No history to protect</strong></td><td>No SCD2, audit trail or point-in-time lineage that a blunt overwrite would destroy, or that is already preserved elsewhere</td><td>Requirements review with the data owner</td></tr>
+        <tr><td><strong>Source-friendly</strong></td><td>The source can be extracted in full without locking, throttling or political cost</td><td>Source DBA sign-off, extract concurrency limits</td></tr>
+        <tr><td><strong>Capacity-friendly</strong></td><td>CU consumption is negligible, with no throttling or queueing at run time</td><td>Capacity Metrics app during the run window</td></tr>
+      </tbody>
+    </table>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 208" role="img" aria-label="Six sequential checks must all pass for a table to stay on full loads; any failed check sends the table to incremental loading or a hybrid with periodic full resync">
+        <defs>
+          <marker id="fig-load-2-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-load-2-ar" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar red" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <text class="t-s" x="20" y="44">All six checks must pass</text>
+        <rect class="box purple" x="20" y="56" width="104" height="52" rx="26"/>
+        <text class="t-b" x="72" y="79" text-anchor="middle">Small data?</text>
+        <text class="t-s" x="72" y="95" text-anchor="middle">30 GB, 50M rows</text>
+        <rect class="box purple" x="148" y="56" width="104" height="52" rx="26"/>
+        <text class="t-b" x="200" y="79" text-anchor="middle">Fast run?</text>
+        <text class="t-s" x="200" y="95" text-anchor="middle">under 10-15 min</text>
+        <rect class="box purple" x="276" y="56" width="104" height="52" rx="26"/>
+        <text class="t-b" x="328" y="79" text-anchor="middle">Low ripple?</text>
+        <text class="t-s" x="328" y="95" text-anchor="middle">cheap downstream</text>
+        <rect class="box purple" x="404" y="56" width="104" height="52" rx="26"/>
+        <text class="t-b" x="456" y="79" text-anchor="middle">No history?</text>
+        <text class="t-s" x="456" y="95" text-anchor="middle">no SCD2, audit</text>
+        <rect class="box purple" x="532" y="56" width="104" height="52" rx="26"/>
+        <text class="t-b" x="584" y="79" text-anchor="middle">Source calm?</text>
+        <text class="t-s" x="584" y="95" text-anchor="middle">pull is easy</text>
+        <rect class="box purple" x="660" y="56" width="104" height="52" rx="26"/>
+        <text class="t-b" x="712" y="79" text-anchor="middle">Capacity ok?</text>
+        <text class="t-s" x="712" y="95" text-anchor="middle">no throttling</text>
+        <rect class="box green" x="790" y="56" width="90" height="52" rx="10"/>
+        <text class="t-b" x="835" y="79" text-anchor="middle">Full load</text>
+        <text class="t-s" x="835" y="95" text-anchor="middle">stay simple</text>
+        <path class="ln green" d="M124 82H146" marker-end="url(#fig-load-2-a)"/>
+        <path class="ln green" d="M252 82H274" marker-end="url(#fig-load-2-a)"/>
+        <path class="ln green" d="M380 82H402" marker-end="url(#fig-load-2-a)"/>
+        <path class="ln green" d="M508 82H530" marker-end="url(#fig-load-2-a)"/>
+        <path class="ln green" d="M636 82H658" marker-end="url(#fig-load-2-a)"/>
+        <path class="ln green" d="M764 82H788" marker-end="url(#fig-load-2-a)"/>
+        <path class="ln red dash" d="M72 108V156" marker-end="url(#fig-load-2-ar)"/>
+        <path class="ln red dash" d="M200 108V156" marker-end="url(#fig-load-2-ar)"/>
+        <path class="ln red dash" d="M328 108V156" marker-end="url(#fig-load-2-ar)"/>
+        <path class="ln red dash" d="M456 108V156" marker-end="url(#fig-load-2-ar)"/>
+        <path class="ln red dash" d="M584 108V156" marker-end="url(#fig-load-2-ar)"/>
+        <path class="ln red dash" d="M712 108V156" marker-end="url(#fig-load-2-ar)"/>
+        <text class="t-s c-red" x="78" y="138">no</text>
+        <text class="t-s c-red" x="206" y="138">no</text>
+        <text class="t-s c-red" x="334" y="138">no</text>
+        <text class="t-s c-red" x="462" y="138">no</text>
+        <text class="t-s c-red" x="590" y="138">no</text>
+        <text class="t-s c-red" x="718" y="138">no</text>
+        <rect class="box blue" x="20" y="158" width="860" height="40" rx="10"/>
+        <text class="t-b" x="450" y="183" text-anchor="middle">Any "no": move to incremental loads, or a hybrid with a periodic full resync</text>
+      </svg>
+      <figcaption><b>Eligibility gate.</b> The checks are conjunctive: one failure is enough to leave full loading. A table that passes today can fail the same checks a year later as it grows.</figcaption>
+    </figure>
+
+    <h2 id="incremental-load">Incremental load (delta processing)</h2>
+    <p>An incremental load identifies, extracts and applies only the data created or changed since the last successful run. It preserves what is already in the target and changes it by appending new records, updating existing ones or marking records deleted. That is what makes it cheap and frequent, and also what makes it fragile: the target is only as correct as the change signal and the logic that applies it.</p>
+    <ul>
+      <li><strong>Efficiency.</strong> Work scales with the volume of change, not the size of the table, which is what keeps large tables loadable at all.</li>
+      <li><strong>History retention.</strong> Because the table is not overwritten, history needed for audit, trend analysis and slowly changing dimensions survives.</li>
+      <li><strong>Freshness.</strong> Small runs can execute hourly or more often, so data reaches consumers sooner.</li>
+    </ul>
+    <p>It is the default for large, frequently updated tables such as orders, web events and sensor readings, and for any latency target that a nightly rebuild cannot meet. For sources with a log-based change feed it is also the better fit for finance and logistics-style near real-time needs, with streaming tools taking over below minute-level latency.</p>
+
+    <div class="callout warning"><p class="callout-title">Incremental is not automatically cheap</p><p>Delta rewrites whole Parquet files that contain a changed row. If updates are scattered across the table, a <code>MERGE</code> touching 0.5 percent of rows can still rewrite most files. Co-locate changes with a partition or clustering column that matches how rows change (for example the order date), keep deletion vectors enabled on runtimes where they are the default, and measure <code>numTargetFilesRemoved</code> in <code>DESCRIBE HISTORY</code> rather than assuming.</p></div>
+
+    <h3 id="failure-modes">How incremental loads fail</h3>
+    <table>
+      <thead><tr><th>Failure mode</th><th>Effect</th><th>Mitigation</th></tr></thead>
+      <tbody>
+        <tr><td>Missed changes (late commits, clock skew, watermark on a column that is not always updated)</td><td>Rows silently absent or stale</td><td>Overlap window plus an idempotent <code>MERGE</code>; prefer a row version or log-based CDC; periodic reconciliation</td></tr>
+        <tr><td>Duplicate delivery after retry or rerun</td><td>Duplicate rows in Bronze or Silver</td><td>Batch ids, a unique merge key, deduplicate before <code>MERGE</code></td></tr>
+        <tr><td>Out-of-order updates</td><td>An older version overwrites a newer one</td><td>Guard the <code>WHEN MATCHED</code> clause with a version or timestamp comparison</td></tr>
+        <tr><td>Hard deletes invisible to the signal</td><td>Ghost rows accumulate</td><td>Log-based CDC, or periodic full comparison (see <a href="silver.html#deletes">delete handling</a>)</td></tr>
+        <tr><td>Schema drift</td><td><code>MERGE</code> fails, or new columns are dropped without notice</td><td>Explicit schema-evolution policy; land as files or add a schema check before writing</td></tr>
+        <tr><td>Lost state (watermark or checkpoint deleted or reset)</td><td>Gap, or an unplanned full reload</td><td>Keep state in a durable control table; design a tested reset-to-full path</td></tr>
+        <tr><td>Silent drift over months</td><td>Aggregates and counts diverge from source</td><td>Scheduled row-count and checksum reconciliation with alerts</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="comparison">Comparison</h2>
+    <table>
+      <thead><tr><th>Feature</th><th>Full load (destructive refresh)</th><th>Incremental load (delta processing)</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Data scope</strong></td><td>The entire dataset moves from source to target each cycle</td><td>Only new or modified data since the last successful load</td></tr>
+        <tr><td><strong>Performance and speed</strong></td><td>Slow for large tables and degrades as volume grows</td><td>Fast, because it processes a small slice</td></tr>
+        <tr><td><strong>Resource use</strong></td><td>High CU, memory and network consumption, and high load on the source</td><td>Low consumption, provided changes are co-located (see the warning above)</td></tr>
+        <tr><td><strong>Implementation complexity</strong></td><td>Simple: overwrite, or truncate and insert</td><td>Complex: change detection (CDC, watermark) and reconciliation (<code>MERGE</code>)</td></tr>
+        <tr><td><strong>Data consistency</strong></td><td>High: a perfect snapshot, and recovery is a rerun</td><td>Lower inherent consistency: missed or out-of-order changes can accumulate</td></tr>
+        <tr><td><strong>Historical data</strong></td><td>Destroys historical state unless archived separately</td><td>Preserves history by appending or updating rather than overwriting</td></tr>
+        <tr><td><strong>Load frequency</strong></td><td>Low: typically nightly or weekly, off peak</td><td>High: hourly or near real-time is feasible</td></tr>
+        <tr><td><strong>Downstream effect</strong></td><td>All files replaced, so Direct Lake and file caches reload</td><td>Append-friendly writes preserve incremental framing and caches</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="hybrids">The trade-off, and the hybrids that resolve it</h2>
+    <p>A full load buys ease and integrity at the cost of performance, resource use and latency. An incremental load buys speed and freshness at the cost of complexity and a higher inherent risk of inconsistency when change detection and reconciliation are not designed and monitored with care. Real platforms rarely pick one for everything. Four hybrids cover most needs.</p>
+    <ul>
+      <li><strong>Incremental plus periodic full resync.</strong> Run frequent incremental loads and a scheduled full comparison (weekly, say) that repairs drift and handles hard deletes. This is the standard answer when the source offers only a watermark.</li>
+      <li><strong>Partition-scoped micro-full.</strong> Rebuild one partition or period, such as a restated month, with <code>replaceWhere</code>. The blast radius is one slice, not the table (see <a href="silver.html#full-reload">Silver reloads</a>).</li>
+      <li><strong>Full on first load and on schema change, incremental otherwise.</strong> Tools such as Copy job do the initial full copy automatically and let you reset a table back to full on demand.</li>
+      <li><strong>Incremental in Bronze, full rebuild of Silver and Gold from Bronze.</strong> Possible only while Silver and Gold remain small, or when history logic changes and a deliberate rebuild is planned.</li>
+    </ul>
+
+    <div class="callout tip"><p class="callout-title">Record the decision per table</p><p>Keep a small table in your control metadata with <code>table_name</code>, <code>load_pattern</code> (full, incremental-watermark, incremental-cdc, snapshot-merge), <code>change_signal</code>, <code>last_reviewed</code> and the numbers that justified it. Reviews then compare against thresholds instead of memory. The <a href="../10-control-table-pipelines/index.html">control-table playbook</a> shows how to drive pipelines from such a table.</p></div>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p><ul>
+      <li>Use overwrite, not truncate and insert, for full reloads: it is one atomic commit.</li>
+      <li>A table stays on full loads only while all six eligibility checks pass; re-run the checks as it grows.</li>
+      <li>Incremental correctness depends on the change signal: design for late data, duplicates, out-of-order updates and deletes up front.</li>
+      <li>Scattered changes can make a small incremental load rewrite most of a table, so align layout with how rows change.</li>
+      <li>Pair incremental loads with a tested reset-to-full path and scheduled reconciliation.</li>
+    </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/incremental-copy-job">Incremental copy in Copy job</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/fundamentals/direct-lake-understand-storage">Understand Direct Lake query performance</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/delta-lake-vacuum">VACUUM Delta tables</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/delta-lake-time-travel">Delta Lake time travel</a></li>
+        <li><a href="https://docs.delta.io/delta-batch/">Delta Lake: table batch reads and writes</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

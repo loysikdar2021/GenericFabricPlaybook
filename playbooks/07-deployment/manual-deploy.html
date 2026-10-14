@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The manual deployment · Deployment Pipelines</title>
+<meta name="description" content="Compare two stages, choose between full, selective and backward deployment, deploy with a note, and review exactly what changed, including what a deployment copies and what it never touches.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="07-deployment" data-page="manual-deploy.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 07 · Deployment Pipelines</p>
+      <h1>The manual deployment</h1>
+      <p class="lede">Learn the manual deployment before you automate it. Any automation has to reproduce the same gates: compare, select with dependencies, deploy with a note, then verify and hydrate. This page walks each one in both UIs and states what a deployment does to the target.</p>
+    </header>
+<h2 id="before">Before you deploy</h2>
+<ul class="checklist">
+<li>The change is merged to <code>main</code> and DEV has been updated from Git (see the <a href="strategy.html">hybrid pattern</a>).</li>
+<li>Items you are about to promote have paired counterparts in the target stage, or you accept that a first deploy creates them.</li>
+<li>Upstream layers were already deployed to the target stage, hydrated and verified. See <a href="order-and-layers.html">Deployment order and layers</a>.</li>
+<li>Rule values for the target stage (connection strings, lakehouse IDs) are prepared. The <a href="appendix.html">appendix notebook</a> collects them.</li>
+<li>You hold pipeline admin and at least Contributor on both workspaces.</li>
+<li>No refresh is running on dataflows in the deployment: a deployment that overlaps a dataflow refresh fails.</li>
+</ul>
+
+<h2 id="compare">Compare the stages</h2>
+<p>The pipeline home page compares each stage with the stage it is deployed from. A <strong>green</strong> indicator means the metadata of all items is identical; an <strong>orange</strong> indicator means at least one item was changed, added or removed. Items are matched through pairing, so the compare is only as good as your pairing.</p>
+<ol class="steps">
+<li><strong>Select the target stage (new UI)</strong><p>The source stage is shown in the drop-down next to <strong>Deploy</strong>. Every item in the target stage is listed next to its paired source item with a status label.</p></li>
+<li><strong>Or select Compare (original UI)</strong><p>Under the orange indicator between two stages select <strong>Compare</strong>. The compare view lists the items of both stages as a flat list; hover an item to see its path.</p></li>
+<li><strong>Read the labels</strong><p>Use the table below. Treat every <em>Different from source</em> item you did not expect as a finding to investigate before you deploy.</p></li>
+</ol>
+<figure class="diagram">
+<svg class="dg" viewBox="0 0 900 316" role="img" aria-label="The four compare labels in the new UI and what a deployment does to each: Only in source is cloned, Different from source is overwritten, Same as source needs nothing, Not in source is untouched and cannot be selected">
+<defs>
+<marker id="fig-md-2-a-blue" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar blue" d="M0 0L10 5L0 10z"/></marker>
+<marker id="fig-md-2-a-gray" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar gray" d="M0 0L10 5L0 10z"/></marker>
+<marker id="fig-md-2-a-orange" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar orange" d="M0 0L10 5L0 10z"/></marker>
+<marker id="fig-md-2-a-green" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+</defs>
+<rect class="box blue" x="10" y="16" width="205" height="44" rx="10"/>
+<text class="t-b" x="112.5" y="42" text-anchor="middle">Only in source</text>
+<rect class="box" x="10" y="100" width="205" height="62" rx="10"/>
+<text class="t-s" x="112.5" y="127" text-anchor="middle">Cloned into the target</text>
+<text class="t-s" x="112.5" y="143" text-anchor="middle">and paired</text>
+<rect class="box" x="10" y="202" width="205" height="78" rx="10"/>
+<text class="t-s" x="112.5" y="237" text-anchor="middle">A new item in the source,</text>
+<text class="t-s" x="112.5" y="253" text-anchor="middle">or one that was never paired</text>
+<path class="ln blue" d="M112.5 60V100" marker-end="url(#fig-md-2-a-blue)"/>
+<rect class="pill-bg" x="119.8" y="73.5" width="65.5" height="16"/>
+<text class="t-s" x="152.5" y="86" text-anchor="middle">on deploy</text>
+<path class="ln gray dash" d="M112.5 162V202" marker-end="url(#fig-md-2-a-gray)"/>
+<rect class="pill-bg" x="119.8" y="175.5" width="65.5" height="16"/>
+<text class="t-s" x="152.5" y="188" text-anchor="middle">typically</text>
+<rect class="box orange" x="235" y="16" width="205" height="44" rx="10"/>
+<text class="t-b" x="337.5" y="42" text-anchor="middle">Different from source</text>
+<rect class="box" x="235" y="100" width="205" height="62" rx="10"/>
+<text class="t-s" x="337.5" y="127" text-anchor="middle">Target is overwritten,</text>
+<text class="t-s" x="337.5" y="143" text-anchor="middle">whoever made the change</text>
+<rect class="box" x="235" y="202" width="205" height="78" rx="10"/>
+<text class="t-s" x="337.5" y="229" text-anchor="middle">Schema or property change,</text>
+<text class="t-s" x="337.5" y="245" text-anchor="middle">folder move, or rules not</text>
+<text class="t-s" x="337.5" y="261" text-anchor="middle">yet applied</text>
+<path class="ln orange" d="M337.5 60V100" marker-end="url(#fig-md-2-a-orange)"/>
+<rect class="pill-bg" x="344.8" y="73.5" width="65.5" height="16"/>
+<text class="t-s" x="377.5" y="86" text-anchor="middle">on deploy</text>
+<path class="ln gray dash" d="M337.5 162V202" marker-end="url(#fig-md-2-a-gray)"/>
+<rect class="pill-bg" x="344.8" y="175.5" width="65.5" height="16"/>
+<text class="t-s" x="377.5" y="188" text-anchor="middle">typically</text>
+<rect class="box green" x="460" y="16" width="205" height="44" rx="10"/>
+<text class="t-b" x="562.5" y="42" text-anchor="middle">Same as source</text>
+<rect class="box" x="460" y="100" width="205" height="62" rx="10"/>
+<text class="t-s" x="562.5" y="135" text-anchor="middle">Nothing to deploy</text>
+<rect class="box" x="460" y="202" width="205" height="78" rx="10"/>
+<text class="t-s" x="562.5" y="237" text-anchor="middle">Metadata is identical</text>
+<text class="t-s" x="562.5" y="253" text-anchor="middle">in both stages</text>
+<path class="ln green" d="M562.5 60V100" marker-end="url(#fig-md-2-a-green)"/>
+<rect class="pill-bg" x="569.8" y="73.5" width="65.5" height="16"/>
+<text class="t-s" x="602.5" y="86" text-anchor="middle">on deploy</text>
+<path class="ln gray dash" d="M562.5 162V202" marker-end="url(#fig-md-2-a-gray)"/>
+<rect class="pill-bg" x="569.8" y="175.5" width="65.5" height="16"/>
+<text class="t-s" x="602.5" y="188" text-anchor="middle">typically</text>
+<rect class="box gray" x="685" y="16" width="205" height="44" rx="10"/>
+<text class="t-b" x="787.5" y="42" text-anchor="middle">Not in source</text>
+<rect class="box" x="685" y="100" width="205" height="62" rx="10"/>
+<text class="t-s" x="787.5" y="127" text-anchor="middle">Untouched; cannot be</text>
+<text class="t-s" x="787.5" y="143" text-anchor="middle">selected for deployment</text>
+<rect class="box" x="685" y="202" width="205" height="78" rx="10"/>
+<text class="t-s" x="787.5" y="229" text-anchor="middle">Deleted from the source,</text>
+<text class="t-s" x="787.5" y="245" text-anchor="middle">or created directly in</text>
+<text class="t-s" x="787.5" y="261" text-anchor="middle">the target</text>
+<path class="ln gray" d="M787.5 60V100" marker-end="url(#fig-md-2-a-gray)"/>
+<rect class="pill-bg" x="794.8" y="73.5" width="65.5" height="16"/>
+<text class="t-s" x="827.5" y="86" text-anchor="middle">on deploy</text>
+<path class="ln gray dash" d="M787.5 162V202" marker-end="url(#fig-md-2-a-gray)"/>
+<rect class="pill-bg" x="794.8" y="175.5" width="65.5" height="16"/>
+<text class="t-s" x="827.5" y="188" text-anchor="middle">typically</text>
+</svg>
+<figcaption><b>Compare labels and their effect on the next deploy.</b> Original UI wording: New, Different and Missing from. Deleting an item in the source never deletes it in the target, so Not in source items pile up until someone removes them.</figcaption>
+</figure>
+<table>
+<thead><tr><th>New UI label</th><th>Original UI label</th><th>Meaning</th><th>Effect of a deploy</th></tr></thead>
+<tbody>
+<tr><td><strong>Only in source</strong></td><td>New</td><td>The item exists in the source stage only</td><td>Cloned into the target and paired</td></tr>
+<tr><td><strong>Different from source</strong></td><td>Different</td><td>The paired items differ in schema or in a property (name, folder), or a deployment rule was defined but not applied yet</td><td>The target item is overwritten by the source, regardless of where the edit was made</td></tr>
+<tr><td><strong>Same as source</strong></td><td>(no label)</td><td>No difference found</td><td>Nothing to do</td></tr>
+<tr><td><strong>Not in source</strong></td><td>Missing from</td><td>The item exists only in the selected stage</td><td>Not affected, not selectable. Deleting an item in the source never deletes it in the target.</td></tr>
+</tbody>
+</table>
+<div class="callout warning"><p class="callout-title">Different includes your own rules</p><p>After you create a deployment rule on a stage, the item shows as <em>Different</em> until you deploy it, because rules are applied only during a deployment. After the deployment the indicator disappears. A semantic model that stays <em>Different</em> after a clean deploy is a symptom worth chasing.</p></div>
+
+<h2 id="select">Choose what to deploy</h2>
+<figure class="diagram">
+<svg class="dg" viewBox="0 0 900 290" role="img" aria-label="Three deployment modes: full deployment sends all new and different items forward; selective deployment sends chosen items and Select related adds their dependencies; backward deployment works only into an empty stage and only as a full deployment">
+<defs>
+<marker id="fig-md-3-a-teal" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar teal" d="M0 0L10 5L0 10z"/></marker>
+<marker id="fig-md-3-a-blue" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar blue" d="M0 0L10 5L0 10z"/></marker>
+<marker id="fig-md-3-a-green" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+<marker id="fig-md-3-a-red" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar red" d="M0 0L10 5L0 10z"/></marker>
+</defs>
+<rect class="zone" x="10" y="12" width="280" height="258" rx="12"/>
+<text class="t-b" x="24" y="34">Full deployment</text>
+<rect class="zone" x="310" y="12" width="280" height="258" rx="12"/>
+<text class="t-b" x="324" y="34">Selective deployment</text>
+<rect class="zone" x="610" y="12" width="280" height="258" rx="12"/>
+<text class="t-b" x="624" y="34">Backward deployment</text>
+<rect class="box blue" x="26" y="62" width="108" height="92" rx="10"/>
+<text class="t-b" x="80" y="89.5" text-anchor="middle">DEV</text>
+<text class="t-s" x="80" y="104.5" text-anchor="middle">every item that</text>
+<text class="t-s" x="80" y="119.5" text-anchor="middle">is new or</text>
+<text class="t-s" x="80" y="134.5" text-anchor="middle">different</text>
+<rect class="box teal" x="182" y="62" width="92" height="92" rx="10"/>
+<text class="t-b" x="228" y="97" text-anchor="middle">TST</text>
+<text class="t-s" x="228" y="112" text-anchor="middle">paired items</text>
+<text class="t-s" x="228" y="127" text-anchor="middle">overwritten</text>
+<path class="ln teal thick" d="M134 108H182" marker-end="url(#fig-md-3-a-teal)"/>
+<rect class="pill-bg" x="143.1" y="91.5" width="29.8" height="16"/>
+<text class="t-s" x="158" y="104" text-anchor="middle">all</text>
+<text class="t-s" x="28" y="190">Standard for a release train.</text>
+<text class="t-s" x="28" y="208">Review the compare first.</text>
+<rect class="box accent" x="326" y="56" width="116" height="34" rx="10"/>
+<text class="t-s t-w" x="384" y="77" text-anchor="middle">RPT_Orders</text>
+<rect class="box blue" x="326" y="100" width="116" height="34" rx="10"/>
+<text class="t-s" x="384" y="121" text-anchor="middle">SM_Orders</text>
+<rect class="box dashed" x="326" y="144" width="116" height="34" rx="10"/>
+<text class="t-s" x="384" y="165" text-anchor="middle">NB_LoadOrders</text>
+<rect class="box teal" x="500" y="56" width="76" height="78" rx="10"/>
+<text class="t-b" x="538" y="99" text-anchor="middle">TST</text>
+<path class="ln teal" d="M442 73H500" marker-end="url(#fig-md-3-a-teal)"/>
+<path class="ln blue" d="M442 117H500" marker-end="url(#fig-md-3-a-blue)"/>
+<text class="t-s" x="326" y="204">Select related adds SM_Orders.</text>
+<text class="t-s" x="326" y="222">NB_LoadOrders is not selected</text>
+<text class="t-s" x="326" y="240">and stays behind.</text>
+<rect class="box green" x="628" y="90" width="70" height="50" rx="10"/>
+<text class="t-b" x="663" y="119" text-anchor="middle">PRD</text>
+<rect class="box dashed" x="796" y="50" width="86" height="40" rx="10"/>
+<text class="t-s" x="839" y="74" text-anchor="middle">TST empty</text>
+<rect class="box red" x="796" y="130" width="86" height="40" rx="10"/>
+<text class="t-s" x="839" y="154" text-anchor="middle">TST assigned</text>
+<path class="ln green" d="M698 115H740V70H796" marker-end="url(#fig-md-3-a-green)"/>
+<rect class="pill-bg" x="743.2" y="53.5" width="53.6" height="16"/>
+<text class="t-s" x="770" y="66" text-anchor="middle">allowed</text>
+<path class="ln red dash" d="M740 115V150H796" marker-end="url(#fig-md-3-a-red)"/>
+<rect class="pill-bg" x="743.2" y="157.5" width="53.6" height="16"/>
+<text class="t-s" x="770" y="170" text-anchor="middle">blocked</text>
+<text class="t-s" x="624" y="214">Full deployment only, and only</text>
+<text class="t-s" x="624" y="232">into a stage with no workspace.</text>
+</svg>
+<figcaption><b>Full, selective and backward deployment.</b> Select related adds upstream dependencies so a report never travels without its semantic model. Backward deployment is meant for bootstrapping a pipeline from an existing production workspace, not for hotfixes.</figcaption>
+</figure>
+<h3 id="full">Full deployment</h3>
+<p>Deploy everything that is new or different in one go. This is the standard for a release: one sprint's worth of reviewed change. In the original UI select <strong>Deploy</strong> on the source stage card; in the new UI select the target stage, pick the source, select all items and deploy.</p>
+<h3 id="selective">Selective deployment</h3>
+<p>Use it for a hotfix to one item, or when you must promote a layer in parts. Select <strong>Show more</strong> (original UI) or tick the items (new UI) and deploy; only the selected items move. The Deploy button shows how many items are selected, and a single deployment is limited to 300 items.</p>
+<ul>
+<li><strong>Select related.</strong> Adds the upstream items the selected ones depend on, for example the semantic model behind a report. It works in the flat list view; if you click it in the folder view, the view switches to the flat list automatically.</li>
+<li><strong>Folders.</strong> In the folder view you can select only items at the same folder level. Switch to the flat list view to select across folders. A folder is deployed only as a side effect of deploying one of its items, and deploying one item of a folder also updates the structure of the folder's other items in the target.</li>
+<li><strong>Dependencies fail loudly.</strong> A report cannot be deployed if its semantic model does not exist in the target stage. If the model exists but differs from the source, the result can be surprising, which is another reason to use Select related.</li>
+</ul>
+<h3 id="backward">Backward deployment</h3>
+<p>Deploys from a later stage to an earlier one. It is available only when the target stage is empty and only as a full deployment. Its legitimate use is bootstrapping: you assign an existing production workspace to the last stage and deploy backward to create TST and then DEV. It is not a hotfix path, because as soon as the earlier stage has a workspace the option is disabled.</p>
+
+<h2 id="execute">Execute the deployment</h2>
+<ol class="steps">
+<li><strong>Select the items and start the deploy</strong><p>A dialog lists every item you are about to deploy. It warns when items in the target will be replaced.</p></li>
+<li><strong>Add a note</strong><p>Expand <strong>Add a note</strong>. State what is promoted and why, for example <em>Release 12: order margin calculation, ticket 4821</em>. Notes are stored in the deployment history and are your audit trail. A note without a ticket or release reference is nearly useless in six months.</p></li>
+<li><strong>Optionally attach a deployment plan (preview)</strong><p>A plan fixes the order of items and can run supported actions before or after an item deploys. Attach one only when ordering matters inside a single deployment.</p></li>
+<li><strong>Deploy</strong><p>While the deployment runs you can navigate elsewhere in the portal, but you cannot use the content in the target stage. A success dialog appears when it completes.</p></li>
+<li><strong>Verify</strong><p>Reopen the compare. Deployed items should read <em>Same as source</em>. Then hydrate and check, as described below.</p></li>
+</ol>
+<div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>Deployment plans are in preview. Check the <a href="https://learn.microsoft.com/fabric/cicd/deployment-plan/deployment-plan-overview">deployment plan overview</a> for supported items and actions before you add them to a runbook. The overview also states that plans are not supported by the fabric-cicd library, so a scripted release cannot reproduce them.</p></div>
+<h3 id="dev-to-tst">DEV to TST, then TST to PRD</h3>
+<p>The two hops are the same procedure with different consequences. Deploying DEV to TST is where you find missing pairs, unexpected <em>Different</em> items and rules that do not apply. Deploying TST to PRD should then be a repeat of a rehearsed change: compare the stages, expect the same set of differences you promoted to TST, deploy with a note that references the TST note, and verify. If the TST to PRD compare shows items you did not test, stop.</p>
+
+<h2 id="outcome">What a deployment does to the target</h2>
+<figure class="diagram">
+<svg class="dg" viewBox="0 0 900 332" role="img" aria-label="A deployment copies definitions and metadata to the target stage but does not copy data, item IDs and URLs, permissions, workspace settings, or semantic model credentials, refresh schedules and role assignments">
+<defs>
+<marker id="fig-md-1-a-green" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+</defs>
+<rect class="zone blue" x="10" y="12" width="290" height="310" rx="12"/>
+<text class="t-b" x="24" y="31">Source stage</text>
+<rect class="zone green" x="600" y="12" width="290" height="310" rx="12"/>
+<text class="t-b" x="614" y="31">Target stage after the deploy</text>
+<rect class="box blue" x="26" y="52" width="258" height="34" rx="10"/>
+<text class="t-s" x="155" y="73" text-anchor="middle">Definition and metadata</text>
+<rect class="box green" x="616" y="52" width="258" height="34" rx="10"/>
+<text class="t-s" x="745" y="73" text-anchor="middle">Overwritten by the source version</text>
+<path class="ln green thick" d="M284 69H616" marker-end="url(#fig-md-1-a-green)"/>
+<rect class="pill-bg" x="426.2" y="60.5" width="47.6" height="16"/>
+<text class="t-s" x="450" y="73" text-anchor="middle">copied</text>
+<rect class="box blue" x="26" y="96" width="258" height="34" rx="10"/>
+<text class="t-s" x="155" y="117" text-anchor="middle">Parameters and data sources</text>
+<rect class="box green" x="616" y="96" width="258" height="34" rx="10"/>
+<text class="t-s" x="745" y="117" text-anchor="middle">Overwritten, unless a rule applies</text>
+<path class="ln green thick" d="M284 113H616" marker-end="url(#fig-md-1-a-green)"/>
+<rect class="pill-bg" x="387.6" y="104.5" width="124.9" height="16"/>
+<text class="t-s" x="450" y="117" text-anchor="middle">copied, rules apply</text>
+<rect class="box" x="26" y="140" width="258" height="34" rx="10"/>
+<text class="t-s" x="155" y="161" text-anchor="middle">Data in tables and files</text>
+<rect class="box red" x="616" y="140" width="258" height="34" rx="10"/>
+<text class="t-s" x="745" y="161" text-anchor="middle">Keeps its own data</text>
+<path class="ln red dash" d="M284 157H616"/>
+<rect class="pill-bg" x="414.3" y="148.5" width="71.4" height="16"/>
+<text class="t-s" x="450" y="161" text-anchor="middle">not copied</text>
+<rect class="box" x="26" y="184" width="258" height="34" rx="10"/>
+<text class="t-s" x="155" y="205" text-anchor="middle">Item ID and URL</text>
+<rect class="box red" x="616" y="184" width="258" height="34" rx="10"/>
+<text class="t-s" x="745" y="205" text-anchor="middle">Unchanged by the overwrite</text>
+<path class="ln red dash" d="M284 201H616"/>
+<rect class="pill-bg" x="414.3" y="192.5" width="71.4" height="16"/>
+<text class="t-s" x="450" y="205" text-anchor="middle">not copied</text>
+<rect class="box" x="26" y="228" width="258" height="34" rx="10"/>
+<text class="t-s" x="155" y="249" text-anchor="middle">Permissions, workspace settings</text>
+<rect class="box red" x="616" y="228" width="258" height="34" rx="10"/>
+<text class="t-s" x="745" y="249" text-anchor="middle">Set per workspace, unchanged</text>
+<path class="ln red dash" d="M284 245H616"/>
+<rect class="pill-bg" x="414.3" y="236.5" width="71.4" height="16"/>
+<text class="t-s" x="450" y="249" text-anchor="middle">not copied</text>
+<rect class="box" x="26" y="272" width="258" height="34" rx="10"/>
+<text class="t-s" x="155" y="293" text-anchor="middle">Credentials, schedule, roles</text>
+<rect class="box red" x="616" y="272" width="258" height="34" rx="10"/>
+<text class="t-s" x="745" y="293" text-anchor="middle">Set on the target model</text>
+<path class="ln red dash" d="M284 289H616"/>
+<rect class="pill-bg" x="414.3" y="280.5" width="71.4" height="16"/>
+<text class="t-s" x="450" y="293" text-anchor="middle">not copied</text>
+</svg>
+<figcaption><b>What a deployment copies, and what it leaves alone.</b> Green arrows overwrite the target. Everything behind a red dashed line stays as the target stage had it, which is why every promoted layer must be hydrated or refreshed.</figcaption>
+</figure>
+<p>Deployment copies definitions and the connections between items, then applies the rules for the target stage. The overwrite changes an item's content only; the item's ID, URL and permissions stay. Consequences you must plan for:</p>
+<ul>
+<li><strong>Data is never copied.</strong> A deployed lakehouse schema or semantic model is empty or stale until you run the loads and refresh. Verify hydration layer by layer.</li>
+<li><strong>Semantic models keep their target-side settings.</strong> Role assignments, refresh schedule and data source credentials are not copied, so a first deployment needs credentials and a schedule set on the target model. Gateway mapping is also not automatic after the first deployment; configure it in the target item's settings once.</li>
+<li><strong>Breaking schema changes stop the deployment.</strong> A column type change that would drop data in the target model triggers the <em>continue the deployment</em> dialog. Continue only if you intend to lose that data and plan the refresh.</li>
+<li><strong>Ownership changes on a first deployment.</strong> The deploying user becomes the owner of cloned semantic models, and for a deploy that creates a workspace, its only admin. Deploy as a named release owner, or with a service principal where the items allow it (see <a href="automation-and-limits.html">Automation and limits</a>), rather than as a developer who may leave.</li>
+<li><strong>Sensitivity labels follow special rules.</strong> They are copied only for new items, for items deployed to an empty stage, or when the source has a protected label and the target does not (with consent). Review labels after the first promotion.</li>
+</ul>
+
+<h2 id="history">Deployment history and change review</h2>
+<p>Every deployment is logged and visible to pipeline admins: source and target stage, time, the user who started it, status and the note. The stage cards also show when content was last deployed to that stage. Use the history to answer "what is in production and who put it there".</p>
+<h3 id="review">In-depth change review</h3>
+<ol class="steps">
+<li><strong>Open the compare for the stage pair</strong><p>Select the <strong>Compare</strong> icon (new UI) or hover over a different item and select <strong>Change review</strong> (original UI).</p></li>
+<li><strong>Read the line-by-line diff</strong><p>The left side (red, minus) is the target content that will be removed or overwritten; the right side (green, plus) is the source content that will be applied. Switch between side-by-side and inline views.</p></li>
+<li><strong>Remember the limits</strong><p>Change review supports schema changes of textual items: semantic models that use the enhanced metadata format, and dataflows. For other items the button is disabled, and a pure name or folder change is not shown because it is a settings change rather than a schema change.</p></li>
+<li><strong>Know what the diff hides</strong><p>Data source and parameter rules are applied to the source side before comparing, so what you see is what will be deployed. Timestamps, role membership and system-managed tables are removed from both sides.</p></li>
+</ol>
+<div class="callout tip"><p class="callout-title">Make the review a gate, not a ritual</p><p>Require a second person to read the TST to PRD compare and sign the deployment note. The compare view is cheap to read; most unwanted production changes are visible in it.</p></div>
+
+<h2 id="verify">After the deployment</h2>
+<ul class="checklist">
+<li>Compare again: deployed items read <em>Same as source</em>.</li>
+<li>Run the load pipelines or notebooks that hydrate the layer, then check tables and shortcuts in the target workspace.</li>
+<li>Refresh dataflows first, then semantic models, and set credentials and the schedule on a new model.</li>
+<li>Open one report per deployed model and confirm it points at the target model.</li>
+<li>Record the outcome against the deployment note.</li>
+</ul>
+<p>The full per-layer procedure is in the <a href="../14-deployment-checklist/index.html">Deployment checklist</a> playbook.</p>
+
+<div class="takeaways"><p class="tk-title">Key takeaways</p>
+<ul>
+<li>Compare before you deploy and treat unexpected <em>Different from source</em> items as findings.</li>
+<li>Use Select related for any selective deployment, and remember the 300-item cap.</li>
+<li>Backward deployment bootstraps an empty stage; it is not a hotfix path.</li>
+<li>A deployment copies metadata only. Data, IDs, permissions, credentials, schedules and roles stay in the target, so hydrate and configure after every promotion.</li>
+<li>Write a note that names the release and the ticket; it is the audit trail.</li>
+</ul></div>
+
+<section class="refs">
+<h2 id="refs">References</h2>
+<ul>
+<li><a href="https://learn.microsoft.com/fabric/cicd/deployment-pipelines/deploy-content">Deploy content using deployment pipelines</a></li>
+<li><a href="https://learn.microsoft.com/fabric/cicd/deployment-pipelines/compare-pipeline-content">Compare content in different stages</a></li>
+<li><a href="https://learn.microsoft.com/fabric/cicd/deployment-pipelines/understand-the-deployment-process">The deployment pipelines process</a></li>
+<li><a href="https://learn.microsoft.com/fabric/cicd/deployment-pipelines/deployment-history">Deployment history</a></li>
+<li><a href="https://learn.microsoft.com/fabric/cicd/deployment-plan/deployment-plan-overview">Deployment plan overview</a></li>
+</ul>
+</section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

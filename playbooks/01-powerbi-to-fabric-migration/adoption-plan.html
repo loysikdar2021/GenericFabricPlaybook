@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Change, support and project plan · Power BI to Fabric</title>
+<meta name="description" content="Drive adoption with a phased communication plan and role-based training, run the platform as a product with support, monitoring and a backlog, and plan the program with a phased task table and a relative-week timeline template.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="01-powerbi-to-fabric-migration" data-page="adoption-plan.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 01 · Power BI to Fabric</p>
+      <h1>Change, support and project plan</h1>
+      <p class="lede">A migration succeeds when people use the new platform and trust it, not when the last pipeline runs. This page covers communication and training, the support and optimization model that follows go-live, and a project plan template you can adapt: a phased task table and a timeline in relative weeks, with no calendar dates.</p>
+      <ul class="chips"><li><b>Phase</b> IV · Adopt and support, plus the plan for all phases</li><li><b>Audience</b> program managers, change leads, platform owners</li><li><b>Output</b> communication plan, training curriculum, support model, project plan</li></ul>
+    </header>
+
+    <h2 id="change">Change management</h2>
+    <p>People adopt a platform when they understand why it is changing, see the benefit for their own work, and feel supported while they learn. Plan this from the start of the project, not from the week before go-live. The plan has two halves: a communication plan that says what to tell whom, and a role-based training curriculum that gives each group what it needs.</p>
+
+    <h3 id="comms">Communication plan</h3>
+    <p>Identify every audience, from executive sponsors to occasional consumers, and define for each the key messages, channels and cadence across the four phases of the program.</p>
+    <table>
+      <thead><tr><th>Phase</th><th>Audience</th><th>Key messages</th><th>Channels</th><th>Cadence</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Before migration</strong></td><td>Sponsors, business owners, all users</td><td>Why the change, the benefits (faster insight, more reliable data, new capabilities), the rough timeline and what is expected of users.</td><td>Sponsor email, town hall, intranet page</td><td>Once, then monthly</td></tr>
+        <tr><td><strong>During migration</strong></td><td>Steering group, business owners, report owners</td><td>Progress against milestones, what is retiring and when it will be confirmed, how to object, which waves are next.</td><td>Steering update, project newsletter</td><td>Every two weeks</td></tr>
+        <tr><td><strong>Go-live</strong></td><td>All affected users</td><td>The new platform is live; direct links to the apps; where training and support are; how long the old reports remain.</td><td>Announcement, app links, quick-start guide</td><td>At go-live and a week later</td></tr>
+        <tr><td><strong>After migration</strong></td><td>All users, champions</td><td>Success stories, new features, usage tips; an invitation to give feedback.</td><td>Community channel, short surveys, office hours</td><td>Monthly</td></tr>
+      </tbody>
+    </table>
+    <div class="callout tip"><p class="callout-title">Name a champion in every business area</p><p>A small network of champions, one per business area, multiplies the reach of the central team. They hear the objections first, test the scripts in UAT, and answer the "where did my report go?" questions in their own teams.</p></div>
+
+    <h3 id="training">Role-based training</h3>
+    <p>One course for everyone does not work. Tailor it to the persona and deliver it through a mix of live workshops, on-demand material and hands-on labs, both before and after go-live.</p>
+    <table>
+      <thead><tr><th>Persona</th><th>What they need</th><th>Format</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Report consumers</strong> (largest group)</td><td>Find and open the new apps; use filters and slicers; subscribe to reports and export data; know where to ask for help.</td><td>Quick-start guide, short on-demand videos, a recorded walkthrough.</td></tr>
+        <tr><td><strong>Analysts and power users</strong></td><td>The structure of the certified semantic models; connecting from Desktop and Excel; self-service reporting inside the governed environment; when to request a change instead of building around the model.</td><td>Workshops with the real models; office hours; a short certification path.</td></tr>
+        <tr><td><strong>Developers</strong> (BI and data engineering)</td><td>The medallion architecture; Spark notebooks; T-SQL in the Warehouse; Git branching and pull requests; deployment pipelines; Direct Lake behavior; monitoring. Often the most overlooked and most critical audience.</td><td>Hands-on labs on the project's own repository, pairing with the platform team, code review as teaching.</td></tr>
+        <tr><td><strong>Platform administrators and support staff</strong></td><td>Capacity monitoring and throttling; the tenant settings in use; access requests; the runbook for incidents and for rollbacks.</td><td>Runbook walkthroughs and a rehearsed incident drill.</td></tr>
+      </tbody>
+    </table>
+    <p>For a team coming from Pro-era habits, the largest shift is not a tool but a way of working: commits, pull requests and releases in place of publishing a file from a laptop. Budget time for it, because a team that does not adopt source control undermines the whole CI/CD strategy.</p>
+
+    <h2 id="support">Post-migration support and optimization</h2>
+    <p>Go-live is the start of the platform's operational life, not the end of the project. Move from a project mindset to a product mindset: the analytics platform has an owner, a roadmap, a backlog and a release rhythm.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 272" role="img" aria-label="Operating loop: support channels feed monitoring, which feeds a prioritized backlog, which is released through the same Git and pipeline path, and the results return to users and channels">
+        <defs>
+          <marker id="fig-ap-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box purple" x="10" y="30" width="205" height="92" rx="10"/>
+        <text class="t-b" x="112" y="56" text-anchor="middle">Support channels</text><text class="t-s" x="112" y="80" text-anchor="middle">help desk, office hours,</text><text class="t-s" x="112" y="96" text-anchor="middle">community of practice</text>
+        <rect class="box blue" x="235" y="30" width="205" height="92" rx="10"/>
+        <text class="t-b" x="337" y="56" text-anchor="middle">Monitor</text><text class="t-s" x="337" y="80" text-anchor="middle">adoption, capacity use,</text><text class="t-s" x="337" y="96" text-anchor="middle">refresh health, cost</text>
+        <rect class="box orange" x="460" y="30" width="205" height="92" rx="10"/>
+        <text class="t-b" x="562" y="56" text-anchor="middle">Backlog</text><text class="t-s" x="562" y="80" text-anchor="middle">bugs, enhancements,</text><text class="t-s" x="562" y="96" text-anchor="middle">optimizations, ranked</text>
+        <rect class="box green" x="685" y="30" width="205" height="92" rx="10"/>
+        <text class="t-b" x="787" y="56" text-anchor="middle">Release</text><text class="t-s" x="787" y="80" text-anchor="middle">same Git and pipeline</text><text class="t-s" x="787" y="96" text-anchor="middle">path as the build</text>
+        <path class="ln" d="M215 76H233" marker-end="url(#fig-ap-1-a)"/>
+        <path class="ln" d="M440 76H458" marker-end="url(#fig-ap-1-a)"/>
+        <path class="ln" d="M665 76H683" marker-end="url(#fig-ap-1-a)"/>
+        <path class="ln" d="M787 122V168H112V124" marker-end="url(#fig-ap-1-a)"/>
+        <rect class="pill-bg" x="352" y="157" width="200" height="22" rx="11"/>
+        <text class="t-s" x="452" y="172" text-anchor="middle">improvements reach users</text>
+        <rect class="band" x="10" y="204" width="880" height="48" rx="8"/>
+        <text class="t-s" x="450" y="233" text-anchor="middle">The platform becomes a product: a named owner, a roadmap and a regular release rhythm.</text>
+      </svg>
+      <figcaption><b>The operating loop.</b> Support tickets and metrics feed one backlog; changes ship through the same controlled path as the original build; and each release is announced through the community channel.</figcaption>
+    </figure>
+
+    <h3 id="channels">Support channels</h3>
+    <ul>
+      <li><strong>A help desk or ticketing system</strong> for logging and tracking issues, with categories that match the platform (access, data question, defect, change request) and target response times.</li>
+      <li><strong>Office hours</strong> with the BI team, scheduled and published, where users get live help.</li>
+      <li><strong>A community of practice</strong> in a dedicated Teams channel or Viva Engage community, for peer help, announcements and sharing.</li>
+      <li><strong>Escalation paths</strong> to the platform owner for incidents, and a status page or channel for known issues.</li>
+    </ul>
+
+    <h3 id="monitor">Monitoring adoption, performance and cost</h3>
+    <ul>
+      <li><strong>User adoption.</strong> Active users, report views, the share of views on the new estate versus any legacy remainder, and self-service content created. Use the activity events you started exporting during the assessment, the audit log, and the built-in usage reports. Low adoption points to a training or promotion gap.</li>
+      <li><strong>Capacity and performance.</strong> Use the Capacity Metrics app to watch utilization, smoothing, throttling and the items that consume the most. Community accelerators such as Fabric Unified Admin Monitoring (FUAM), published in the Fabric Toolbox repository, extend this with tenant-wide history; they are community-driven and not a supported Microsoft product, so deploy them deliberately and test their own capacity use.</li>
+      <li><strong>Cost.</strong> Review spend regularly. Adjust the mix of reserved and pay-as-you-go capacity to actual usage, and use pause and resume where workloads allow, as covered in <a href="strategy-licensing.html#licensing">licensing and cost</a> and the <a href="strategy-licensing.html#capacity-behavior">capacity behavior</a> section.</li>
+      <li><strong>Pipeline health.</strong> Failure rates, durations and the freshness of each model, from the alerting set up in the <a href="build-data.html#schedule-alerts">orchestration step</a>.</li>
+    </ul>
+
+    <h3 id="improvement">Continuous improvement and retrospective</h3>
+    <p>Keep one prioritized backlog fed by user feedback, tickets and monitoring, and work through it with the same agile and CI/CD practices you used to build the platform. Hold a project retrospective with the core team and key stakeholders: what went well, what to change, and the lessons that apply to every future data initiative. Record them in the same repository as the specification packages, so the next project starts from them.</p>
+
+    <h2 id="project-plan">Project plan template</h2>
+    <p>The template below is a starting point, not a schedule. Tasks marked "per area" repeat for each business area or wave; "once" tasks happen once for the whole program; "case by case" tasks depend on the area. It allows for multiple consumption layers after Gold, as a multi-domain implementation needs.</p>
+
+    <h3 id="waves">Plan in waves, not in one pass</h3>
+    <p>A single pass (every extract, then every build, then every test) puts the first thing a business owner can see far into the program. Instead, group the signed-off matrix into waves by business area and value. Wave 1 is a pilot that goes through the whole chain and settles naming, shared code, alerting, the reconciliation method and the release path. Later waves reuse all of it and overlap.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 250" role="img" aria-label="Three overlapping waves, each going through extract, build data, model and reports, QA and UAT, deploy; later waves start before the earlier ones finish">
+        <text class="t-b" x="10" y="64">Wave 1</text><text class="t-s" x="10" y="80">pilot</text>
+        <text class="t-b" x="10" y="124">Wave 2</text>
+        <text class="t-b" x="10" y="184">Wave 3 and later</text>
+        <rect class="box purple" x="110" y="42" width="120" height="44" rx="6"/><text class="t-s" x="170" y="68" text-anchor="middle">Extract</text>
+        <rect class="box green" x="230" y="42" width="120" height="44" rx="6"/><text class="t-s" x="290" y="68" text-anchor="middle">Build data layers</text>
+        <rect class="box blue" x="350" y="42" width="120" height="44" rx="6"/><text class="t-s" x="410" y="68" text-anchor="middle">Model and reports</text>
+        <rect class="box orange" x="470" y="42" width="120" height="44" rx="6"/><text class="t-s" x="530" y="68" text-anchor="middle">QA and UAT</text>
+        <rect class="box accent" x="590" y="42" width="120" height="44" rx="6"/><text class="t-s t-w" x="650" y="68" text-anchor="middle">Deploy</text>
+        <rect class="box purple" x="200" y="102" width="120" height="44" rx="6"/><text class="t-s" x="260" y="128" text-anchor="middle">Extract</text>
+        <rect class="box green" x="320" y="102" width="120" height="44" rx="6"/><text class="t-s" x="380" y="128" text-anchor="middle">Build data layers</text>
+        <rect class="box blue" x="440" y="102" width="120" height="44" rx="6"/><text class="t-s" x="500" y="128" text-anchor="middle">Model and reports</text>
+        <rect class="box orange" x="560" y="102" width="120" height="44" rx="6"/><text class="t-s" x="620" y="128" text-anchor="middle">QA and UAT</text>
+        <rect class="box accent" x="680" y="102" width="120" height="44" rx="6"/><text class="t-s t-w" x="740" y="128" text-anchor="middle">Deploy</text>
+        <rect class="box purple" x="290" y="162" width="120" height="44" rx="6"/><text class="t-s" x="350" y="188" text-anchor="middle">Extract</text>
+        <rect class="box green" x="410" y="162" width="120" height="44" rx="6"/><text class="t-s" x="470" y="188" text-anchor="middle">Build data layers</text>
+        <rect class="box blue" x="530" y="162" width="120" height="44" rx="6"/><text class="t-s" x="590" y="188" text-anchor="middle">Model and reports</text>
+        <rect class="box orange" x="650" y="162" width="120" height="44" rx="6"/><text class="t-s" x="710" y="188" text-anchor="middle">QA and UAT</text>
+        <rect class="box accent" x="770" y="162" width="120" height="44" rx="6"/><text class="t-s t-w" x="830" y="188" text-anchor="middle">Deploy</text>
+        <text class="t-s" x="450" y="236" text-anchor="middle">Lessons from each wave feed the next; the pilot sets the patterns everyone else reuses.</text>
+      </svg>
+      <figcaption><b>Overlapping waves.</b> Each wave repeats the same five stages for a group of business areas. The stage widths are illustrative, not to scale.</figcaption>
+    </figure>
+
+    <h3 id="timeline">Timeline in relative weeks</h3>
+    <p>The chart shows one plausible shape for a mid-sized program, in weeks from project start. Use it to discuss dependencies, then replace the numbers with an estimate based on your matrix: the number of waves, the complexity of the rebuild assets, and the capacity of the team. Nothing here is a benchmark.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 456" role="img" aria-label="Gantt-style timeline in relative weeks across four phases: foundation tasks in weeks 1 to 10, build tasks overlapping from week 7 to 34, QA, deployment, go-live and decommissioning from week 22 to 56, and communication, training and support running alongside">
+        <rect class="lane" x="0" y="40" width="900" height="96"/>
+        <rect class="lane" x="0" y="256" width="900" height="96"/>
+        <path class="ln thin" d="M260 20V424"/>
+        <text class="t-s" x="260" y="12" text-anchor="middle">0</text>
+        <path class="ln thin" d="M350 20V424"/>
+        <text class="t-s" x="350" y="12" text-anchor="middle">8</text>
+        <path class="ln thin" d="M440 20V424"/>
+        <text class="t-s" x="440" y="12" text-anchor="middle">16</text>
+        <path class="ln thin" d="M530 20V424"/>
+        <text class="t-s" x="530" y="12" text-anchor="middle">24</text>
+        <path class="ln thin" d="M620 20V424"/>
+        <text class="t-s" x="620" y="12" text-anchor="middle">32</text>
+        <path class="ln thin" d="M710 20V424"/>
+        <text class="t-s" x="710" y="12" text-anchor="middle">40</text>
+        <path class="ln thin" d="M800 20V424"/>
+        <text class="t-s" x="800" y="12" text-anchor="middle">48</text>
+        <path class="ln thin" d="M890 20V424"/>
+        <text class="t-s" x="890" y="12" text-anchor="middle">56</text>
+        <text class="t-s" x="10" y="12">Relative weeks from project start</text>
+        <path class="ln thin dash orange" d="M687.5 22V424"/>
+        <text class="t-s c-orange" x="684.5" y="34" text-anchor="end">sign-off</text>
+        <path class="ln thin dash orange" d="M710 22V424"/>
+        <text class="t-s c-orange" x="713" y="34" text-anchor="start">go-live</text>
+        <path class="ln thin dash orange" d="M755 22V424"/>
+        <text class="t-s c-orange" x="758" y="34" text-anchor="start">retire</text>
+        <text class="t-s" x="10" y="56">Initiation and stakeholder alignment</text>
+        <rect class="box blue" x="260" y="45" width="22.5" height="14" rx="4"/>
+        <text class="t-s" x="10" y="80">Licensing, costing, capacity purchase</text>
+        <rect class="box blue" x="271.25" y="69" width="56.25" height="14" rx="4"/>
+        <text class="t-s" x="10" y="104">Architecture and governance setup</text>
+        <rect class="box blue" x="282.5" y="93" width="67.5" height="14" rx="4"/>
+        <text class="t-s" x="10" y="128">Assessment and rationalization</text>
+        <rect class="box blue" x="282.5" y="117" width="90" height="14" rx="4"/>
+        <text class="t-s" x="10" y="152">Environments and CI/CD</text>
+        <rect class="box green" x="327.5" y="141" width="45" height="14" rx="4"/>
+        <text class="t-s" x="10" y="176">Reverse-engineering (per wave)</text>
+        <rect class="box green" x="350" y="165" width="180" height="14" rx="4"/>
+        <text class="t-s" x="10" y="200">Medallion build (per wave)</text>
+        <rect class="box green" x="372.5" y="189" width="225" height="14" rx="4"/>
+        <text class="t-s" x="10" y="224">Semantic models and reports (per wave)</text>
+        <rect class="box green" x="417.5" y="213" width="225" height="14" rx="4"/>
+        <text class="t-s" x="10" y="248">Orchestration and hardening</text>
+        <rect class="box green" x="473.75" y="237" width="168.75" height="14" rx="4"/>
+        <text class="t-s" x="10" y="272">QA and UAT (per wave)</text>
+        <rect class="box orange" x="496.25" y="261" width="191.25" height="14" rx="4"/>
+        <text class="t-s" x="10" y="296">Production deployment</text>
+        <rect class="box orange" x="631.25" y="285" width="78.75" height="14" rx="4"/>
+        <text class="t-s" x="10" y="320">Go-live and parallel run</text>
+        <rect class="box orange" x="676.25" y="309" width="78.75" height="14" rx="4"/>
+        <text class="t-s" x="10" y="344">Decommissioning and grace period</text>
+        <rect class="box orange" x="743.75" y="333" width="146.25" height="14" rx="4"/>
+        <text class="t-s" x="10" y="368">Communication</text>
+        <rect class="box purple" x="260" y="357" width="540" height="14" rx="4"/>
+        <text class="t-s" x="10" y="392">Training and enablement</text>
+        <rect class="box purple" x="383.75" y="381" width="371.25" height="14" rx="4"/>
+        <text class="t-s" x="10" y="416">Support and optimization</text>
+        <rect class="box purple" x="676.25" y="405" width="213.75" height="14" rx="4"/>
+        <rect class="box blue" x="10" y="435" width="12" height="12" rx="3"/>
+        <text class="t-s" x="28" y="445">Phase I · Foundation</text>
+        <rect class="box green" x="170" y="435" width="12" height="12" rx="3"/>
+        <text class="t-s" x="188" y="445">Phase II · Build</text>
+        <rect class="box orange" x="306" y="435" width="12" height="12" rx="3"/>
+        <text class="t-s" x="324" y="445">Phase III · Validate and release</text>
+        <rect class="box purple" x="536" y="435" width="12" height="12" rx="3"/>
+        <text class="t-s" x="554" y="445">Phase IV · Adopt and support</text>
+      </svg>
+      <figcaption><b>One plausible shape, in relative weeks.</b> Build, test and deploy bars repeat per wave and overlap. The dashed lines mark the sign-off, go-live and retirement gates. Capacity procurement and the first reassignment can run ahead of the rest if the licensing timeline requires it.</figcaption>
+    </figure>
+
+    <h3 id="plan-phase-1">Phase I · Foundation and strategic planning</h3>
+    <table>
+      <thead><tr><th>Task</th><th>Repeat</th><th>Key activities</th><th>Deliverable</th><th>Weeks</th></tr></thead>
+      <tbody>
+        <tr><td>Project initiation and stakeholder alignment</td><td>Once</td><td>Define objectives, scope and success metrics. Identify and engage executive sponsors, business leads, IT and data teams. Form the team and define roles.</td><td>Project charter</td><td>1 to 2</td></tr>
+        <tr><td>Licensing, cost and capacity</td><td>Once</td><td>Analyze licensing, cost structure and user-access model changes. Confirm renewal and retirement terms for any Premium capacity with your Microsoft account team, and plan the move inside the transition window to avoid paying twice. Register the resource provider, purchase F SKU capacity, configure cost-management rules, and write the capacity runbook.</td><td>Cost analysis; capacity in place; <a href="strategy-licensing.html#capacity-runbook">capacity runbook</a></td><td>2 to 6</td></tr>
+        <tr><td>Architecture and design decisions</td><td>Once</td><td>Decide the pattern (All-Lakehouse or Hybrid), the workspace strategy for DEV, TST and PRD by layer or domain, OneLake structure, domains and naming conventions, and the Git branching model. Present the architecture to stakeholders.</td><td>Architecture decision record; naming convention; branching decision</td><td>3 to 8</td></tr>
+        <tr><td>Governance framework</td><td>Once</td><td>Review tenant settings; decide the endorsement and certification model and process; integrate with Microsoft Purview; define classification, sensitivity labels and access-control rules; set initial workspace roles and OneLake security.</td><td>Governance policy; certification framework</td><td>3 to 8</td></tr>
+        <tr><td>Legacy assessment and rationalization</td><td>Per area</td><td>Inventory reports, models and dataflows with scripts. Review capacity utilization and usage patterns. Classify as critical, redundant or unused. Define business areas, stakeholders, workspace groupings and all data sources, dataflows and pipelines. Prioritize and form waves.</td><td>Signed <a href="assessment.html#matrix">rationalization matrix</a>; wave plan</td><td>3 to 10</td></tr>
+      </tbody>
+    </table>
+
+    <h3 id="plan-phase-2">Phase II · Data engineering, semantic and delivery build</h3>
+    <table>
+      <thead><tr><th>Task</th><th>Repeat</th><th>Key activities</th><th>Deliverable</th><th>Weeks</th></tr></thead>
+      <tbody>
+        <tr><td>Environment setup</td><td>Per area</td><td>Provision DEV, TST and PRD workspaces; create the repository and template; connect Git; add automated test hooks; create the Bronze, Silver and Gold lakehouses and warehouses; configure Fabric environments.</td><td>Configured environments and pipelines</td><td>7 to 10</td></tr>
+        <tr><td>Reverse-engineering and data mapping</td><td>Per area</td><td>Arrange access to workspaces, documentation and experts. Extract M, DAX, relationships and security; inventory visuals; capture baselines. Build the data-mapping document: Source to Bronze to Silver to Gold to consumption to semantic model.</td><td><a href="reverse-engineering.html#spec-package">Specification package</a> and mapping document</td><td>9 to 24</td></tr>
+        <tr><td>Bronze layer</td><td>Per area</td><td>Build ingestion pipelines per source; implement the landing structure; configure and test initial loads.</td><td>Working Bronze pipelines</td><td>11 to 30</td></tr>
+        <tr><td>Silver layer</td><td>Per area</td><td>Build Spark notebooks for cleansing, conforming and enriching; add data-quality checks and quarantine; create the conformed tables.</td><td>Validated Silver Delta tables</td><td>11 to 30</td></tr>
+        <tr><td>Gold layer</td><td>Per area</td><td>Design the star schema; build Silver-to-Gold transformations in T-SQL or Spark; implement Type 2 dimensions with T-SQL MERGE or equivalent logic.</td><td>Consumption-ready star schema</td><td>11 to 30</td></tr>
+        <tr><td>Consumption warehouse</td><td>Per area</td><td>Build the Warehouse from Gold for the semantic layer; decide full versus incremental loads and how to recompute non-additive metrics.</td><td>Warehouse ready for modeling</td><td>13 to 32</td></tr>
+        <tr><td>Semantic models</td><td>Per area</td><td>Choose the <a href="semantic-delivery.html#storage-modes">storage mode</a>; build the star-schema model; rebuild relationships, hierarchies, measures and security; run best-practice checks and baselines; certify and publish.</td><td>Certified semantic models</td><td>15 to 34</td></tr>
+        <tr><td>Data science lakehouse</td><td>Case by case</td><td>If required, deploy a lakehouse for data science from Gold.</td><td>Lakehouse for data science</td><td>As needed</td></tr>
+        <tr><td>Delivery layer</td><td>Per area</td><td>Rebind or rebuild thin reports against certified models; apply themes and templates; implement bookmarks and drillthrough; prepare apps.</td><td>Reports and apps</td><td>15 to 34</td></tr>
+        <tr><td>Pipeline orchestration</td><td>Once, extended per area</td><td>Build the hub-and-spoke pipeline and control table; implement dependency and concurrency control; configure schedules, monitoring and alerts.</td><td>End-to-end automated pipeline</td><td>20 to 34</td></tr>
+      </tbody>
+    </table>
+
+    <h3 id="plan-phase-3">Phase III · Testing, deployment and go-live</h3>
+    <table>
+      <thead><tr><th>Task</th><th>Repeat</th><th>Key activities</th><th>Deliverable</th><th>Weeks</th></tr></thead>
+      <tbody>
+        <tr><td>Quality assurance</td><td>Per area</td><td>Reconcile data between legacy and new; test every interaction; test performance and Direct Lake behavior; verify RLS and OLS as a viewer.</td><td>QA results and completed <a href="validate-release.html#reconciliation">reconciliation checklist</a></td><td>22 to 38</td></tr>
+        <tr><td>User acceptance testing</td><td>Per area</td><td>Prepare the UAT environment and testers; write scripts and scenarios; run UAT and log defects; triage and resolve critical issues.</td><td>Written business sign-off</td><td>22 to 38</td></tr>
+        <tr><td>Production deployment</td><td>Per area</td><td>Promote content through the deployment pipeline; test automated deployment from Git; configure production refresh, security and connections; publish the apps.</td><td>Solution deployed in production</td><td>34 to 40</td></tr>
+        <tr><td>Go-live and decommissioning</td><td>Case by case</td><td>Announce go-live and run old and new in parallel for a defined period; then retire and archive legacy content in the <a href="validate-release.html#decommission">reversible-then-one-way sequence</a>.</td><td>Go-live communication; decommissioning confirmation</td><td>38 to 56</td></tr>
+      </tbody>
+    </table>
+
+    <h3 id="plan-phase-4">Phase IV · Change management and ongoing support</h3>
+    <table>
+      <thead><tr><th>Task</th><th>Repeat</th><th>Key activities</th><th>Deliverable</th><th>Weeks</th></tr></thead>
+      <tbody>
+        <tr><td>Communication plan</td><td>Case by case</td><td>Develop the strategy (messages, channels, cadence per audience) and execute it through the project: announcements, progress updates, go-live information.</td><td>Communication plan and executed communications</td><td>1 to 48</td></tr>
+        <tr><td>User training and enablement</td><td>Case by case</td><td>Build a role-based curriculum; create quick-start guides, videos and documentation; schedule workshops; deliver sessions before and after go-live.</td><td>Training materials and schedule</td><td>12 to 44</td></tr>
+        <tr><td>Post-go-live support</td><td>Case by case</td><td>Establish support channels; monitor adoption and gather feedback; run the project retrospective.</td><td>Support plan; adoption report; lessons learned</td><td>38 onward</td></tr>
+      </tbody>
+    </table>
+
+    <h3 id="roles">Roles and ownership</h3>
+    <table>
+      <thead><tr><th>Role</th><th>Owns</th></tr></thead>
+      <tbody>
+        <tr><td>Executive sponsor</td><td>Objectives, funding, the retirement gate, escalations.</td></tr>
+        <tr><td>Program manager</td><td>Plan, waves, risks, status, the release calendar in relative weeks.</td></tr>
+        <tr><td>Solution architect</td><td>Pattern, naming, workspace strategy, standards.</td></tr>
+        <tr><td>Data engineers</td><td>Bronze, Silver, Gold, orchestration, reconciliation of the pipeline.</td></tr>
+        <tr><td>BI developers</td><td>Semantic models, reports, security specification, baselines.</td></tr>
+        <tr><td>Fabric administrator</td><td>Capacity, tenant settings, reassignment runbook, monitoring.</td></tr>
+        <tr><td>Governance lead</td><td>Labels, DLP, endorsement process, access model.</td></tr>
+        <tr><td>QA lead</td><td>The QA gate, test evidence, reconciliation results.</td></tr>
+        <tr><td>Business owners</td><td>Rationalization decisions, UAT scripts and the sign-off gate.</td></tr>
+        <tr><td>Change and support leads</td><td>Communication, training, support channels, adoption reporting.</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="checklists">Phase exit checklists and success measures</h2>
+    <p>Use these as the entry criteria for the next phase. If an item cannot be ticked, the phase is not finished.</p>
+    <h3 id="exit-1">Phase I exit</h3>
+    <ul class="checklist">
+      <li>Capacity is in place and the reassignment runbook has been rehearsed on a non-critical workspace.</li>
+      <li>Architecture, naming, branching and governance decisions are recorded and approved.</li>
+      <li>The rationalization matrix is signed by business and IT leadership; the wave plan exists.</li>
+      <li>A daily activity export is running and the exception register is open.</li>
+    </ul>
+    <h3 id="exit-2">Phase II exit (per wave)</h3>
+    <ul class="checklist">
+      <li>Every rebuilt asset has a specification package and baselines.</li>
+      <li>Bronze, Silver and Gold tables trace to the data-mapping document; rejected rows are quarantined and reviewed.</li>
+      <li>Models are certified candidates, with tested security and a recorded storage-mode decision.</li>
+      <li>The hub pipeline runs the wave end to end and alerts reach a monitored destination.</li>
+    </ul>
+    <h3 id="exit-3">Phase III exit</h3>
+    <ul class="checklist">
+      <li>Reconciliation is within tolerance in production; no Critical or unaccepted High defects.</li>
+      <li>Written business sign-off exists for each wave.</li>
+      <li>The parallel run met its exit criteria; adoption is confirmed from usage data.</li>
+      <li>Legacy content is archived, then deleted, and the matrix reflects the outcome.</li>
+    </ul>
+    <h3 id="exit-4">Phase IV exit</h3>
+    <ul class="checklist">
+      <li>Support channels, owners and response targets are published and in use.</li>
+      <li>Adoption, performance and cost reports run on a regular cadence.</li>
+      <li>A backlog and release rhythm exist; the retrospective is held and its lessons are filed.</li>
+    </ul>
+    <table>
+      <thead><tr><th>Dimension</th><th>Measure</th><th>Where it comes from</th></tr></thead>
+      <tbody>
+        <tr><td>Adoption</td><td>Active users and views on the new estate; share of legacy views remaining.</td><td>Activity events and usage reports</td></tr>
+        <tr><td>Quality</td><td>Reconciliation pass rate; defects found after go-live; data-quality rejects per load.</td><td>QA evidence, tracker, quarantine tables</td></tr>
+        <tr><td>Performance</td><td>Visual load time at the agreed percentile; refresh and pipeline durations.</td><td>Performance Analyzer, monitoring</td></tr>
+        <tr><td>Cost</td><td>CU utilization versus purchased capacity; spend versus plan; legacy capacity released.</td><td>Capacity Metrics app, cost management</td></tr>
+        <tr><td>Scope</td><td>Matrix rows delivered, retired or deferred; unplanned additions through change control.</td><td>The rationalization matrix and its change log</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="principles">Principles to hold throughout</h2>
+    <ol>
+      <li><strong>Strategic foundation first.</strong> Licensing and cost analysis, a deliberate architecture pattern based on team skills, and governance are prerequisites, not parallel work.</li>
+      <li><strong>Rationalize, do not just migrate.</strong> A data-driven decision per asset is the cheapest scope reduction and the best risk control.</li>
+      <li><strong>Embrace engineering discipline.</strong> Source control and release pipelines make the platform maintainable, and the team needs training to use them.</li>
+      <li><strong>Decouple and centralize.</strong> Certified semantic models feeding thin reports keep one version of the truth.</li>
+      <li><strong>People drive adoption.</strong> Communication and role-based training are as critical as the build.</li>
+    </ol>
+    <p>Return to the <a href="index.html#execution-map">execution map</a> to see how these phases connect to the two workstreams, or move on to the companion playbooks for the engineering detail.</p>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p>
+      <ul>
+        <li>Plan communication and training from the first week: phased messages per audience and a curriculum per persona, with developers as the most important and most often neglected group.</li>
+        <li>Run the platform as a product: support channels, monitoring of adoption, capacity and cost, one backlog, and a release rhythm.</li>
+        <li>Plan in waves, with a pilot that sets the patterns. Express every date as a relative week, and replace the sample numbers with your own estimate.</li>
+        <li>Use the phase tables and exit checklists as gates: a phase is finished when its checklist can be ticked.</li>
+        <li>Hold a retrospective and file the lessons with the specification packages.</li>
+      </ul>
+    </div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/fabric/enterprise/metrics-app">Microsoft Fabric Capacity Metrics app</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/admin/feature-usage-adoption">Feature usage and adoption report</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/admin/track-user-activities">Track user activities in Microsoft Fabric</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/create-alerts-for-pipeline-runs">Create alerts for pipeline runs</a></li>
+        <li><a href="https://learn.microsoft.com/power-bi/guidance/powerbi-implementation-planning-introduction">Power BI implementation planning</a></li>
+        <li><a href="https://learn.microsoft.com/power-bi/support/premium-migration-overview">Power BI Premium to Microsoft Fabric migration overview</a></li>
+        <li><a href="https://github.com/microsoft/fabric-toolbox">Microsoft Fabric Toolbox (community accelerators, including FUAM)</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

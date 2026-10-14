@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Installing in a Fabric Environment · Shared Libraries</title>
+<meta name="description" content="Upload the wheel to a Fabric Environment, publish it in Full or Quick mode, attach it to notebooks or the workspace default, and understand why %pip install is the wrong tool for pipeline runs.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="06-shared-libraries" data-page="environment.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 06 · Shared Python Libraries</p>
+      <h1>Installing in a Fabric Environment</h1>
+      <p class="lede">An Environment turns the wheel into a durable, workspace-visible dependency. This page walks through upload, publish and attach, explains what Full and Quick publish modes cost you, and shows why pipelines should never depend on <code>%pip install</code>.</p>
+    </header>
+
+    <h2 id="concepts">What an Environment is, and where it applies</h2>
+    <p>A Fabric Environment is a workspace item that defines the configuration of a Spark session: the runtime, the compute settings, the libraries and a small set of resource files. Libraries come from three places: the built-in set that ships with the runtime, public or private repositories (<strong>External repositories</strong>), and files you upload under <strong>Custom libraries</strong>. For a Python library the custom file is a <code>.whl</code> (Fabric also accepts <code>.py</code> and <code>.jar</code>, and <code>.tar.gz</code> for R only).</p>
+    <p>Two properties matter for how you operate it:</p>
+    <ul>
+      <li><strong>Save versus Publish.</strong> Saving stages your changes; they are not effective until you publish. An Environment accepts one publish at a time, and you cannot edit libraries or compute while a publish is running. Changes to the <strong>Resources</strong> folder are the exception: they are real time and need no publish.</li>
+      <li><strong>Attachment decides what a session gets.</strong> A notebook or Spark job definition either names an Environment or uses <strong>Workspace default</strong>. The next figure shows how a session resolves it.</li>
+    </ul>
+
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 290" role="img" aria-label="How a session picks its libraries: a notebook or Spark job either names an Environment, which supplies libraries and compute, or uses the workspace default, which is an Environment only when the set default environment toggle is on; otherwise the session gets workspace Spark settings with no custom libraries">
+        <defs>
+          <marker id="fig-env-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box gray" x="20" y="120" width="160" height="56" rx="10"/>
+        <text class="t-b" x="100" y="144" text-anchor="middle">Session starts</text><text class="t-s" x="100" y="162" text-anchor="middle">notebook or Spark job</text>
+        <rect class="box purple" x="225" y="123" width="190" height="50" rx="25"/>
+        <text class="t-b" x="320" y="153" text-anchor="middle">Which Environment?</text>
+        <rect class="box green" x="480" y="30" width="270" height="52" rx="10"/>
+        <text class="t-b" x="615" y="52" text-anchor="middle">The Environment it names</text><text class="t-s" x="615" y="69" text-anchor="middle">runtime, libraries, compute</text>
+        <rect class="box purple" x="480" y="123" width="200" height="50" rx="25"/>
+        <text class="t-b" x="580" y="153" text-anchor="middle">Default Environment set?</text>
+        <rect class="box green" x="725" y="119" width="160" height="58" rx="10"/>
+        <text class="t-b" x="805" y="143" text-anchor="middle">Default Environment</text><text class="t-s" x="805" y="161" text-anchor="middle">libraries and compute</text>
+        <rect class="box red" x="480" y="218" width="230" height="52" rx="10"/>
+        <text class="t-b" x="595" y="240" text-anchor="middle">Workspace Spark settings</text><text class="t-s" x="595" y="257" text-anchor="middle">no custom libraries</text>
+        <rect class="box orange dashed" x="20" y="214" width="400" height="58" rx="10"/>
+        <text class="t-s" x="36" y="236">Environment from another workspace: same capacity and</text>
+        <text class="t-s" x="36" y="254">network security required; its compute settings are ignored.</text>
+        <path class="ln" d="M180 148H223" marker-end="url(#fig-env-1-a)"/>
+        <path class="ln" d="M415 140H428V56H478" marker-end="url(#fig-env-1-a)"/>
+        <path class="ln" d="M415 152H478" marker-end="url(#fig-env-1-a)"/>
+        <path class="ln" d="M680 148H723" marker-end="url(#fig-env-1-a)"/>
+        <path class="ln" d="M580 173V216" marker-end="url(#fig-env-1-a)"/>
+        <rect class="pill-bg" x="432" y="49" width="36" height="14"/>
+        <text class="t-s" x="450" y="60" text-anchor="middle">item</text>
+        <rect class="pill-bg" x="421" y="145" width="56" height="14"/>
+        <text class="t-s" x="449" y="156" text-anchor="middle">default</text>
+        <text class="t-s c-green" x="694" y="141" text-anchor="middle">yes</text>
+        <text class="t-s c-red" x="592" y="198">no</text>
+      </svg>
+      <figcaption><b>Resolution at session start.</b> Only an Environment (named or set as the workspace default) brings your wheel. If the default toggle is off, <em>Workspace default</em> means plain workspace Spark settings and the import fails.</figcaption>
+    </figure>
+
+    <h2 id="steps">Create the Environment and install the wheel</h2>
+    <p>Do this first in the DEV workspace. Use an Environment per stage and the same item name in each (for example <code>ENV_SALES_SLV_SharedLibs</code>).</p>
+    <ol class="steps">
+      <li><strong>Create the Environment</strong><p>In the workspace select <strong>New item</strong>, search for <strong>Environment</strong>, name it, and select <strong>Create</strong>.</p></li>
+      <li><strong>Select the runtime</strong><p>On the Environment's runtime dropdown choose the runtime you tested the wheel against (the one whose Python and Spark versions match <code>requires-python</code> and the <code>test</code> extra). Changing the runtime later needs another publish, and a custom library built for one Python minor version may not work on another.</p></li>
+      <li><strong>Upload the wheel</strong><p>Open <strong>Libraries</strong>, then <strong>Custom libraries</strong>, and use <strong>Upload</strong> to add <code>contoso_fabric_utils-1.4.0-py3-none-any.whl</code>. Choose <strong>Full</strong> publish mode for anything that pipelines or scheduled jobs will run.</p></li>
+      <li><strong>Add public libraries only if the wheel needs them</strong><p>Under <strong>External repositories</strong> add PyPI or Conda packages. Keep this list short; each one is resolved at publish time and must not conflict with built-in packages.</p></li>
+      <li><strong>Save and publish</strong><p>On the <strong>Home</strong> tab select <strong>Save</strong>, then <strong>Publish</strong> and <strong>Publish all</strong>. Watch <strong>View progress</strong> in the banner and wait for the success notification. A failure notification names the conflicting library.</p></li>
+      <li><strong>Attach it</strong><p>Per item: open the notebook (or Spark job definition), choose the Environment in the toolbar dropdown, and confirm. For the whole workspace: <strong>Workspace settings</strong>, <strong>Data Engineering/Science</strong>, <strong>Spark settings</strong>, <strong>Environment</strong> tab, turn <strong>Set default environment</strong> on, pick the item and save. Only workspace admins can do this, and only admins can change the contents of an Environment that is the workspace default.</p></li>
+      <li><strong>Verify in a new session</strong><p>Start a session and run the import check below. A session that was already running keeps the libraries it started with.</p></li>
+    </ol>
+<pre data-title="Notebook cell (PySpark): verify the install"><code class="language-python">import contoso_fabric_utils as lib
+
+print(lib.__version__)                 # expect the version you just published
+print(lib.full_load_overwrite.__doc__) # confirms you are importing the packaged module</code></pre>
+    <div class="callout tip"><p class="callout-title">Upgrading to a new version</p><p>Wheel files carry their version in the file name, so uploading <code>1.5.0</code> does not replace <code>1.4.0</code>; both would sit in the list. Delete the old file from <strong>Custom libraries</strong> before you publish, so the Environment contains exactly one version of the distribution. The <a href="cicd.html">CI/CD page</a> automates this.</p></div>
+    <div class="callout note"><p class="callout-title">Sharing</p><p>When you share a notebook or Spark job definition with someone, also grant Read on the Environment it uses. Recipients of an Environment get Read by default, which is enough to attach it; Edit lets them change its contents.</p></div>
+
+    <h2 id="publish-modes">Publish modes and their effect on session start</h2>
+    <p>When you add custom libraries you pick a publish mode. The choice decides when dependency work happens: once at publish time, or on every session start.</p>
+    <table>
+      <thead><tr><th></th><th>Full mode</th><th>Quick mode</th></tr></thead>
+      <tbody>
+        <tr><td><strong>What publish does</strong></td><td>Resolves dependencies, validates compatibility and creates a stable library snapshot</td><td>Skips dependency processing</td></tr>
+        <tr><td><strong>Publish time</strong></td><td>Typically 3 to 6 minutes</td><td>About 5 seconds</td></tr>
+        <tr><td><strong>Session start</strong></td><td>Adds roughly 1 to 3 minutes to deploy the snapshot, depending on dependency size</td><td>Packages install when the first Python cell runs</td></tr>
+        <tr><td><strong>Works with</strong></td><td>Notebooks and Spark job definitions; every library source</td><td>Notebooks only; public repositories and most custom formats (not <code>.jar</code>)</td></tr>
+        <tr><td><strong>Reproducibility</strong></td><td>High: every session starts from the same snapshot</td><td>Lower: dependencies are installed per session</td></tr>
+        <tr><td><strong>Use for</strong></td><td>Pipelines, scheduled runs, shared and production workloads, more than about ten packages</td><td>Rapid iteration while you develop the library or a notebook</td></tr>
+      </tbody>
+    </table>
+    <p>You can mix modes: a validated Full-mode snapshot is applied first and Quick-mode packages install on top, overriding same-named packages for that session only. To move a custom library between modes, download it, remove it, and upload it in the other mode.</p>
+
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 270" role="img" aria-label="Timeline of publish and session start for three setups: Full mode spends minutes at publish and adds one to three minutes at session start, Quick mode publishes in seconds but installs at session start, and Full mode with a custom live pool keeps the snapshot and starts sessions in about five seconds">
+        <defs>
+          <marker id="fig-env-2-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <text class="t-s" x="20" y="22">Not to scale. Durations are typical values from the documentation, not guarantees.</text>
+        <text class="t-b" x="20" y="73">Full mode</text>
+        <rect class="box blue" x="170" y="42" width="250" height="56" rx="8"/>
+        <text class="t-b" x="295" y="64" text-anchor="middle">Publish</text><text class="t-s" x="295" y="82" text-anchor="middle">resolve deps, snapshot: 3 to 6 min</text>
+        <rect class="box blue" x="430" y="42" width="230" height="56" rx="8"/>
+        <text class="t-b" x="545" y="64" text-anchor="middle">Session start</text><text class="t-s" x="545" y="82" text-anchor="middle">deploy snapshot: +1 to 3 min</text>
+        <text class="t-s" x="690" y="74">pipelines and scheduled runs</text>
+        <text class="t-b" x="20" y="148">Quick mode</text>
+        <rect class="box orange" x="170" y="117" width="100" height="56" rx="8"/>
+        <text class="t-b" x="220" y="139" text-anchor="middle">Publish</text><text class="t-s" x="220" y="157" text-anchor="middle">about 5 s</text>
+        <rect class="box orange" x="280" y="117" width="380" height="56" rx="8"/>
+        <text class="t-b" x="470" y="139" text-anchor="middle">Session start</text><text class="t-s" x="470" y="157" text-anchor="middle">install on first Python cell run</text>
+        <text class="t-s" x="690" y="149">notebooks, fast iteration</text>
+        <text class="t-b" x="20" y="223">Full + live pool</text>
+        <rect class="box green" x="170" y="192" width="250" height="56" rx="8"/>
+        <text class="t-b" x="295" y="214" text-anchor="middle">Publish</text><text class="t-s" x="295" y="232" text-anchor="middle">resolve deps, snapshot: 3 to 6 min</text>
+        <rect class="box green" x="430" y="192" width="100" height="56" rx="8"/>
+        <text class="t-b" x="480" y="214" text-anchor="middle">Session</text><text class="t-s" x="480" y="232" text-anchor="middle">about 5 s</text>
+        <text class="t-s" x="690" y="224">stable snapshot, fast start</text>
+        <path class="ln" d="M420 70H428" marker-end="url(#fig-env-2-a)"/>
+        <path class="ln" d="M270 145H278" marker-end="url(#fig-env-2-a)"/>
+        <path class="ln" d="M420 220H428" marker-end="url(#fig-env-2-a)"/>
+      </svg>
+      <figcaption><b>Where the dependency work happens.</b> Full mode pays at publish and at session start but is reproducible. Quick mode pays at every session. A custom live pool attached to a Full-mode Environment hydrates clusters ahead of time to recover most of the start-up delay.</figcaption>
+    </figure>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>Publish durations, session-start overhead and the availability of Quick mode and custom live pools are documented as typical values and change with the platform. Re-read <a href="https://learn.microsoft.com/fabric/data-engineering/environment-manage-library#select-publish-mode-for-libraries">Select publish mode for libraries</a> before you set a timeout in automation. Older guidance of 15 to 30 minutes per publish no longer matches the documented figures for Full mode, but your own dependency set decides the real number: measure it and poll for the result instead of sleeping for a fixed time.</p></div>
+
+    <h2 id="pip-in-pipelines">Why not %pip install in pipelines?</h2>
+    <p><code>%pip install</code> (and <code>%conda install</code>) are inline commands. They install into the <em>current session</em> of the <em>current notebook</em>, restart the Python interpreter, and are not touched by Environment publishing. That is perfect for a one-off experiment and wrong for unattended work, for four reasons.</p>
+    <ul>
+      <li><strong>Disabled by default.</strong> Inline library commands are turned off in pipeline notebook runs. You can switch them on by passing a boolean <code>_inlineInstallationEnabled</code> parameter set to true on the notebook activity, but the documentation steers you away from it.</li>
+      <li><strong>Resolved on every run.</strong> A fresh dependency resolution can produce a different tree from night to night. A transitive dependency that releases at 01:00 can break the 02:00 run for no change you made.</li>
+      <li><strong>Slower and noisier.</strong> Every run spends session time installing, and an interpreter restart discards variables defined before the command, so installs must be the first cells.</li>
+      <li><strong>Unsupported combinations.</strong> <code>%pip install</code> is not supported in high concurrency mode, and inline library commands are not supported in notebooks run through a reference run.</li>
+    </ul>
+
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 250" role="img" aria-label="Comparison of two pipeline runs: with inline pip install, dependencies are resolved on every run inside the notebook session; with an Environment, dependencies are resolved once at publish time and every run starts from the stored snapshot">
+        <defs>
+          <marker id="fig-env-3-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <text class="t-h c-red" x="15" y="22">Inline %pip: dependencies are resolved on every run</text>
+        <rect class="box teal" x="15" y="34" width="150" height="70" rx="8"/>
+        <text class="t-b" x="90" y="60" text-anchor="middle">Pipeline run</text><text class="t-s" x="90" y="80" text-anchor="middle">scheduled or manual</text>
+        <rect class="box teal" x="195" y="34" width="150" height="70" rx="8"/>
+        <text class="t-b" x="270" y="60" text-anchor="middle">Notebook activity</text><text class="t-s" x="270" y="80" text-anchor="middle">runs the notebook</text>
+        <rect class="box blue" x="375" y="34" width="150" height="70" rx="8"/>
+        <text class="t-b" x="450" y="60" text-anchor="middle">Session starts</text><text class="t-s" x="450" y="80" text-anchor="middle">no custom libraries</text>
+        <rect class="box red" x="555" y="34" width="150" height="70" rx="8"/>
+        <text class="t-b" x="630" y="60" text-anchor="middle">%pip cell</text><text class="t-s" x="630" y="78" text-anchor="middle">off by default</text><text class="t-s" x="630" y="93" text-anchor="middle">resolved each run</text>
+        <rect class="box blue" x="735" y="34" width="150" height="70" rx="8"/>
+        <text class="t-b" x="810" y="60" text-anchor="middle">Your code</text><text class="t-s" x="810" y="80" text-anchor="middle">may fail on conflict</text>
+        <path class="ln" d="M165 69H193" marker-end="url(#fig-env-3-a)"/>
+        <path class="ln" d="M345 69H373" marker-end="url(#fig-env-3-a)"/>
+        <path class="ln" d="M525 69H553" marker-end="url(#fig-env-3-a)"/>
+        <path class="ln" d="M705 69H733" marker-end="url(#fig-env-3-a)"/>
+        <text class="t-h c-green" x="15" y="136">Environment: dependencies are resolved once, at publish</text>
+        <rect class="box green" x="15" y="148" width="150" height="70" rx="8"/>
+        <text class="t-b" x="90" y="174" text-anchor="middle">Publish (once)</text><text class="t-s" x="90" y="192" text-anchor="middle">resolve + snapshot</text><text class="t-s" x="90" y="207" text-anchor="middle">stored with the item</text>
+        <rect class="box teal" x="195" y="148" width="150" height="70" rx="8"/>
+        <text class="t-b" x="270" y="174" text-anchor="middle">Pipeline run</text><text class="t-s" x="270" y="194" text-anchor="middle">scheduled or manual</text>
+        <rect class="box teal" x="375" y="148" width="150" height="70" rx="8"/>
+        <text class="t-b" x="450" y="174" text-anchor="middle">Notebook activity</text><text class="t-s" x="450" y="194" text-anchor="middle">attached Environment</text>
+        <rect class="box blue" x="555" y="148" width="150" height="70" rx="8"/>
+        <text class="t-b" x="630" y="174" text-anchor="middle">Session starts</text><text class="t-s" x="630" y="194" text-anchor="middle">snapshot deployed</text>
+        <rect class="box blue" x="735" y="148" width="150" height="70" rx="8"/>
+        <text class="t-b" x="810" y="174" text-anchor="middle">Your code</text><text class="t-s" x="810" y="194" text-anchor="middle">same libraries always</text>
+        <path class="ln green" d="M165 183H193" marker-end="url(#fig-env-3-a)"/>
+        <path class="ln" d="M345 183H373" marker-end="url(#fig-env-3-a)"/>
+        <path class="ln" d="M525 183H553" marker-end="url(#fig-env-3-a)"/>
+        <path class="ln" d="M705 183H733" marker-end="url(#fig-env-3-a)"/>
+      </svg>
+      <figcaption><b>Move the variability out of the run.</b> The Environment does the dependency work once, when a person is watching. The pipeline run only deploys a snapshot that has already been proven to resolve.</figcaption>
+    </figure>
+
+    <table>
+      <thead><tr><th></th><th><code>%pip install</code> of a wheel</th><th>Environment custom library</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Scope</strong></td><td>One session of one notebook</td><td>Every notebook or job that attaches it</td></tr>
+        <tr><td><strong>Dependency resolution</strong></td><td>Each time the cell runs</td><td>Once, at publish (Full mode)</td></tr>
+        <tr><td><strong>In pipeline runs</strong></td><td>Off by default; opt in per activity</td><td>Works as is; recommended</td></tr>
+        <tr><td><strong>Audit trail</strong></td><td>Whatever the notebook cell says</td><td>The Environment's library list and publish state</td></tr>
+        <tr><td><strong>Best for</strong></td><td>Interactive experiments, testing a build</td><td>Production, scheduled and shared work</td></tr>
+      </tbody>
+    </table>
+    <div class="callout warning"><p class="callout-title">Remove leftover installs</p><p>A notebook that still contains <code>%pip install</code> of the old wheel after you move to an Environment will either be ignored in a pipeline or, if inline installation was enabled, silently replace the Environment's version for that session. Search notebooks for inline installs when you adopt the library.</p></div>
+
+    <h2 id="use-in-notebook">Use the library in a notebook</h2>
+    <p>With the Environment published and attached, the notebook change is mechanical: delete the cell that defines the helper, add an import, and leave the transformation, projection and call cells as they are.</p>
+    <div class="tabs">
+      <div class="tab" data-title="Before: helper copied in">
+<pre data-title="Notebook (PySpark)"><code class="language-python"># Cell 1: 70 lines defining full_load_overwrite(...) pasted from another notebook
+
+# Cell 2: orders_transform(...)
+# Cell 3: ORDERS_SELECT = [...]
+
+# Cell 4
+metrics = full_load_overwrite(
+    source_table="orders",
+    target_table="fact_orders",
+    transform_fn=orders_transform,
+    select_cols=ORDERS_SELECT,
+)</code></pre>
+      </div>
+      <div class="tab" data-title="After: imported">
+<pre data-title="Notebook (PySpark)"><code class="language-python"># Cell 1
+from contoso_fabric_utils import full_load_overwrite
+
+# Cell 2: orders_transform(...)          unchanged
+# Cell 3: ORDERS_SELECT = [...]          unchanged
+
+# Cell 4                                 unchanged
+metrics = full_load_overwrite(
+    source_table="orders",
+    target_table="fact_orders",
+    transform_fn=orders_transform,
+    select_cols=ORDERS_SELECT,
+)</code></pre>
+      </div>
+    </div>
+    <p>Run the notebook once against a scratch target table first. If the import fails, work through this list.</p>
+    <table>
+      <thead><tr><th>Symptom</th><th>Likely cause</th><th>Fix</th></tr></thead>
+      <tbody>
+        <tr><td><code>ModuleNotFoundError: No module named 'contoso_fabric_utils'</code></td><td>The notebook is not attached to the Environment, or the default-environment toggle is off</td><td>Check the Environment shown in the notebook toolbar; follow the resolution figure above</td></tr>
+        <tr><td>Import works but the old behavior remains</td><td>The session started before the new version was published, or two versions are listed under Custom libraries</td><td>Stop the session and start a new one; delete the older wheel and republish</td></tr>
+        <tr><td>Publish fails with a conflict</td><td>A dependency in the wheel or External repositories clashes with a built-in package</td><td>Remove the dependency from the wheel; rely on the runtime's copy; read the error for the library name</td></tr>
+        <tr><td>Session start is slower after attaching</td><td>Full mode deploys a snapshot at start</td><td>Expected; consider a custom live pool for latency-sensitive jobs</td></tr>
+        <tr><td>Pipeline run cannot import but interactive run can</td><td>Interactive session used Quick-mode or a <code>%pip</code> cell; the pipeline run did not</td><td>Move the wheel to Full mode and remove the inline install</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="across-stages">Environments across stages and workspaces</h2>
+    <p>Treat the Environment as a deployable item with its own lifecycle. There are three ways to get the same library set into DEV, TST and PRD, and you should choose exactly one writer per Environment.</p>
+    <table>
+      <thead><tr><th>Mechanism</th><th>How it works</th><th>Watch for</th></tr></thead>
+      <tbody>
+        <tr><td><strong>CI uploads and publishes</strong> (recommended for libraries)</td><td>The pipeline in the <a href="cicd.html">CI/CD page</a> calls the Environment REST API in each stage</td><td>Do not also edit the library list by hand; the next release will overwrite it</td></tr>
+        <tr><td><strong>Git integration</strong></td><td>The workspace serializes the Environment's libraries (public as YAML, custom as the file itself) and Spark compute settings into the repository</td><td>Changes synced from Git land in <em>staging</em>; publish after every sync. Each commit is limited to 150 MB, and committing wheels puts binaries in your workspace repository</td></tr>
+        <tr><td><strong>Deployment pipelines</strong></td><td>Deploys the Environment item to the next stage and preserves its published state</td><td>Custom pools are not carried; compute then falls back to defaults and the item can keep showing a difference. See <a href="../07-deployment/index.html">Deployment Pipelines and Promotion</a></td></tr>
+      </tbody>
+    </table>
+    <p>An Environment can also be attached from another workspace. Both workspaces must share the same capacity and network security settings or the session fails to start, and the other Environment's compute configuration is ignored in favor of the consuming workspace's settings. That makes a single central library Environment feasible inside one capacity, but it couples every consuming workspace to one release schedule; per-stage Environments with a promoted wheel keep PRD insulated from a bad DEV publish.</p>
+    <div class="callout caution"><p class="callout-title">Locked-down workspaces</p><p>If a workspace uses outbound access protection or managed virtual networks, public repositories such as PyPI are not reachable. Custom libraries you upload directly still work, which is another reason to keep the wheel's own dependency list empty. See <a href="https://learn.microsoft.com/fabric/data-engineering/environment-manage-library-with-outbound-access-protection">Manage libraries with limited network access</a>.</p></div>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p><ul>
+      <li>Upload the wheel under Custom libraries, publish in Full mode, and attach the Environment; only then do notebooks and pipelines see it.</li>
+      <li>Full mode trades minutes at publish and session start for a reproducible snapshot; Quick mode trades reproducibility for speed. Pipelines get Full mode.</li>
+      <li>Never rely on <code>%pip install</code> for unattended runs: it is off by default there and resolves dependencies on every run.</li>
+      <li>Keep exactly one wheel version in an Environment; delete the old file before publishing the new one.</li>
+      <li>Pick one writer per Environment (CI, Git sync or deployment pipeline) and publish after every change.</li>
+    </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/create-and-use-environment">Create, configure, and use an environment in Fabric</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/environment-manage-library">Manage libraries in Fabric environments</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/library-management">Manage Apache Spark libraries in Fabric</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/environment-git-and-deployment-pipeline">Fabric environment Git integration and deployment pipeline</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/custom-live-pools-overview">Custom live pools overview</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/environment-manage-library-with-outbound-access-protection">Manage libraries with limited network access in Fabric</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

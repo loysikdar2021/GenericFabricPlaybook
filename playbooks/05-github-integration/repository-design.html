@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Repository and workspace layout · GitHub Integration</title>
+<meta name="description" content="How Fabric workspaces map to repository branches and folders, how an item is stored in Git, whether to use one repository or many, a recommended layout and the dependency-binding limits that shape it.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="05-github-integration" data-page="repository-design.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+
+    <header class="page-header">
+      <p class="eyebrow">Playbook 05 · GitHub Integration</p>
+      <h1>Repository and workspace layout</h1>
+      <p class="lede">The folder structure in your repository is not a documentation choice. Fabric mirrors it, in both directions, so it decides what a commit touches, what a pull request reviewer sees, what an <em>Update</em> can delete and which dependencies survive a deployment. Decide it before you connect the first workspace.</p>
+      <ul class="chips"><li><b>Audience</b> architects, platform leads, workspace admins</li><li><b>Decisions</b> repository count, folder mapping, naming</li></ul>
+    </header>
+
+    <h2 id="mapping">The mapping rules</h2>
+    <p>A workspace connects to <strong>one branch</strong> and <strong>one folder</strong>. Inside that folder, every Git-supported item is a subfolder, and workspace subfolders become Git subfolders. The relationship is symmetrical: items you save in a workspace folder appear in the matching Git folder on commit, and items added to the Git folder appear in the workspace on update.</p>
+    <p>For a medallion layout with one workspace per layer (see <a href="../03-medallion-architecture/index.html">playbook 03</a>), the natural mapping is one repository per data product and one folder per workspace, with every DEV workspace connected to <code>main</code>:</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 880 368" role="img" aria-label="Six DEV workspaces each connect to their own folder of the main branch; the workflows, CODEOWNERS and helper folders are not connected to any workspace">
+        <defs>
+          <marker id="fig-rd-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar blue" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <text class="t-h" x="20" y="20">Fabric · DEV workspaces</text>
+        <rect class="zone blue" x="20" y="30" width="250" height="324" rx="12"/>
+        <text class="t-h" x="300" y="20">GitHub · contoso-org/fabric-analytics, branch main</text>
+        <rect class="zone green" x="300" y="30" width="560" height="324" rx="12"/>
+        <text class="t-s" x="476" y="52" text-anchor="middle">commit ⇄ update</text>
+        <text class="t-s" x="688" y="52">Not connected to a workspace</text>
+        <rect class="box blue" x="40" y="66" width="210" height="34" rx="8"/><text class="t-b" x="145" y="88" text-anchor="middle">DEV_SALES_BRZ</text>
+        <rect class="box blue" x="40" y="112" width="210" height="34" rx="8"/><text class="t-b" x="145" y="134" text-anchor="middle">DEV_SALES_SLV</text>
+        <rect class="box blue" x="40" y="158" width="210" height="34" rx="8"/><text class="t-b" x="145" y="180" text-anchor="middle">DEV_SALES_GLD</text>
+        <rect class="box blue" x="40" y="204" width="210" height="34" rx="8"/><text class="t-b" x="145" y="226" text-anchor="middle">DEV_SALES_CNSM_WH</text>
+        <rect class="box blue" x="40" y="250" width="210" height="34" rx="8"/><text class="t-b" x="145" y="272" text-anchor="middle">DEV_SALES_CNSM_SM</text>
+        <rect class="box blue" x="40" y="296" width="210" height="34" rx="8"/><text class="t-b" x="145" y="318" text-anchor="middle">DEV_SALES_DLV</text>
+        <rect class="box green" x="340" y="66" width="270" height="34" rx="8"/><text class="t-m" x="475" y="88" text-anchor="middle">SALES_BRZ/</text>
+        <rect class="box green" x="340" y="112" width="270" height="34" rx="8"/><text class="t-m" x="475" y="134" text-anchor="middle">SALES_SLV/</text>
+        <rect class="box green" x="340" y="158" width="270" height="34" rx="8"/><text class="t-m" x="475" y="180" text-anchor="middle">SALES_GLD/</text>
+        <rect class="box green" x="340" y="204" width="270" height="34" rx="8"/><text class="t-m" x="475" y="226" text-anchor="middle">SALES_CNSM_WH/</text>
+        <rect class="box green" x="340" y="250" width="270" height="34" rx="8"/><text class="t-m" x="475" y="272" text-anchor="middle">SALES_CNSM_SM/</text>
+        <rect class="box green" x="340" y="296" width="270" height="34" rx="8"/><text class="t-m" x="475" y="318" text-anchor="middle">SALES_DLV/</text>
+        <path class="ln blue" d="M252 83H338" marker-start="url(#fig-rd-1-a)" marker-end="url(#fig-rd-1-a)"/>
+        <path class="ln blue" d="M252 129H338" marker-start="url(#fig-rd-1-a)" marker-end="url(#fig-rd-1-a)"/>
+        <path class="ln blue" d="M252 175H338" marker-start="url(#fig-rd-1-a)" marker-end="url(#fig-rd-1-a)"/>
+        <path class="ln blue" d="M252 221H338" marker-start="url(#fig-rd-1-a)" marker-end="url(#fig-rd-1-a)"/>
+        <path class="ln blue" d="M252 267H338" marker-start="url(#fig-rd-1-a)" marker-end="url(#fig-rd-1-a)"/>
+        <path class="ln blue" d="M252 313H338" marker-start="url(#fig-rd-1-a)" marker-end="url(#fig-rd-1-a)"/>
+        <rect class="box gray" x="660" y="66" width="180" height="34" rx="8"/><text class="t-m" x="750" y="88" text-anchor="middle">.github/workflows/</text>
+        <rect class="box gray" x="660" y="112" width="180" height="34" rx="8"/><text class="t-m" x="750" y="134" text-anchor="middle">.github/CODEOWNERS</text>
+        <rect class="box gray" x="660" y="158" width="180" height="34" rx="8"/><text class="t-m" x="750" y="180" text-anchor="middle">_tests/</text>
+        <rect class="box gray" x="660" y="204" width="180" height="34" rx="8"/><text class="t-m" x="750" y="226" text-anchor="middle">_deploy/</text>
+        <rect class="box gray" x="660" y="250" width="180" height="34" rx="8"/><text class="t-m" x="750" y="272" text-anchor="middle">_admin/</text>
+      </svg>
+      <figcaption><b>Workspace to folder.</b> Each DEV workspace reads and writes exactly one folder. The folder names drop the environment prefix, because the same folder is what deployment promotes to TST and PRD.</figcaption>
+    </figure>
+    <table>
+      <thead><tr><th>Rule</th><th>Consequence</th></tr></thead>
+      <tbody>
+        <tr><td>A workspace connects to one branch and one folder.</td><td>You cannot split a workspace across folders or branches. If two teams need independent release cadence, they need separate workspaces.</td></tr>
+        <tr><td>Several workspaces can connect to the same branch, each to its own folder.</td><td>A commit from one workspace advances the branch, but other workspaces only see an update if their own folder changed.</td></tr>
+        <tr><td>A folder left blank in the connection dialog means the repository root.</td><td>Fine for a single-workspace repository; a trap in a shared one, because the root also holds <code>.github/</code>.</td></tr>
+        <tr><td>Unsupported items in the workspace are ignored, not deleted.</td><td>They appear in the source control pane but cannot be committed or updated, and they never travel with the folder.</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="item-folders">How an item is stored</h2>
+    <p>Each item becomes a directory named <code>{display name}.{public facing type}</code>, containing the item's definition files and a <code>.platform</code> file that Fabric generates. Knowing this layout is what lets reviewers read a pull request and lets you write sensible CODEOWNERS rules (see <a href="../17-pr-notifications-codeowners/index.html">playbook 17</a>).</p>
+<pre data-title="Illustrative contents of one workspace folder"><code class="language-text">SALES_GLD/
+├── LH_SALES_GLD.Lakehouse/
+│   ├── .platform
+│   ├── lakehouse.metadata.json
+│   └── shortcuts.metadata.json
+├── NB_SALES_GLD_BuildCustomerDim.Notebook/
+│   ├── .platform
+│   └── notebook-content.py
+├── PL_SALES_GLD_Refresh.DataPipeline/
+│   ├── .platform
+│   └── pipeline-content.json
+└── VL_SALES_GLD.VariableLibrary/
+    ├── .platform
+    └── variables.json</code></pre>
+    <p>The format varies by item type: a notebook is a <code>.py</code> file; a semantic model is a <code>definition.pbism</code> plus a <code>definition/</code> folder of TMDL files; a report is a <code>definition.pbir</code> plus its report definition; a paginated report is an <code>.rdl</code> file; a mirrored database is a <code>.json</code> definition. The file names inside an item folder are generated by Fabric and can change between format versions, so treat the listing above as an illustration.</p>
+    <h3 id="platform-file">The .platform file and logical IDs</h3>
+<pre data-title=".platform (version 2)"><code class="language-json">{
+  "version": "2.0",
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/platform/platformProperties.json",
+  "config": {
+    "logicalId": "00000000-0000-0000-0000-000000000000"
+  },
+  "metadata": {
+    "type": "Notebook",
+    "displayName": "NB_SALES_GLD_BuildCustomerDim",
+    "description": "Builds the conformed customer dimension"
+  }
+}</code></pre>
+    <p>The <code>logicalId</code> is what links an item in a workspace to its folder in Git. Items with the same logical ID are assumed to be the same item, even if the name or folder changed. A branch can be synced to several workspaces, so the same logical ID can exist in different workspaces, but never twice in one workspace. Three practical rules follow:</p>
+    <ul>
+      <li><strong>Never edit a logical ID</strong> or the <code>type</code> field (it is case sensitive).</li>
+      <li><strong>When you copy an item folder to create a new item</strong>, change both the logical ID and the display name to something unique in the repository, or Fabric will treat the copy as the original.</li>
+      <li><strong>Rename in Fabric, not in Git.</strong> Renaming an item in the workspace renames its folder on the next commit. Renaming the folder in Git does not rename the item, and it does not trigger an incoming change, so the two drift apart and dependent files (for example a report's path to its semantic model) can break.</li>
+    </ul>
+    <p>Items whose display name is over 256 characters, ends with a dot or space, or contains forbidden characters get a Git folder named after the logical ID and type instead. Keep item names short and plain and you never see this.</p>
+
+    <h2 id="one-vs-many">One repository or many?</h2>
+    <p>The repository is the unit of access control, of pull request scope and of CODEOWNERS. Choose it by asking what must change together and who must approve it, not by how many workspaces you have.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 880 270" role="img" aria-label="With one repository and a folder per workspace a cross-layer change is a single pull request; with one repository per workspace the same change becomes three pull requests that must be ordered">
+        <defs>
+          <marker id="fig-rd-2-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar purple" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <text class="t-h" x="20" y="22">One repository, a folder per workspace</text>
+        <rect class="zone green" x="20" y="34" width="400" height="212" rx="12"/>
+        <rect class="box" x="50" y="62" width="170" height="38" rx="8"/><text class="t-m" x="135" y="85" text-anchor="middle">SALES_BRZ/</text>
+        <rect class="box" x="50" y="112" width="170" height="38" rx="8"/><text class="t-m" x="135" y="135" text-anchor="middle">SALES_SLV/</text>
+        <rect class="box" x="50" y="162" width="170" height="38" rx="8"/><text class="t-m" x="135" y="185" text-anchor="middle">SALES_GLD/</text>
+        <rect class="box purple" x="290" y="98" width="110" height="64" rx="8"/>
+        <text class="t-b" x="345" y="124" text-anchor="middle">1 pull request</text>
+        <text class="t-s" x="345" y="142" text-anchor="middle">1 review</text>
+        <path class="ln purple" d="M222 81H256V118H288" marker-end="url(#fig-rd-2-a)"/>
+        <path class="ln purple" d="M222 131H288" marker-end="url(#fig-rd-2-a)"/>
+        <path class="ln purple" d="M222 181H256V144H288" marker-end="url(#fig-rd-2-a)"/>
+        <text class="t-s" x="40" y="226">A cross-layer change merges as one unit.</text>
+        <text class="t-h" x="460" y="22">One repository per workspace</text>
+        <rect class="zone red" x="460" y="34" width="400" height="212" rx="12"/>
+        <rect class="box" x="490" y="62" width="150" height="38" rx="8"/><text class="t-m" x="565" y="85" text-anchor="middle">repo-bronze</text>
+        <rect class="box" x="490" y="112" width="150" height="38" rx="8"/><text class="t-m" x="565" y="135" text-anchor="middle">repo-silver</text>
+        <rect class="box" x="490" y="162" width="150" height="38" rx="8"/><text class="t-m" x="565" y="185" text-anchor="middle">repo-gold</text>
+        <rect class="box purple" x="720" y="62" width="110" height="38" rx="8"/><text class="t-b" x="775" y="85" text-anchor="middle">PR 1</text>
+        <rect class="box purple" x="720" y="112" width="110" height="38" rx="8"/><text class="t-b" x="775" y="135" text-anchor="middle">PR 2</text>
+        <rect class="box purple" x="720" y="162" width="110" height="38" rx="8"/><text class="t-b" x="775" y="185" text-anchor="middle">PR 3</text>
+        <path class="ln purple" d="M642 81H718" marker-end="url(#fig-rd-2-a)"/>
+        <path class="ln purple" d="M642 131H718" marker-end="url(#fig-rd-2-a)"/>
+        <path class="ln purple" d="M642 181H718" marker-end="url(#fig-rd-2-a)"/>
+        <text class="t-s" x="480" y="226">Three reviews to order and keep in step.</text>
+      </svg>
+      <figcaption><b>Atomic change.</b> Layers depend on each other, so a schema change that ripples from Bronze to Gold is one logical change. A repository per workspace splits it into reviews that can merge out of order.</figcaption>
+    </figure>
+    <table>
+      <thead><tr><th>Option</th><th>Best when</th><th>Strengths</th><th>Risks</th></tr></thead>
+      <tbody>
+        <tr><td><strong>One repo per data product, one folder per workspace</strong> (default)</td><td>One team (or tightly coupled teams) owns a domain end to end.</td><td>Atomic cross-layer changes; one set of rulesets and CODEOWNERS; one place to search.</td><td>Repository permissions apply to all folders; use CODEOWNERS to differentiate reviewers.</td></tr>
+        <tr><td><strong>One repo per workspace</strong></td><td>Workspaces have different owners, security boundaries or release cadence.</td><td>Strong isolation; simple permissions; small blast radius.</td><td>Cross-workspace changes need multiple coordinated pull requests; configuration drift between repositories.</td></tr>
+        <tr><td><strong>One repo for the whole organization</strong></td><td>A small organization with a single platform team.</td><td>Simplest governance and search.</td><td>Noisy history, slow CI, and one permission boundary for unrelated products.</td></tr>
+        <tr><td><strong>A separate repo for shared code</strong> (libraries, deployment tooling)</td><td>Python packages or scripts used by several data products.</td><td>Versioned, independently released; fits <a href="../06-shared-libraries/index.html">playbook 06</a>.</td><td>Consumers must pin versions deliberately.</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="layout">Recommended repository layout</h2>
+<pre data-title="contoso-org/fabric-analytics"><code class="language-text">fabric-analytics/
+├── .github/
+│   ├── CODEOWNERS
+│   ├── pull_request_template.md
+│   └── workflows/
+│       ├── pr-validation.yml
+│       └── deploy.yml
+├── SALES_BRZ/              # connected to DEV_SALES_BRZ
+├── SALES_SLV/              # connected to DEV_SALES_SLV
+├── SALES_GLD/              # connected to DEV_SALES_GLD
+├── SALES_CNSM_WH/          # connected to DEV_SALES_CNSM_WH
+├── SALES_CNSM_SM/          # connected to DEV_SALES_CNSM_SM
+├── SALES_DLV/              # connected to DEV_SALES_DLV
+├── _deploy/                # parameter files, deployment scripts
+├── _tests/                 # unit and data-quality tests, run in CI only
+├── _admin/                 # runbooks, decisions, repository conventions
+└── README.md</code></pre>
+    <ul>
+      <li><strong>Folder names follow the workspace convention minus the environment.</strong> <code>SALES_GLD</code> serves <code>DEV_SALES_GLD</code>, <code>TST_SALES_GLD</code> and <code>PRD_SALES_GLD</code>.</li>
+      <li><strong>Non-workspace folders start with an underscore.</strong> They sort together and are visibly not connected to anything.</li>
+      <li><strong>Keep custom files out of item folders.</strong> When Fabric commits an item it deletes files inside that item's folder that are not part of the definition. Files outside item folders are left alone.</li>
+      <li><strong>Workflows and CODEOWNERS live under <code>.github/</code></strong> in the repository root, outside every workspace folder, so Git sync never touches them.</li>
+    </ul>
+
+    <h2 id="workspace-folders">Folders inside a workspace</h2>
+    <p>Workspace subfolders are mirrored into Git, up to 10 levels deep. Empty folders are not copied to Git, and empty folders in Git are removed automatically. Two operational rules matter more than the depth limit:</p>
+    <ul>
+      <li><strong>Use shallow, functional subfolders</strong> (for example <code>ingest/</code>, <code>transform/</code>, <code>orchestration/</code>) and keep them stable. Moving items between folders changes paths, produces noisy diffs and breaks any CODEOWNERS pattern that referenced the old path.</li>
+      <li><strong>Treat a folder change as a commit-first operation.</strong> If the workspace has folders that the Git folder lacks, they are considered different, and an <em>Update</em> before the commit lets the Git structure overwrite the workspace structure. The <a href="connect-safely.html#folder-hazard">connecting page</a> shows the safe sequence.</li>
+    </ul>
+
+    <h2 id="dependencies">Dependencies across workspaces</h2>
+    <p>A layered design puts related items in different workspaces, and that is where Git integration is least forgiving. Fabric resolves dependencies through logical IDs, but only for references to items <strong>in the same workspace</strong>. A reference to an item in another workspace is stored as an object ID, and after a deployment it still points at the source workspace.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 880 270" role="img" aria-label="After deployment a notebook rebinds to the lakehouse in its own workspace by logical ID, but a reference to a lakehouse in another workspace stays pinned to the DEV object ID">
+        <defs>
+          <marker id="fig-rd-3-g" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-rd-3-r" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar red" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-rd-3-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar gray" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <text class="t-h" x="20" y="22">TST_SALES_GLD (target)</text>
+        <rect class="zone blue" x="20" y="32" width="330" height="224" rx="12"/>
+        <text class="t-h" x="380" y="22">TST_SALES_SLV</text>
+        <rect class="zone blue" x="380" y="32" width="250" height="224" rx="12"/>
+        <text class="t-h" x="660" y="22">DEV_SALES_SLV (source)</text>
+        <rect class="zone red" x="660" y="32" width="200" height="224" rx="12"/>
+        <rect class="box blue" x="60" y="104" width="210" height="50" rx="8"/><text class="t-b" x="165" y="134" text-anchor="middle">NB_SALES_GLD_Build</text>
+        <rect class="box green" x="60" y="196" width="210" height="44" rx="8"/><text class="t-b" x="165" y="223" text-anchor="middle">LH_SALES_GLD</text>
+        <rect class="box gray dashed" x="410" y="107" width="190" height="44" rx="8"/><text class="t-b" x="505" y="134" text-anchor="middle">LH_SALES_SLV</text>
+        <rect class="box red" x="680" y="107" width="160" height="44" rx="8"/><text class="t-b" x="760" y="134" text-anchor="middle">LH_SALES_SLV</text>
+        <path class="ln green" d="M165 156V194" marker-end="url(#fig-rd-3-g)"/>
+        <text class="t-s" x="175" y="180">rebinds by logical ID</text>
+        <path class="ln gray dash" d="M272 129H408" marker-end="url(#fig-rd-3-a)"/>
+        <text class="t-s" x="340" y="121" text-anchor="middle">intended</text>
+        <path class="ln red" d="M165 102V68H760V105" marker-end="url(#fig-rd-3-r)"/>
+        <rect class="pill-bg" x="342" y="59" width="206" height="16"/>
+        <text class="t-s" x="445" y="71" text-anchor="middle">stays pinned to the DEV object ID</text>
+      </svg>
+      <figcaption><b>Binding stops at the workspace boundary.</b> Within a workspace Git rebinds references. Across workspaces the reference must be parameterized, for example with a variable library, or it will quietly read from DEV.</figcaption>
+    </figure>
+    <p>This has direct consequences for the medallion layout, and it is the main reason environment-aware items matter (see <a href="../09-variable-libraries/index.html">playbook 09</a>):</p>
+    <table>
+      <thead><tr><th>Reference</th><th>Binds through Git?</th><th>What to do</th></tr></thead>
+      <tbody>
+        <tr><td>Notebook to a lakehouse in the same workspace</td><td class="maybe">Yes, if "Lakehouse Auto-Binding in Git" is enabled in the notebook settings (off by default)</td><td>Enable it per notebook, or parameterize the default lakehouse.</td></tr>
+        <tr><td>Notebook to an environment</td><td class="yes">Yes</td><td>Nothing to do.</td></tr>
+        <tr><td>Pipeline to a notebook, pipeline, dataflow or lakehouse</td><td class="yes">Yes</td><td>Nothing to do within a workspace.</td></tr>
+        <tr><td>Pipeline to a Spark job definition, semantic model or warehouse</td><td class="no">No (object ID or endpoint)</td><td>Parameterize the activity values.</td></tr>
+        <tr><td>Report to its semantic model</td><td class="maybe">Partial (relative path)</td><td>Keep the report and model in the same relative location.</td></tr>
+        <tr><td>Semantic model to a SQL endpoint, warehouse or KQL database</td><td class="no">No (workspace-specific URL)</td><td>Parameterize the connection expression.</td></tr>
+        <tr><td>Anything in another workspace, and any connection</td><td class="no">No</td><td>Use a variable library with a value set per environment.</td></tr>
+      </tbody>
+    </table>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>Binding behavior is item-type specific and changes as item types mature. Check <a href="https://learn.microsoft.com/fabric/cicd/cross-workspace-dependency-binding">Understand dependency binding in cross-workspace deployment</a> for every item type you actually use before you finalize the workspace split.</p></div>
+
+    <h2 id="limits">Limits that shape the layout</h2>
+    <ul class="checklist">
+      <li>A workspace holds at most 1,000 items. If a Git branch holds more than that for the connected folder, syncing to the workspace fails; split by workspace or by folder.</li>
+      <li>Folder structure is kept to 10 levels, the full path of a file may not exceed 250 characters, and a branch name may not exceed 244 characters.</li>
+      <li>The directory you connect to cannot begin or end with a space or tab and cannot contain <code>" / : &lt; &gt; \ * ? |</code>.</li>
+      <li>Item folders cannot contain <code>: &lt; &gt; \ * ? |</code>. A folder renamed to include one of them breaks the sync.</li>
+      <li>Display names must be unique per item type within a workspace, even where Power BI would allow duplicates.</li>
+    </ul>
+    <p>The size limits that apply to commits and files are on the <a href="sync-and-items.html#limits">sync page</a>.</p>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p><ul>
+      <li>One workspace, one branch, one folder; name the folder like the workspace without the environment prefix.</li>
+      <li>Default to one repository per data product so cross-layer changes are a single reviewed unit.</li>
+      <li>Keep custom files, workflows and CODEOWNERS outside item folders, and rename items in Fabric rather than in Git.</li>
+      <li>Expect references that cross a workspace boundary to stay pinned to the source; parameterize them from day one.</li>
+    </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/fabric/cicd/git-integration/source-code-format">Git source code format</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/cicd/git-integration/git-integration-process">Git integration process: folders and limitations</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/cicd/cross-workspace-dependency-binding">Understand dependency binding in cross-workspace deployment</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/notebook-source-control-deployment">Notebook source control and deployment</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

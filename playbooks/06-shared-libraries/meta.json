@@ -1,0 +1,19 @@
+{
+  "id": "06-shared-libraries",
+  "number": "06",
+  "title": "Shared Python Libraries",
+  "short": "Shared Libraries",
+  "summary": "Package vetted Spark utilities as a versioned Python wheel, test and build it in CI, and deliver it through a Fabric Environment so every notebook and pipeline imports the same code.",
+  "category": "data-engineering",
+  "level": "Intermediate",
+  "audience": "Data engineers, platform engineers, technical leads",
+  "readingTime": "80 min",
+  "pages": [
+    { "file": "index.html", "title": "Overview", "description": "Why copied notebook helpers drift, the wheel-plus-Environment approach, when to use it and a map of the playbook." },
+    { "file": "library-design.html", "title": "Designing the library", "description": "From notebook cells to a library API: the transform, projection and call pattern, full_load_overwrite and incremental merge helpers, and API design rules." },
+    { "file": "packaging.html", "title": "Packaging and building a wheel", "description": "pyproject.toml with the src layout, repo structure, the complete module code, unit tests and building and validating the wheel locally." },
+    { "file": "environment.html", "title": "Installing in a Fabric Environment", "description": "Upload, publish and attach the wheel, Quick versus Full publish mode, session start impact, why not %pip in pipelines, and using the library in a notebook." },
+    { "file": "cicd.html", "title": "CI/CD with GitHub Actions", "description": "Test, build once and promote the same wheel to DEV, TST and PRD Environments with OIDC sign-in and the Fabric Environment REST API." },
+    { "file": "distribution-and-ops.html", "title": "Options, operations, checklist", "description": "Distribution options compared (Environment, feed, Lakehouse Files, %run), testing without an Environment, governance, troubleshooting and the validation checklist." }
+  ]
+}

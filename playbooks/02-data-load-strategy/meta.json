@@ -1,0 +1,21 @@
+{
+  "id": "02-data-load-strategy",
+  "number": "02",
+  "title": "Data Load Strategy",
+  "short": "Data Load Strategy",
+  "summary": "Choose full or incremental loads per table and per medallion layer, detect changes at the source, apply MERGE, SCD2 and deletes safely, and pick the right Fabric tool for each job.",
+  "category": "data-engineering",
+  "level": "Intermediate",
+  "audience": "Data engineers, architects, analytics engineering leads",
+  "readingTime": "80 min",
+  "pages": [
+    { "file": "index.html", "title": "Overview", "description": "What the load strategy framework decides, who it is for, and a map of the pages." },
+    { "file": "load-strategy.html", "title": "Full vs incremental loads", "description": "Characteristics, eligibility thresholds and a comparison of destructive full loads and incremental loads." },
+    { "file": "change-tracking.html", "title": "Change tracking options", "description": "High-watermark, log-based CDC, mirroring, Copy job incremental modes and Delta change data feed, and how to choose." },
+    { "file": "bronze.html", "title": "Bronze layer patterns", "description": "Files versus Delta in Bronze, the landing zone, append-only loading and mixed full and incremental feeds." },
+    { "file": "silver.html", "title": "Silver: MERGE, SCD2 and deletes", "description": "Full reloads, Delta MERGE upserts, slowly changing dimensions and delete handling aligned to the change signal." },
+    { "file": "gold-direct-lake.html", "title": "Gold layer and Direct Lake", "description": "Full recalculation versus incremental aggregation, and how Direct Lake framing and fallback shape Gold loading." },
+    { "file": "tooling.html", "title": "Choosing the right tool", "description": "Pipelines, Copy job, Dataflows Gen2, Spark and T-SQL notebooks, mirroring and materialized lake views compared." },
+    { "file": "cheat-sheet.html", "title": "Decision matrix cheat sheet", "description": "One-page matrices for load pattern and tool choice, anti-patterns, operations checks and a checklist." }
+  ]
+}

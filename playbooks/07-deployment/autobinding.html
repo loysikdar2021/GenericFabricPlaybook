@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Autobinding · Deployment Pipelines</title>
+<meta name="description" content="How deployment pipelines keep dependent items connected across stages, which references bind and which do not, how cross-pipeline binding works, and how to override it.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="07-deployment" data-page="autobinding.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 07 · Deployment Pipelines</p>
+      <h1>Autobinding</h1>
+      <p class="lede">Autobinding is why a report deployed to TST reads the TST model instead of the DEV one. It is also the feature most often over-trusted: it covers a defined set of references inside one workspace, and it silently does not apply to cross-workspace references, Direct Lake models or Dataflow Gen2.</p>
+    </header>
+<h2 id="mechanism">How autobinding works</h2>
+<p>Autobinding builds on <a href="pipeline-setup.html#pairing">item pairing</a>. When you deploy an item, the pipeline looks at what the item depends on in the source stage and asks whether the <em>paired</em> counterpart of each dependency exists in the target stage.</p>
+<ol class="steps">
+<li><strong>Identify dependencies</strong><p>Find the items the deployed item reads from in the source stage, for example the semantic model behind a report. Use <em>View lineage</em> on an item to see them.</p></li>
+<li><strong>Look for the paired dependency in the target</strong><p>The check is by pairing, not by name. A same-named item that was never paired does not count.</p></li>
+<li><strong>Bind or fail</strong><p>If the paired dependency exists, the deployed item is connected to it. If it does not, the deployment of that item fails. That is why dependent items must already be in the target stage, or be selected together with <strong>Select related</strong>.</p></li>
+</ol>
+<p>Autobinding works only for items that deployment pipelines support and that live in Fabric, and the dependency must be in the same workspace unless the cross-pipeline rule below applies.</p>
+
+<h2 id="cross-pipeline">Across pipelines</h2>
+<p>When reports and semantic models live in different workspaces, and therefore different pipelines, the pipelines can still bind them: a report in the test stage of pipeline B that reads a model in the test stage of pipeline A is recognised as connected, and a new deployment of the report reconnects it to the matching stage of pipeline A.</p>
+<figure class="diagram">
+<svg class="dg" viewBox="0 0 900 322" role="img" aria-label="Reports in pipeline B are bound to semantic models in pipeline A. Deploying the report from stage 1 to stage 2 binds the new report to the semantic model in stage 2 of pipeline A, matched by stage position rather than by stage name">
+<defs>
+<marker id="fig-ab-1-a-gray" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar gray" d="M0 0L10 5L0 10z"/></marker>
+<marker id="fig-ab-1-a-teal" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar teal" d="M0 0L10 5L0 10z"/></marker>
+<marker id="fig-ab-1-a-green" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+</defs>
+<text class="t-b" x="315" y="30" text-anchor="middle">Stage 1 (DEV)</text>
+<text class="t-b" x="555" y="30" text-anchor="middle">Stage 2 (TST)</text>
+<text class="t-b" x="795" y="30" text-anchor="middle">Stage 3 (PRD)</text>
+<text class="t-b" x="14" y="90">Pipeline A</text>
+<text class="t-s" x="14" y="108">semantic models</text>
+<text class="t-b" x="14" y="232">Pipeline B</text>
+<text class="t-s" x="14" y="250">reports</text>
+<rect class="box blue" x="230" y="66" width="170" height="48" rx="10"/>
+<text class="t-s" x="315" y="94" text-anchor="middle">SM_SALES_GLD</text>
+<rect class="box blue" x="470" y="66" width="170" height="48" rx="10"/>
+<text class="t-s" x="555" y="94" text-anchor="middle">SM_SALES_GLD</text>
+<rect class="box blue" x="710" y="66" width="170" height="48" rx="10"/>
+<text class="t-s" x="795" y="94" text-anchor="middle">SM_SALES_GLD</text>
+<rect class="box" x="230" y="206" width="170" height="48" rx="10"/>
+<text class="t-s" x="315" y="234" text-anchor="middle">RPT_Sales</text>
+<rect class="box teal" x="470" y="206" width="170" height="48" rx="10"/>
+<text class="t-s" x="555" y="234" text-anchor="middle">RPT_Sales</text>
+<rect class="box gray dashed" x="710" y="206" width="170" height="48" rx="10"/>
+<text class="t-s" x="795" y="234" text-anchor="middle">not deployed yet</text>
+<path class="ln gray" d="M315 206V114" marker-end="url(#fig-ab-1-a-gray)"/>
+<rect class="pill-bg" x="323.3" y="151.5" width="71.4" height="16"/>
+<text class="t-s" x="359" y="164" text-anchor="middle">reads from</text>
+<path class="ln teal thick" d="M400 230H470" marker-end="url(#fig-ab-1-a-teal)"/>
+<rect class="pill-bg" x="411.2" y="213.5" width="47.6" height="16"/>
+<text class="t-s" x="435" y="226" text-anchor="middle">deploy</text>
+<path class="ln green dash" d="M555 206V114" marker-end="url(#fig-ab-1-a-green)"/>
+<rect class="pill-bg" x="564.3" y="151.5" width="65.5" height="16"/>
+<text class="t-s" x="597" y="164" text-anchor="middle">autobinds</text>
+<path class="ln gray dash" d="M640 230H710" marker-end="url(#fig-ab-1-a-gray)"/>
+<text class="t-s" x="14" y="296">If the stage 2 model is missing, the report deployment fails; it never binds to a model in another stage.</text>
+</svg>
+<figcaption><b>Cross-pipeline autobinding follows the stage position.</b> The match is by stage index and both pipelines need the same stage count. If the stage 2 model does not exist yet, the report deployment fails instead of binding to the wrong model.</figcaption>
+</figure>
+<ul>
+<li><strong>"Same stage" means the same position</strong>, not the same name. The first stage of one pipeline matches the first stage of the other even if one is called Development and the other Dev.</li>
+<li><strong>Both pipelines need the same number of stages.</strong> A three-stage pipeline cannot autobind to a five-stage one.</li>
+<li><strong>The target model must exist.</strong> Otherwise the report deployment fails rather than binding elsewhere.</li>
+</ul>
+<div class="callout important"><p class="callout-title">Cross-pipeline binding is documented for Power BI items</p><p>The two-pipeline behaviour is described for reports and semantic models. Do not assume it extends to every Fabric item pair. For anything else that crosses a workspace boundary, assume the reference stays pinned to the source and handle it explicitly.</p></div>
+
+<h2 id="what-binds">Which references autobind</h2>
+<figure class="diagram">
+<svg class="dg" viewBox="0 0 900 360" role="img" aria-label="Decision path for whether a reference autobinds: it binds when the dependency is a supported item type in the same workspace, or a Power BI report and model in two pipelines at the same stage position; otherwise it stays pinned to the source and needs a rule, parameter or variable library">
+<defs>
+<marker id="fig-ab-2-a-green" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+<marker id="fig-ab-2-a-orange" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar orange" d="M0 0L10 5L0 10z"/></marker>
+<marker id="fig-ab-2-a-red" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar red" d="M0 0L10 5L0 10z"/></marker>
+</defs>
+<rect class="box purple" x="20" y="34" width="230" height="60" rx="30"/>
+<text class="t-b" x="135" y="60.5" text-anchor="middle">Same workspace?</text>
+<text class="t-s" x="135" y="75.5" text-anchor="middle">dependency lives next to the item</text>
+<rect class="box purple" x="340" y="34" width="230" height="60" rx="30"/>
+<text class="t-b" x="455" y="60.5" text-anchor="middle">Item type binds?</text>
+<text class="t-s" x="455" y="75.5" text-anchor="middle">see the table below</text>
+<rect class="box green" x="670" y="34" width="210" height="60" rx="10"/>
+<text class="t-b" x="775" y="60.5" text-anchor="middle">Autobinds to the</text>
+<text class="t-s" x="775" y="75.5" text-anchor="middle">paired item in the target</text>
+<rect class="box orange" x="340" y="150" width="230" height="60" rx="10"/>
+<text class="t-b" x="455" y="176.5" text-anchor="middle">Rule, parameter or</text>
+<text class="t-s" x="455" y="191.5" text-anchor="middle">variable library value</text>
+<rect class="box purple" x="20" y="266" width="250" height="60" rx="30"/>
+<text class="t-b" x="145" y="292.5" text-anchor="middle">Power BI items in two</text>
+<text class="t-s" x="145" y="307.5" text-anchor="middle">pipelines, same stage position?</text>
+<rect class="box green" x="340" y="266" width="230" height="60" rx="10"/>
+<text class="t-b" x="455" y="292.5" text-anchor="middle">Binds to the matching</text>
+<text class="t-s" x="455" y="307.5" text-anchor="middle">stage of the other pipeline</text>
+<rect class="box red" x="640" y="266" width="240" height="60" rx="10"/>
+<text class="t-b" x="760" y="292.5" text-anchor="middle">Stays pinned to source</text>
+<text class="t-s" x="760" y="307.5" text-anchor="middle">rule, parameter or library</text>
+<path class="ln green" d="M250 64H340" marker-end="url(#fig-ab-2-a-green)"/>
+<rect class="pill-bg" x="280.1" y="47.5" width="29.8" height="16"/>
+<text class="t-s" x="295" y="60" text-anchor="middle">yes</text>
+<path class="ln green" d="M570 64H670" marker-end="url(#fig-ab-2-a-green)"/>
+<rect class="pill-bg" x="605.1" y="47.5" width="29.8" height="16"/>
+<text class="t-s" x="620" y="60" text-anchor="middle">yes</text>
+<path class="ln orange" d="M455 94V150" marker-end="url(#fig-ab-2-a-orange)"/>
+<rect class="pill-bg" x="457.1" y="115.5" width="23.9" height="16"/>
+<text class="t-s" x="469" y="128" text-anchor="middle">no</text>
+<path class="ln red" d="M135 94L145 266" marker-end="url(#fig-ab-2-a-red)"/>
+<rect class="pill-bg" x="137.1" y="175.5" width="23.9" height="16"/>
+<text class="t-s" x="149" y="188" text-anchor="middle">no</text>
+<path class="ln green" d="M270 296H340" marker-end="url(#fig-ab-2-a-green)"/>
+<rect class="pill-bg" x="290.1" y="279.5" width="29.8" height="16"/>
+<text class="t-s" x="305" y="292" text-anchor="middle">yes</text>
+<path class="ln red" d="M145 326V346H760V326" marker-end="url(#fig-ab-2-a-red)"/>
+<rect class="pill-bg" x="253.1" y="327.5" width="23.9" height="16"/>
+<text class="t-s" x="265" y="340" text-anchor="middle">no</text>
+</svg>
+<figcaption><b>Will this reference autobind?.</b> Most surprises come from the first question. Cross-workspace references between Fabric items store object IDs, which are not rewritten on deployment.</figcaption>
+</figure>
+<table>
+<thead><tr><th>Reference</th><th>Autobinds?</th><th>Condition, or what to do</th></tr></thead>
+<tbody>
+<tr><td>Power BI report to semantic model</td><td class="yes">Yes</td><td>Same workspace, or same stage position across two pipelines. The model must exist in the target stage.</td></tr>
+<tr><td>Notebook to default lakehouse</td><td class="yes">Yes, same workspace</td><td>Lakehouse must be in the same workspace as the notebook. A deployment rule takes precedence over the autobound lakehouse.</td></tr>
+<tr><td>Notebook to attached environment</td><td class="yes">Yes, same workspace</td><td>Deploy the environment first so the pair exists.</td></tr>
+<tr><td>Data pipeline to notebook, pipeline, Dataflow Gen2, lakehouse or SQL database</td><td class="yes">Yes, same workspace</td><td>Activity references are stored in a portable form.</td></tr>
+<tr><td>Data pipeline to warehouse</td><td class="maybe">Partly</td><td>The item reference rebinds but the SQL endpoint stored beside it does not. Parameterize the endpoint.</td></tr>
+<tr><td>Data pipeline to semantic model refresh, or to Spark job definition</td><td class="no">No</td><td>Stored as an object ID. Parameterize the value.</td></tr>
+<tr><td>Internal OneLake shortcut to a lakehouse or warehouse</td><td class="yes">Yes</td><td>Remapped to the item in the target workspace. External shortcuts keep their target; manage their connection with a variable library.</td></tr>
+<tr><td>Direct Lake semantic model to lakehouse or warehouse</td><td class="no">No</td><td>Stays bound to the source-stage item. Use a data source rule. See <a href="deployment-rules.html#direct-lake">Direct Lake models</a>.</td></tr>
+<tr><td>Paginated report to a Fabric semantic model</td><td class="no">No</td><td>Treated as an external Analysis Services source. Use a data source rule.</td></tr>
+<tr><td>Dataflow Gen2, destinations and default absolute source references</td><td class="no">No</td><td>Autobinding is not supported for Dataflow Gen2. Sources authored as relative references (the current workspace node of the Fabric connector) resolve by name; parameterize everything else.</td></tr>
+<tr><td>Variable library item references</td><td class="no">No</td><td>Raw workspace and item IDs. Override them per value set.</td></tr>
+<tr><td>Connections and gateways</td><td class="no">No</td><td>Use variable library connection references or rules.</td></tr>
+</tbody>
+</table>
+<div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>Binding behaviour is decided by how each item stores its references, and item definitions change. Check the compatibility tables in <a href="https://learn.microsoft.com/fabric/cicd/cross-workspace-dependency-binding">Understand dependency binding in cross-workspace deployment</a> before you rely on a row. That article describes Git synchronisation and states that the same behaviour applies to deployment pipelines.</p></div>
+
+<h3 id="across-layers">What this means for a layered platform</h3>
+<p>A platform with one workspace per layer has many references that cross a workspace boundary: a Silver notebook that reads a Bronze lakehouse, a warehouse that queries a Gold lakehouse, a model that reads a warehouse. Those references are not autobound, however the deployment order is arranged. Plan each one:</p>
+<table>
+<thead><tr><th>Cross-layer reference</th><th>Recommended handling</th></tr></thead>
+<tbody>
+<tr><td>Notebook reads a lakehouse in another workspace</td><td>Resolve the lakehouse from a per-stage value (variable library value set or notebook parameter), or read through an internal shortcut inside the notebook's own lakehouse. See <a href="../09-variable-libraries/index.html">Variable libraries</a>.</td></tr>
+<tr><td>Pipeline activity points at an item in another workspace</td><td>Use variable library item references or pipeline parameters for the workspace and item IDs.</td></tr>
+<tr><td>Warehouse cross-queries another workspace</td><td>Parameterize the workspace and database names in the scripts you deploy, or use shortcuts to bring the data into the warehouse's workspace.</td></tr>
+<tr><td>Semantic model reads a lakehouse or warehouse</td><td>Data source rule on the target stage (Direct Lake on SQL endpoint, import, DirectQuery) or a parameterized expression.</td></tr>
+</tbody>
+</table>
+
+<h2 id="override">Overriding autobinding</h2>
+<table>
+<thead><tr><th>Mechanism</th><th>How it overrides</th><th>Use it when</th></tr></thead>
+<tbody>
+<tr><td>Deployment rule</td><td>Rules always take precedence over autobinding and are applied during the deploy.</td><td>An item type has a rule: notebook default lakehouse, semantic model, dataflow gen1, paginated report, mirrored database data sources.</td></tr>
+<tr><td>Parameter rule</td><td>When a parameter controls the connection, autobinding does not happen, even if the parameter holds an item or workspace ID. You rebind by changing the parameter value, including through a parameter rule.</td><td>You want the connection under explicit control. Parameters used by parameter rules must be of type <code>Text</code>.</td></tr>
+<tr><td>Do not connect corresponding stages</td><td>If a report in DEV of pipeline B reads the production-stage model of pipeline A, the pipeline keeps that connection on deploy.</td><td>Reports should always read the production model.</td></tr>
+<tr><td>Proxy model or dataflow</td><td>Connect reports and tiles to an item that is not part of any pipeline.</td><td>You want a fixed, stage-independent source.</td></tr>
+</tbody>
+</table>
+
+<h2 id="limits">Limits and operating practice</h2>
+<ul>
+<li><strong>A missing dependency fails the deployment.</strong> Deploy dependencies first, or select them with <strong>Select related</strong>. Circular or self dependencies fail the whole deployment.</li>
+<li><strong>Do not delete and recreate.</strong> Deleting an item in the source does not remove its pair in the target; it becomes <em>Not in source</em> there. Recreating it in the source under the same name creates an unpaired item: the first deployment of a Power BI item fails if the target already holds an item with the same name and type, and other item types end up as a duplicate pair. Delete the stale target item in the target workspace before you deploy the replacement.</li>
+<li><strong>Lost links.</strong> If connections between stages cannot be re-established, unassign and reassign the target stage workspace, accepting the loss of history and rules for that stage.</li>
+<li><strong>Native query with DirectQuery.</strong> Semantic models that combine them are not supported when autobinding is involved, and the data source connection must be the first step of the mashup expression.</li>
+<li><strong>Deployment order matters more than any setting.</strong> Binding checks the target stage as it is at deploy time. See <a href="order-and-layers.html">Deployment order and layers</a>.</li>
+</ul>
+<h3 id="verify-binding">Verify binding after a deployment</h3>
+<ol class="steps">
+<li><strong>Open the lineage</strong><p>On an item choose <strong>More options</strong> then <strong>View lineage</strong> and confirm that the upstream items are the target-stage items.</p></li>
+<li><strong>Check notebooks</strong><p>Open a deployed notebook and read the attached lakehouse and environment in the explorer pane. A notebook still attached to the DEV lakehouse means the rule or binding did not apply.</p></li>
+<li><strong>Check models</strong><p>Open the model settings and confirm the data source points at the target stage's lakehouse or warehouse. For Direct Lake, check the connection of the model itself, not only the report.</p></li>
+<li><strong>Run one read</strong><p>Refresh a model or run one notebook cell and confirm it returns target-stage data, not DEV data.</p></li>
+</ol>
+
+<div class="takeaways"><p class="tk-title">Key takeaways</p>
+<ul>
+<li>Autobinding follows pairing: it re-points a deployed item to the paired dependency in the target stage, and fails the deployment if that dependency is missing.</li>
+<li>It is reliable inside one workspace for the item types in the table and for Power BI reports and models across two pipelines at the same stage position.</li>
+<li>Cross-workspace references, Direct Lake models, Dataflow Gen2, paginated report sources and connections do not autobind; give each an explicit per-stage value.</li>
+<li>Rules and parameters override autobinding; use them deliberately and verify the result after every deployment.</li>
+</ul></div>
+
+<section class="refs">
+<h2 id="refs">References</h2>
+<ul>
+<li><a href="https://learn.microsoft.com/fabric/cicd/deployment-pipelines/understand-the-deployment-process">The deployment pipelines process (autobinding)</a></li>
+<li><a href="https://learn.microsoft.com/fabric/cicd/cross-workspace-dependency-binding">Understand dependency binding in cross-workspace deployment</a></li>
+<li><a href="https://learn.microsoft.com/fabric/data-engineering/notebook-source-control-deployment">Notebook source control and deployment</a></li>
+<li><a href="https://learn.microsoft.com/fabric/cicd/deployment-pipelines/create-rules">Create deployment rules</a></li>
+<li><a href="https://learn.microsoft.com/fabric/data-engineering/lakehouse-git-deployment-pipelines">Lakehouse Git integration and deployment pipelines</a></li>
+</ul>
+</section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

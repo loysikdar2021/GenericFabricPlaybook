@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sync model and supported items · GitHub Integration</title>
+<meta name="description" content="How Fabric commits, updates, undoes and resolves conflicts with GitHub, what each branch operation does, known quirks, how to read the supported-item list and the general Git integration limits.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="05-github-integration" data-page="sync-and-items.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+
+    <header class="page-header">
+      <p class="eyebrow">Playbook 05 · GitHub Integration</p>
+      <h1>Sync model and supported items</h1>
+      <p class="lede">After the first sync, day-to-day work is a loop of commits and updates. The rules of that loop explain almost every message the source control pane shows you, and most of the surprises: why Commit greys out, why a file changed that nobody touched, why an item is silently missing from the repository.</p>
+      <ul class="chips"><li><b>Audience</b> developers, workspace admins</li><li><b>Use it for</b> understanding status, conflicts, branch operations and limits</li></ul>
+    </header>
+
+    <h2 id="directions">Two directions, never at the same time</h2>
+    <p>Commit moves workspace changes to Git. Update moves Git changes into the workspace. You can only do one at a time, and the two are asymmetric in ways that matter:</p>
+    <table>
+      <thead><tr><th></th><th>Commit (workspace to Git)</th><th>Update (Git to workspace)</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Granularity</strong></td><td>You choose which changed items to commit. Some items also allow committing individual files from the compare experience (a preview capability).</td><td>Always the whole branch folder, up to the tip of the branch. You cannot select items.</td></tr>
+        <tr><td><strong>Blocked when</strong></td><td>The branch has incoming updates you have not taken, or the item is in conflict.</td><td>The same item changed on both sides and the conflict is unresolved.</td></tr>
+        <tr><td><strong>Destructive to</strong></td><td>The Git folder only in the first-sync case; otherwise adds a commit.</td><td>The workspace: items not in Git are removed, and existing items are overwritten.</td></tr>
+        <tr><td><strong>Recoverable by</strong></td><td>Reverting the commit in Git.</td><td>Only by getting the content back into Git first, or from a backup.</td></tr>
+      </tbody>
+    </table>
+    <p>The Git integration state of a workspace is visible in three places: a <em>Git status</em> column in the item list, a <em>Source control</em> icon that shows how many items differ, and, at the bottom of the screen, the connected branch, the time of the last sync and a link to the commit the workspace is synced to. The Source control panel has tabs for <em>Commits and updates</em> (the <em>Changes</em> and <em>Updates</em> lists), <em>Branches</em>, and, for GitHub-connected workspaces, <em>Account details</em>.</p>
+
+    <h2 id="status">The life of an item: Git status</h2>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 880 300" role="img" aria-label="An item moves between Synced, Uncommitted changes and Update required; if the same item changes on both sides it becomes a Conflict that must be resolved to return to Synced">
+        <defs>
+          <marker id="fig-sy-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-sy-1-r" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar red" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box green" x="40" y="40" width="170" height="56" rx="10"/>
+        <text class="t-b" x="125" y="64" text-anchor="middle">Synced</text>
+        <text class="t-s" x="125" y="82" text-anchor="middle">same in both places</text>
+        <rect class="box orange" x="350" y="40" width="190" height="56" rx="10"/>
+        <text class="t-b" x="445" y="64" text-anchor="middle">Uncommitted changes</text>
+        <text class="t-s" x="445" y="82" text-anchor="middle">edited in the workspace</text>
+        <rect class="box blue" x="350" y="196" width="190" height="56" rx="10"/>
+        <text class="t-b" x="445" y="220" text-anchor="middle">Update required</text>
+        <text class="t-s" x="445" y="238" text-anchor="middle">new commit on the branch</text>
+        <rect class="box red" x="650" y="108" width="190" height="56" rx="10"/>
+        <text class="t-b" x="745" y="132" text-anchor="middle">Conflict</text>
+        <text class="t-s" x="745" y="150" text-anchor="middle">changed on both sides</text>
+        <path class="ln" d="M212 56H348" marker-end="url(#fig-sy-1-a)"/>
+        <text class="t-s" x="280" y="48" text-anchor="middle">edit and save</text>
+        <path class="ln" d="M348 82H212" marker-end="url(#fig-sy-1-a)"/>
+        <text class="t-s" x="280" y="95" text-anchor="middle">commit or undo</text>
+        <path class="ln" d="M100 98V210H348" marker-end="url(#fig-sy-1-a)"/>
+        <text class="t-s" x="280" y="203" text-anchor="middle">new commit</text>
+        <path class="ln" d="M348 238H150V98" marker-end="url(#fig-sy-1-a)"/>
+        <text class="t-s" x="280" y="231" text-anchor="middle">update</text>
+        <path class="ln red" d="M542 68H600V126H648" marker-end="url(#fig-sy-1-r)"/>
+        <text class="t-s" x="548" y="60">new commit, same item</text>
+        <path class="ln red" d="M542 224H600V146H648" marker-end="url(#fig-sy-1-r)"/>
+        <text class="t-s" x="548" y="238">edit, same item</text>
+        <path class="ln" d="M745 166V282H62V98" marker-end="url(#fig-sy-1-a)"/>
+        <rect class="pill-bg" x="258" y="273" width="284" height="16"/>
+        <text class="t-s" x="400" y="285" text-anchor="middle">resolve: keep current or accept incoming</text>
+      </svg>
+      <figcaption><b>Status is a state machine.</b> Commit is only available from Uncommitted changes, Update only from Update required, and a Conflict blocks both until you resolve it.</figcaption>
+    </figure>
+    <table>
+      <thead><tr><th>Status</th><th>Meaning</th><th>What to do</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Synced</strong></td><td>The item is the same in the workspace and in the connected branch.</td><td>Nothing.</td></tr>
+        <tr><td><strong>Uncommitted changes</strong></td><td>The workspace item differs from Git; the change is not yet committed.</td><td>Commit it, or undo it.</td></tr>
+        <tr><td><strong>Update required</strong></td><td>The branch has a newer version of the item.</td><td>Update the workspace.</td></tr>
+        <tr><td><strong>Conflict</strong></td><td>The item changed in both places since the last sync.</td><td>Resolve (see below). Commit is disabled and update will not run until you do.</td></tr>
+        <tr><td><strong>Identical but needs update</strong></td><td>The item is the same in both, but the workspace must move to the tip of the branch.</td><td>Update; no content changes.</td></tr>
+        <tr><td><strong>Unsupported item</strong></td><td>Fabric cannot version this item type.</td><td>Ignored by commit and update, and never deleted by them.</td></tr>
+      </tbody>
+    </table>
+    <p>The change lists use a second vocabulary: <em>new</em>, <em>modified</em>, <em>deleted</em>, <em>conflict</em> and <em>same changes</em> (the same edit was made on both sides).</p>
+
+    <h2 id="conflicts">Resolving conflicts</h2>
+    <p>A conflict occurs only when the <strong>same item</strong> changed in both places. Choose the lightest resolution that is safe.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 880 346" role="img" aria-label="Decision path for a conflict: if you know which side is right resolve in the UI; if the workspace edit is disposable undo it; otherwise resolve in Git with a new branch; disconnecting and reconnecting overwrites everything and should be avoided">
+        <defs>
+          <marker id="fig-sy-2-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box purple" x="20" y="44" width="280" height="56" rx="28"/>
+        <text class="t-b" x="160" y="77" text-anchor="middle">Do you know which side is right?</text>
+        <rect class="box purple" x="20" y="154" width="280" height="56" rx="28"/>
+        <text class="t-b" x="160" y="187" text-anchor="middle">Is the workspace edit disposable?</text>
+        <rect class="box green" x="420" y="34" width="250" height="76" rx="10"/>
+        <text class="t-b" x="545" y="62" text-anchor="middle">Resolve in the UI</text>
+        <text class="t-s" x="545" y="82" text-anchor="middle">Accept incoming or keep current</text>
+        <rect class="box green" x="420" y="144" width="250" height="76" rx="10"/>
+        <text class="t-b" x="545" y="172" text-anchor="middle">Undo the workspace change</text>
+        <text class="t-s" x="545" y="192" text-anchor="middle">Item returns to the last synced state</text>
+        <rect class="box orange" x="420" y="254" width="250" height="76" rx="10"/>
+        <text class="t-b" x="545" y="278" text-anchor="middle">Resolve in Git</text>
+        <text class="t-s" x="545" y="298" text-anchor="middle">Checkout new branch, commit, merge,</text>
+        <text class="t-s" x="545" y="314" text-anchor="middle">then switch back to the original</text>
+        <rect class="box red dashed" x="700" y="144" width="160" height="76" rx="10"/>
+        <text class="t-b" x="780" y="170" text-anchor="middle">Avoid</text>
+        <text class="t-s" x="780" y="188" text-anchor="middle">disconnect and reconnect</text>
+        <text class="t-s" x="780" y="206" text-anchor="middle">overwrites every item</text>
+        <path class="ln" d="M302 72H418" marker-end="url(#fig-sy-2-a)"/>
+        <text class="t-s c-green" x="360" y="64" text-anchor="middle">yes</text>
+        <path class="ln" d="M160 102V152" marker-end="url(#fig-sy-2-a)"/>
+        <text class="t-s c-red" x="170" y="132">no</text>
+        <path class="ln" d="M302 182H418" marker-end="url(#fig-sy-2-a)"/>
+        <text class="t-s c-green" x="360" y="174" text-anchor="middle">yes</text>
+        <path class="ln" d="M160 212V292H418" marker-end="url(#fig-sy-2-a)"/>
+        <text class="t-s c-red" x="170" y="246">no</text>
+      </svg>
+      <figcaption><b>Lightest safe option first.</b> Reconnecting is not a conflict resolution: it overwrites all content on one side, not only the conflicted items, and does not return anything to the last synced state.</figcaption>
+    </figure>
+    <ul>
+      <li><strong>Accept incoming changes</strong> overwrites the workspace item; the workspace change is lost and the status becomes Synced.</li>
+      <li><strong>Keep current content</strong> keeps the workspace version; after the update the status is Uncommitted changes and you still have to commit it.</li>
+      <li><strong>Resolve in Git</strong> is the right choice when you cannot tell which side to keep. Check out a new branch from the last synced commit (the status bar shows it), commit your changes there, resolve and merge in Git, then switch the workspace back to the original branch. Checking out a branch keeps your current workspace state, so uncommitted work survives.</li>
+      <li>If one or more items fail to update, Microsoft documents a manual partial update path for them.</li>
+    </ul>
+
+    <h2 id="branch-ops">Branch operations in the Source control pane</h2>
+    <p>The <em>Branches</em> tab collects the operations that change which branch a workspace is attached to. They are easy to confuse, and the difference between them is whether they change the workspace content, the connection, or both.</p>
+    <table>
+      <thead><tr><th>Operation</th><th>What it does</th><th>Workspace content</th><th>Who can</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Branch out to another workspace</strong></td><td>Creates a new branch from the tip of the source workspace's connected branch, then creates a new workspace (or uses an existing one) connected to it.</td><td>The new workspace is populated; the source is untouched.</td><td>Admin, Member, Contributor. Needs capacity. Existing-workspace targets need admin, or contributor rights plus the branch-switching setting.</td></tr>
+        <tr><td><strong>Checkout new branch</strong></td><td>Creates a branch from the last synced commit and repoints the current workspace to it.</td><td>Unchanged, including uncommitted changes.</td><td>Admin (or Contributor with the setting).</td></tr>
+        <tr><td><strong>Switch branch</strong></td><td>Connects the workspace to another new or existing branch and syncs it.</td><td>Overwritten by the target branch; items not in the target branch are deleted. Blocked while uncommitted changes exist.</td><td>Admin (or Contributor with the setting).</td></tr>
+        <tr><td><strong>Commit to new branch</strong></td><td>Creates a fresh branch and commits the selected changes to it, without leaving your branch.</td><td>Unchanged. The new branch is based on the last synced state and is not connected to this workspace.</td><td>Anyone who can commit. Also works when updates are pending.</td></tr>
+        <tr><td><strong>Undo</strong></td><td>Reverts selected items to the last synced state.</td><td>Reverted. A deleted item comes back as a new item (labels lost, owner reset); an undone new item is deleted for good.</td><td>Anyone who can commit.</td></tr>
+        <tr><td><strong>Disconnect</strong></td><td>Removes the Git connection and any branched-workspace relationships.</td><td>Unchanged.</td><td>Admin.</td></tr>
+      </tbody>
+    </table>
+    <p>The <em>Related branches</em> list shows workspaces that were branched from this one, or that share the same connection properties, so you can jump between them without hunting through the workspace list.</p>
+
+    <h2 id="quirks">Behaviors that look like bugs</h2>
+    <table>
+      <thead><tr><th>You see</th><th>Why</th><th>What to do</th></tr></thead>
+      <tbody>
+        <tr><td>A file shows as modified though you changed nothing logically</td><td>The service reformats definitions on commit. Renaming a semantic model column, for example, moves it to the end of the columns array in the model definition.</td><td>Accept it; review for substance. Do not fight the formatter.</td></tr>
+        <tr><td>Every file in a PBIP item shows a whole-file diff</td><td>The service writes LF line endings. Files committed with CRLF are rewritten on the next commit from Fabric.</td><td>Configure <code>.gitattributes</code> and editors for LF in item folders.</td></tr>
+        <tr><td>A semantic model shows a diff after each refresh</td><td>Refreshing with the Enhanced refresh API changes the definition each time.</td><td>Expect it; avoid committing from refreshed environments, or filter it in review.</td></tr>
+        <tr><td>Files you added inside an item folder vanish</td><td>On commit, the service deletes files inside an item folder that are not part of the definition.</td><td>Keep custom files outside item folders.</td></tr>
+        <tr><td>Shortcuts in a lakehouse disappear after an update</td><td>A Git update sets the shortcuts in the workspace to the state in Git: they are created, updated or deleted accordingly.</td><td>Commit shortcut changes before updating.</td></tr>
+        <tr><td>An item came back with a different ID after recovery</td><td>Git operations (Undo, Update) re-create deleted items with a new ID; recycle bin restore keeps the original ID.</td><td>If both exist, delete the re-created item.</td></tr>
+        <tr><td>Commit or update fails for a duplicate name</td><td>Names must be unique, even where Power BI would allow duplicates.</td><td>Rename one of the items.</td></tr>
+        <tr><td>An item with a sensitivity label cannot be committed</td><td>Labels are not exported; the tenant switch may block labelled items.</td><td>Ask the Fabric admin to review the export switch.</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="supported-items">Supported and unsupported items</h2>
+    <p>Git integration supports a growing but incomplete list of item types, grouped by workload. An item that is not supported does not block the connection: it stays in the workspace, appears in the source control pane, and is ignored by commit and update. The consequence for design is simple: <strong>anything that must be reproducible from Git has to be an item type on the list.</strong> Inventory the unsupported items in each workspace before you connect it.</p>
+    <table>
+      <thead><tr><th>Workload</th><th>Items listed as supported</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td>Data Engineering</td><td>Environment, GraphQL API, Lakehouse, Notebook, Spark job definition, User data function</td><td>The lakehouse is tracked as metadata plus shortcut definitions. Tables and files are never versioned and are never overwritten by Git operations.</td></tr>
+        <tr><td>Data Science</td><td>Machine learning experiment <span class="badge preview">Preview</span>, machine learning model <span class="badge preview">Preview</span>, Data agent</td><td></td></tr>
+        <tr><td>Data Factory</td><td>Copy job, Dataflow Gen2, Data pipeline, Mirrored database, Mount ADF, Variable library (under CI/CD); Mirrored Snowflake, Airflow job, dbt job, Operations agent <span class="badge preview">Preview</span></td><td>Pipelines are JSON; dependencies between items in one workspace bind through logical IDs.</td></tr>
+        <tr><td>Real-Time Intelligence</td><td>Activator, Eventhouse, Eventstream, KQL database, KQL queryset, Real-Time dashboard, Maps; Event schema set, Digital twin builder, Anomaly detection <span class="badge preview">Preview</span></td><td>Eventstream and the KQL items are on the supported list. Older write-ups listed them as unsupported.</td></tr>
+        <tr><td>Data Warehouse</td><td>Warehouse, Mirrored Azure Databricks Catalog</td><td>A warehouse is stored as a database project of SQL scripts.</td></tr>
+        <tr><td>Power BI</td><td>Report, Semantic model, Paginated report <span class="badge preview">Preview</span>, Org app <span class="badge preview">Preview</span>, Metrics set <span class="badge preview">Preview</span></td><td>Report and semantic model are listed with qualifications (below). Semantic models are stored as TMDL, reports as PBIR-style definitions, paginated reports as RDL.</td></tr>
+        <tr><td>Databases and others</td><td>SQL database, Cosmos database <span class="badge preview">Preview</span>, Graph model and queryset, Ontology and Plan <span class="badge preview">Preview</span></td><td>New workload items arrive here first as preview.</td></tr>
+      </tbody>
+    </table>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>This list changes more often than any other fact in this playbook, and the preview markers on Microsoft's own list lag reality for some items. Treat the table above as a map of categories, and read the current list in <a href="https://learn.microsoft.com/fabric/cicd/git-integration/intro-to-git-integration#supported-items">Overview of Fabric Git integration: supported items</a> before any design decision that depends on an item type. Follow the per-item link there for format details and limits.</p></div>
+    <h3 id="unsupported">What is not supported</h3>
+    <table>
+      <thead><tr><th>Item or scenario</th><th>Detail</th></tr></thead>
+      <tbody>
+        <tr><td>Power BI dashboards</td><td>Not on the supported list.</td></tr>
+        <tr><td>Semantic model types</td><td>Push datasets, live connections to Analysis Services, and the older model v1 are excluded. Streaming datasets are not supported.</td></tr>
+        <tr><td>Reports bound to unsupported models</td><td>Reports connected to Azure Analysis Services or SQL Server Analysis Services models, and reports from Power BI Desktop that depend on models in My workspace.</td></tr>
+        <tr><td>Workspace-level objects</td><td>Workspace access roles, capacity assignment and deployment pipelines are not item definitions and are not in the repository.</td></tr>
+        <tr><td>Workspaces</td><td>My workspace and workspaces with template apps cannot connect.</td></tr>
+      </tbody>
+    </table>
+    <p>Note that a lakehouse's SQL analytics endpoint is not a separate Git item: its metadata travels with the lakehouse, and renaming the lakehouse in Git renames the endpoint.</p>
+
+    <h2 id="limits">Limits and general limitations</h2>
+    <table>
+      <thead><tr><th>Limit or restriction</th><th>Value or rule</th></tr></thead>
+      <tbody>
+        <tr><td>Combined size of one commit (GitHub)</td><td>50 MB. Commit in batches if you exceed it.</td></tr>
+        <tr><td>Maximum size of one file</td><td>25 MB.</td></tr>
+        <tr><td>Items per workspace</td><td>1,000. Syncing a branch with more fails.</td></tr>
+        <tr><td>Path, branch name, folder depth</td><td>250 characters, 244 characters, 10 levels.</td></tr>
+        <tr><td>Submodules</td><td>Not supported.</td></tr>
+        <tr><td>GitHub variants</td><td>Cloud only. No Enterprise Server, no IP allow list.</td></tr>
+        <tr><td>Sovereign clouds, B2B guests</td><td>Not supported.</td></tr>
+        <tr><td>Authentication strength</td><td>Fabric must require at least the authentication strength Git requires (for example MFA).</td></tr>
+        <tr><td>Sensitivity labels</td><td>Not exported; export of labelled items may be blocked.</td></tr>
+        <tr><td>Workspace identity</td><td>An item that uses it can only be updated into a workspace with the same identity.</td></tr>
+        <tr><td>Who manages the connection</td><td>Only workspace admins connect, disconnect or add a branch from the connection settings.</td></tr>
+      </tbody>
+    </table>
+    <div class="callout tip"><p class="callout-title">Everything here has an API</p><p>Status, commit, update, connect and initialize connection all have Fabric REST equivalents with the same rules (same permissions, same limits, long-running operations that you poll). They are used on the <a href="service-principals-automation.html">automation page</a>.</p></div>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p><ul>
+      <li>Commit is selective and additive; Update is whole-branch and destructive to the workspace, so always check the Updates list before pressing it.</li>
+      <li>Resolve conflicts in the UI when the answer is obvious, undo when your edit is disposable, and use a new branch in Git when you are unsure; never reconnect to "fix" a conflict.</li>
+      <li>Know the four branch operations: only branch out creates a workspace, only switch branch overwrites content, and checkout new branch and commit to new branch leave it alone.</li>
+      <li>Check the live supported-item list for every item type you depend on, and keep custom files out of item folders.</li>
+    </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/fabric/cicd/git-integration/git-integration-process">Git integration process</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/cicd/git-integration/conflict-resolution">Resolve conflicts with Git integration</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/cicd/git-integration/branched-workspace">Development process using Branch-Out experience</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/cicd/git-integration/intro-to-git-integration">Overview of Fabric Git integration</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/cicd/git-integration/source-code-format">Git source code format</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/lakehouse-git-deployment-pipelines">Lakehouse Git integration and deployment pipelines</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/cicd/git-integration/granular-compare">Compare and commit changes</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

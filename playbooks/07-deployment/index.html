@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Overview · Deployment Pipelines</title>
+<meta name="description" content="How to combine Git integration with Fabric deployment pipelines to promote lakehouses, notebooks, warehouses, semantic models and reports from DEV to TST to PRD, in a dependency-safe order.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="07-deployment" data-page="index.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 07 · Deployment Pipelines</p>
+      <h1>Deployment Pipelines and Promotion</h1>
+      <p class="lede">Git versions your items; deployment pipelines promote them. This playbook shows how to run both together, how pairing, autobinding and deployment rules behave, and how to promote a medallion platform layer by layer without breaking references.</p>
+      <ul class="chips"><li><b>Audience</b> Architects, data engineers, release managers</li><li><b>Level</b> Advanced</li><li><b>Reading time</b> about 2 hours</li></ul>
+    </header>
+<h2 id="what-it-solves">What this playbook solves</h2>
+<p>Fabric ships two lifecycle tools that are easy to conflate. <strong>Git integration</strong> stores item definitions in a repository so you get branches, pull requests and history. <strong>Deployment pipelines</strong> copy items between workspaces that stand for stages (development, test, production), compare the stages and apply per-stage configuration. Teams that adopt only one of them hit predictable walls: Git alone gives review and rollback but turns promotion into branch merges and syncs, while pipelines alone give promotion but no branching, review or revert of the definitions themselves.</p>
+<p>The pattern in this playbook uses each tool for what it is good at: Git for collaboration in the development workspace, a deployment pipeline for everything after that. It then walks the mechanics you must understand before you automate anything: <strong>item pairing</strong> (which target item a deploy overwrites), <strong>autobinding</strong> (which references are re-pointed for you), <strong>deployment rules</strong> (which settings you can override per stage) and the <strong>deployment order</strong> that keeps all of that predictable across Bronze, Silver, Gold, warehouse, semantic model and delivery workspaces.</p>
+
+<figure class="diagram">
+<svg class="dg" viewBox="0 0 900 262" role="img" aria-label="Developers merge into main through pull requests; the Git-connected DEV workspace syncs from main, and the deployment pipeline promotes DEV to TST to PRD, where TST and PRD have no Git connection">
+<defs>
+<marker id="fig-ov-1-a-blue" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar blue" d="M0 0L10 5L0 10z"/></marker>
+<marker id="fig-ov-1-a-teal" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar teal" d="M0 0L10 5L0 10z"/></marker>
+</defs>
+<rect class="zone blue" x="14" y="28" width="400" height="176" rx="12"/>
+<text class="t-s" x="28" y="47">Source control: Git</text>
+<rect class="zone teal" x="430" y="28" width="456" height="176" rx="12"/>
+<text class="t-s" x="444" y="47">Promotion: deployment pipeline</text>
+<rect class="box" x="30" y="84" width="140" height="70" rx="10"/>
+<text class="t-b" x="100" y="106" text-anchor="middle">Feature workspace</text>
+<text class="t-s" x="100" y="123" text-anchor="middle">temporary, one</text>
+<text class="t-s" x="100" y="140" text-anchor="middle">per feature branch</text>
+<rect class="box blue" x="274" y="84" width="124" height="70" rx="10"/>
+<text class="t-b" x="336" y="114.5" text-anchor="middle">main branch</text>
+<text class="t-s" x="336" y="131.5" text-anchor="middle">reviewed, merged</text>
+<rect class="box accent" x="446" y="84" width="100" height="70" rx="10"/>
+<text class="t-b t-w" x="496" y="106" text-anchor="middle">DEV</text>
+<text class="t-s t-w" x="496" y="123" text-anchor="middle">Git-connected</text>
+<text class="t-s t-w" x="496" y="140" text-anchor="middle">syncs main</text>
+<rect class="box teal" x="610" y="84" width="100" height="70" rx="10"/>
+<text class="t-b" x="660" y="114.5" text-anchor="middle">TST</text>
+<text class="t-s" x="660" y="131.5" text-anchor="middle">pipeline only</text>
+<rect class="box green" x="774" y="84" width="100" height="70" rx="10"/>
+<text class="t-b" x="824" y="114.5" text-anchor="middle">PRD</text>
+<text class="t-s" x="824" y="131.5" text-anchor="middle">pipeline only</text>
+<path class="ln blue" d="M170 119H274" marker-end="url(#fig-ov-1-a-blue)"/>
+<rect class="pill-bg" x="180.4" y="101.5" width="83.3" height="16"/>
+<text class="t-s" x="222" y="114" text-anchor="middle">pull request</text>
+<path class="ln blue" d="M398 119H446" marker-end="url(#fig-ov-1-a-blue)"/>
+<rect class="pill-bg" x="404.1" y="101.5" width="35.8" height="16"/>
+<text class="t-s" x="422" y="114" text-anchor="middle">sync</text>
+<path class="ln teal" d="M546 119H610" marker-end="url(#fig-ov-1-a-teal)"/>
+<rect class="pill-bg" x="554.2" y="101.5" width="47.6" height="16"/>
+<text class="t-s" x="578" y="114" text-anchor="middle">deploy</text>
+<path class="ln teal" d="M710 119H774" marker-end="url(#fig-ov-1-a-teal)"/>
+<rect class="pill-bg" x="718.2" y="101.5" width="47.6" height="16"/>
+<text class="t-s" x="742" y="114" text-anchor="middle">deploy</text>
+<text class="t-s" x="446" y="180">Rules and variable-library values apply on the target stage</text>
+<text class="t-s" x="30" y="232">Developers: branch, commit, review</text>
+<text class="t-s" x="446" y="232">Release managers: compare, deploy, verify</text>
+</svg>
+<figcaption><b>Hybrid promotion path.</b> Git ends at the DEV workspace. Everything after that point moves by deployment pipeline, which is why rules and per-stage values can only be applied on TST and PRD.</figcaption>
+</figure>
+
+<h3 id="at-a-glance">The pattern at a glance</h3>
+<table>
+<thead><tr><th>Question</th><th>Answer used throughout this playbook</th></tr></thead>
+<tbody>
+<tr><td>Where does development happen?</td><td>In temporary feature workspaces connected to feature branches. The DEV workspace is connected to <code>main</code>.</td></tr>
+<tr><td>How do changes reach TST and PRD?</td><td>Through a deployment pipeline. TST and PRD workspaces have no Git connection.</td></tr>
+<tr><td>What differs per stage?</td><td>Connections, default lakehouses and parameters, set with deployment rules, variable library values or parameterization.</td></tr>
+<tr><td>In what order do things move?</td><td>Layer by layer: Bronze, Silver, Gold, Warehouse, Semantic models, Consumption lakehouse, Delivery. Each layer is hydrated and verified before the next one is deployed.</td></tr>
+<tr><td>What does a deployment not copy?</td><td>Data, item IDs and URLs, permissions, workspace settings, and for semantic models the credentials, refresh schedule and role assignments.</td></tr>
+</tbody>
+</table>
+
+<h2 id="when-to-use">When to use this pattern, and when not to</h2>
+<table>
+<thead><tr><th>Situation</th><th>Fit</th><th>Why</th></tr></thead>
+<tbody>
+<tr><td>Separate developers and release managers; stage-by-stage review with a visual compare</td><td class="yes">Good fit</td><td>The pipeline gives a compare view, a change review, a deployment history with notes and a single place to configure rules.</td></tr>
+<tr><td>Semantic models or paginated reports that must connect to different sources per stage</td><td class="yes">Good fit</td><td>Deployment rules exist for exactly these items.</td></tr>
+<tr><td>Medallion platform with several workspaces per environment</td><td class="yes">Good fit, with discipline</td><td>One pipeline per layer, deployed in dependency order. See <a href="order-and-layers.html">Deployment order and layers</a>.</td></tr>
+<tr><td>Hard requirement for approval gates, automated tests and artefact versioning in a CI system</td><td class="maybe">Use code-first, or call the pipeline from CI</td><td>The deployment pipeline REST API can be driven from CI, but gates and tests are yours to build. See <a href="automation-and-limits.html">Automation and limits</a>.</td></tr>
+<tr><td>More than 300 items changing in one release, or item types the pipeline does not support</td><td class="no">Split the release, or go code-first</td><td>A single deployment is capped at 300 items, and unsupported items are not copied.</td></tr>
+<tr><td>Many customer tenants or workspaces generated per customer</td><td class="no">Different design</td><td>This is the ISV scenario; Microsoft documents it as a separate option.</td></tr>
+</tbody>
+</table>
+
+<h2 id="audience">Audience and prerequisites</h2>
+<dl class="kv">
+<dt>Audience</dt><dd>Platform architects who choose the lifecycle design, data engineers who build and promote items, release managers who run deployments, and reviewers who need to understand what a promotion changes.</dd>
+<dt>Capacity</dt><dd>Every workspace assigned to a pipeline must be on a Fabric capacity.</dd>
+<dt>Roles</dt><dd>Pipeline admin on the pipeline, plus at least Contributor on both the source and target workspaces of each deployment. Assigning a workspace requires workspace Admin.</dd>
+<dt>Naming</dt><dd>Workspaces <code>&lt;ENV&gt;_&lt;DOMAIN&gt;_&lt;LAYER&gt;</code> (for example <code>TST_SALES_SLV</code>) and pipelines <code>DPLY_&lt;DOMAIN&gt;_&lt;LAYER&gt;</code>. The pairing and rule behaviour on the later pages depends on identical item names across stages.</dd>
+<dt>Source control</dt><dd>A Git repository connected to the DEV workspace. Branching mechanics are in the <a href="../05-github-integration/index.html">GitHub integration playbook</a>.</dd>
+</dl>
+
+<h2 id="outcomes">What you will be able to do</h2>
+<ul class="checklist">
+<li>Choose between Git-only, hybrid and code-first promotion, and defend the choice with the trade-offs.</li>
+<li>Create a pipeline, assign workspaces and explain exactly when items become paired.</li>
+<li>Run a manual deployment, read the compare labels and review changes before and after.</li>
+<li>Predict which references autobind and which need a rule, a parameter or a variable library.</li>
+<li>Configure deployment rules for a notebook's default lakehouse and for a semantic model's data source, including the Direct Lake cases.</li>
+<li>Promote a medallion platform in dependency order and verify each layer before moving on.</li>
+<li>Script the same promotion through the REST API and know where manual steps remain.</li>
+</ul>
+
+<h2 id="map">Map of this playbook</h2>
+<div class="cards">
+<a class="card blue" href="strategy.html"><span class="card-num">01</span><h3>Deployment strategy</h3><p>The hybrid pattern, the alternatives and an honest decision table.</p><div class="card-meta"><span>Design</span></div></a>
+<a class="card teal" href="pipeline-setup.html"><span class="card-num">02</span><h3>Pipeline setup and pairing</h3><p>Stages, workspace assignment, the two UIs, pairing and known issues.</p><div class="card-meta"><span>Steps</span></div></a>
+<a class="card teal" href="manual-deploy.html"><span class="card-num">03</span><h3>The manual deployment</h3><p>Compare, deploy, review, and what a deployment copies.</p><div class="card-meta"><span>Steps</span></div></a>
+<a class="card green" href="autobinding.html"><span class="card-num">04</span><h3>Autobinding</h3><p>What re-points automatically, what does not and how to override it.</p><div class="card-meta"><span>Concepts</span></div></a>
+<a class="card gold" href="order-and-layers.html"><span class="card-num">05</span><h3>Deployment order and layers</h3><p>One pipeline per layer and the dependency order from Bronze to Delivery.</p><div class="card-meta"><span>Architecture</span></div></a>
+<a class="card purple" href="deployment-rules.html"><span class="card-num">06</span><h3>Supported items and rules</h3><p>The support matrix, rule types and two worked scenarios.</p><div class="card-meta"><span>Reference and steps</span></div></a>
+<a class="card orange" href="automation-and-limits.html"><span class="card-num">07</span><h3>Automation and limits</h3><p>REST API, workarounds for unsupported items, permissions.</p><div class="card-meta"><span>Operations</span></div></a>
+<a class="card" href="appendix.html"><span class="card-num">08</span><h3>Appendix</h3><p>A notebook that collects IDs and connection strings, and a rule template.</p><div class="card-meta"><span>Code</span></div></a>
+</div>
+
+<h2 id="related">How this fits with the other playbooks</h2>
+<ul>
+<li><a href="../03-medallion-architecture/index.html">Medallion architecture</a> defines the layer workspaces that this playbook promotes.</li>
+<li><a href="../05-github-integration/index.html">GitHub integration and branching</a> covers the Git half of the hybrid pattern: branches, feature workspaces and pull requests.</li>
+<li><a href="../09-variable-libraries/index.html">Variable libraries</a> covers the per-stage configuration that complements deployment rules.</li>
+<li><a href="../14-deployment-checklist/index.html">Deployment checklist</a> condenses this playbook into a runbook you can follow on release day.</li>
+</ul>
+
+<div class="takeaways"><p class="tk-title">Key takeaways</p>
+<ul>
+<li>Use Git for development collaboration and a deployment pipeline for promotion; connect only the DEV workspace to <code>main</code>.</li>
+<li>A deployment copies definitions, not data: every promoted layer must be hydrated and verified before the next one moves.</li>
+<li>Pairing decides what a deployment overwrites, autobinding decides what it re-points, and rules decide what it rewrites. Learn all three before the first production release.</li>
+<li>Deploy in dependency order, one pipeline per layer, and treat any skipped stage as an incident.</li>
+</ul></div>
+
+<section class="refs">
+<h2 id="refs">References</h2>
+<ul>
+<li><a href="https://learn.microsoft.com/fabric/cicd/deployment-pipelines/intro-to-deployment-pipelines">Overview of Fabric deployment pipelines</a></li>
+<li><a href="https://learn.microsoft.com/fabric/cicd/deployment-pipelines/understand-the-deployment-process">The deployment pipelines process</a></li>
+<li><a href="https://learn.microsoft.com/fabric/cicd/best-practices-cicd">Best practices for lifecycle management in Fabric</a></li>
+<li><a href="https://learn.microsoft.com/fabric/cicd/manage-deployment">Choose the best Fabric CI/CD workflow option</a></li>
+</ul>
+</section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

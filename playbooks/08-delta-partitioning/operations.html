@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Validation and operations · Delta Partitioning</title>
+<meta name="description" content="How to measure Delta table layout health, diagnose small files, check partition pruning, keep the SQL analytics endpoint in sync, schedule maintenance by table class and troubleshoot common problems.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="08-delta-partitioning" data-page="operations.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 08 · Delta Partitioning</p>
+      <h1>Validation and operations</h1>
+      <p class="lede">A layout is only as good as its maintenance. This page shows how to measure file and partition health, confirm that pruning works, diagnose the common problems, and run maintenance on a cadence that matches each class of table.</p>
+    </header>
+
+    <h2 id="measure">Measure layout health</h2>
+    <p>Start with the table's own metadata. <code>DESCRIBE DETAIL</code> reports the file count, total size, partition columns, clustering columns and table properties, including the evaluated <code>delta.targetFileSize.adaptive</code> target. <code>DESCRIBE HISTORY</code> shows every commit with its operation metrics, which is how you see what a write, merge or <code>OPTIMIZE</code> actually did.</p>
+<pre data-title="Spark SQL · inspect layout and history"><code class="language-sql">DESCRIBE DETAIL  silver.orders;   -- numFiles, sizeInBytes, partitionColumns, clusteringColumns, properties
+DESCRIBE HISTORY silver.orders;   -- operation, operationMetrics (files added and removed, rows written)</code></pre>
+<pre data-title="PySpark · average file size as a first indicator"><code class="language-python">details = spark.sql("DESCRIBE DETAIL silver.orders").first()
+
+size_gb  = details["sizeInBytes"] / 1024**3
+n_files  = details["numFiles"]
+avg_mb   = details["sizeInBytes"] / n_files / 1024**2 if n_files else 0
+target   = details["properties"].get("delta.targetFileSize.adaptive", "not evaluated")
+
+print(f"{size_gb:.1f} GB in {n_files} files, average {avg_mb:.0f} MB (adaptive target: {target})")</code></pre>
+    <p>An average can hide skew between partitions or between recent and previously compacted files, so follow up with a per-partition view. The script below lists the data files of each partition directory and reports how many there are and how large they are.</p>
+<pre data-title="PySpark · files and size per partition"><code class="language-python">import pandas as pd
+
+table = "silver.orders"
+root = spark.sql(f"DESCRIBE DETAIL {table}").first()["location"]
+
+rows = []
+def walk(path, label=""):
+    entries = notebookutils.fs.ls(path)
+    files = [e for e in entries if not e.isDir and e.name.endswith(".parquet")]
+    if files:
+        rows.append((label or "(root)", len(files), sum(f.size for f in files)))
+    for d in entries:
+        if d.isDir and not d.name.startswith("_"):          # skip _delta_log
+            walk(d.path, f"{label}/{d.name.rstrip('/')}" if label else d.name.rstrip("/"))
+
+walk(root)
+
+report = pd.DataFrame(rows, columns=["partition", "files", "bytes"])
+report["gb"] = report["bytes"] / 1024**3
+report["avg_file_mb"] = report["bytes"] / report["files"] / 1024**2
+print(report.sort_values("avg_file_mb").head(20).to_string(index=False))
+print(f"Partitions: {len(report)}; listed files: {report['files'].sum()}")</code></pre>
+    <div class="callout note"><p class="callout-title">Listing is not the table</p><p>The script lists storage, which can include files that the current table version no longer references and that <code>VACUUM</code> has not yet removed. Treat it as a diagnostic and compare the file total with <code>numFiles</code> from <code>DESCRIBE DETAIL</code>.</p></div>
+    <h3 id="pruning-check">Confirm that pruning and skipping work</h3>
+    <p>Layout is only useful if queries benefit from it. Read the physical plan and look for the partition filters on the scan, then compare the files the scan read with the table's total.</p>
+<pre data-title="PySpark · look for PartitionFilters in the scan"><code class="language-python">spark.sql("""
+EXPLAIN FORMATTED
+SELECT SUM(amount) FROM silver.orders WHERE order_month = '2026-03'
+""").show(truncate=False)
+# In the FileScan node, look for PartitionFilters on order_month,
+# and compare "number of files read" in the Spark UI with numFiles from DESCRIBE DETAIL.</code></pre>
+    <ul>
+      <li><strong>Liquid clustered tables.</strong> From Runtime 2.0 the Scala <code>clusteringQuality()</code> method reports per-column overlap and estimated skipping effectiveness. Compare before and after <code>OPTIMIZE</code>, and validate against files scanned in the Spark UI.</li>
+      <li><strong>Direct Lake.</strong> Use Delta Analyzer (a notebook, also in the semantic-link-labs library) to see row groups, files and the effect of updates, and a DAX query over <code>INFO.STORAGETABLECOLUMNSEGMENTS()</code> after a load to check whether segments were reused.</li>
+      <li><strong>SQL analytics endpoint.</strong> Where auto compaction is not used, the <code>sys.sp_get_table_health_metrics</code> stored procedure identifies tables that need <code>OPTIMIZE</code>.</li>
+      <li><strong>Write blast radius.</strong> In <code>DESCRIBE HISTORY</code>, compare files removed with files added for each <code>MERGE</code>, <code>UPDATE</code> or <code>DELETE</code>. A small change that removes many files signals a layout that does not match the write pattern.</li>
+    </ul>
+
+    <h2 id="signals">Health signals and what to do</h2>
+    <p>Treat these as indicators to investigate, not universal thresholds: validate them against the table's write pattern and its consumers' performance.</p>
+    <table>
+      <thead><tr><th>Signal</th><th>Likely cause</th><th>Response</th></tr></thead>
+      <tbody>
+        <tr><td>File count rises faster than table size; average file size well below the adaptive target</td><td>Frequent small writes, many partitions touched per batch, no compaction</td><td>Run a one-time <code>OPTIMIZE</code> for the backlog, then enable optimize write and auto compaction</td></tr>
+        <tr><td>Files far larger than the current target, too few for parallelism</td><td>A table created or rewritten under older size settings</td><td>Rewrite with adaptive target file size enabled (a one-time overwrite or <code>CREATE OR REPLACE TABLE AS SELECT</code>)</td></tr>
+        <tr><td>Many partitions each well under 1 GB</td><td>Grain too fine for the data volume</td><td>Move to a coarser grain, or to liquid clustering; both need a rewrite</td></tr>
+        <tr><td>Merges remove many files but change few rows</td><td>No partition predicate; files too large; high update spread</td><td>Add the partition column to the condition; keep deletion vectors on; review file size</td></tr>
+        <tr><td>Deletion vectors added faster than they are purged</td><td>Updates and deletes without enough small-file triggers for auto compaction</td><td>Schedule <code>OPTIMIZE</code>; use <code>REORG TABLE ... APPLY (PURGE)</code> only for explicit purge needs</td></tr>
+        <tr><td>Scheduled <code>OPTIMIZE</code> gets slower every run</td><td>Z-Order with no <code>WHERE</code>; clustering on Runtime 1.3; an oversized minimum file size</td><td>Limit with <code>WHERE</code>, enable fast optimize and file-level compaction targets, or move clustered tables to Runtime 2.0</td></tr>
+        <tr><td>Direct Lake queries are cold after each load</td><td>Overwrite, wide deletes, or <code>OPTIMIZE</code> over the whole table</td><td>Append or <code>replaceWhere</code>; a low-cardinality partition to confine rewrites; scope <code>OPTIMIZE</code></td></tr>
+        <tr><td>Direct Lake errors on files that no longer exist</td><td><code>VACUUM</code> removed the table version the model was framed to</td><td>Keep retention longer than the longest gap between refreshes; reframe the model</td></tr>
+        <tr><td>SQL analytics endpoint shows stale data or syncs slowly</td><td>Very many files or partitions, or a large burst of changes</td><td>Maintain the table; start an on-demand metadata sync from the portal or REST API</td></tr>
+      </tbody>
+    </table>
+
+    <h3 id="triage">Triage for small files</h3>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 284" role="img" aria-label="Triage for small files: for a Spark writer enable optimize write and auto compaction and run one OPTIMIZE for the backlog; for a pipeline or dataflow writer schedule lakehouse maintenance; if partitions are each under 1 GB change the layout to a coarser grain or liquid clustering">
+        <defs>
+          <marker id="fig-ops-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box blue" x="320" y="10" width="260" height="44" rx="8"/>
+        <text class="t-b" x="450" y="38" text-anchor="middle">Many small files, low average size</text>
+        <path class="ln" d="M450 54V72H155V92" marker-end="url(#fig-ops-1-a)"/>
+        <path class="ln" d="M450 54V92" marker-end="url(#fig-ops-1-a)"/>
+        <path class="ln" d="M450 54V72H745V92" marker-end="url(#fig-ops-1-a)"/>
+
+        <rect class="box gray" x="20" y="92" width="270" height="46" rx="8"/>
+        <text class="t-s" x="155" y="112" text-anchor="middle">Is the table written</text>
+        <text class="t-s" x="155" y="128" text-anchor="middle">by Spark?</text>
+        <rect class="box gray" x="315" y="92" width="270" height="46" rx="8"/>
+        <text class="t-s" x="450" y="112" text-anchor="middle">Is it written by a pipeline</text>
+        <text class="t-s" x="450" y="128" text-anchor="middle">or a dataflow?</text>
+        <rect class="box gray" x="610" y="92" width="270" height="46" rx="8"/>
+        <text class="t-s" x="745" y="112" text-anchor="middle">Are partitions each</text>
+        <text class="t-s" x="745" y="128" text-anchor="middle">under about 1 GB?</text>
+
+        <path class="ln" d="M155 138V166" marker-end="url(#fig-ops-1-a)"/>
+        <text class="t-s" x="163" y="156">yes</text>
+        <path class="ln" d="M450 138V166" marker-end="url(#fig-ops-1-a)"/>
+        <text class="t-s" x="458" y="156">yes</text>
+        <path class="ln" d="M745 138V166" marker-end="url(#fig-ops-1-a)"/>
+        <text class="t-s" x="753" y="156">yes</text>
+
+        <rect class="box green" x="20" y="166" width="270" height="78" rx="8"/>
+        <text class="t-b" x="155" y="190" text-anchor="middle">Prevent and repair</text>
+        <text class="t-s" x="155" y="210" text-anchor="middle">optimize write and auto compaction</text>
+        <text class="t-s" x="155" y="227" text-anchor="middle">one OPTIMIZE for the backlog</text>
+        <rect class="box teal" x="315" y="166" width="270" height="78" rx="8"/>
+        <text class="t-b" x="450" y="190" text-anchor="middle">Schedule maintenance</text>
+        <text class="t-s" x="450" y="210" text-anchor="middle">Lakehouse maintenance activity</text>
+        <text class="t-s" x="450" y="227" text-anchor="middle">no OPTIMIZE on incremental dataflows</text>
+        <rect class="box purple" x="610" y="166" width="270" height="78" rx="8"/>
+        <text class="t-b" x="745" y="190" text-anchor="middle">Change the layout</text>
+        <text class="t-s" x="745" y="210" text-anchor="middle">coarser grain or liquid clustering</text>
+        <text class="t-s" x="745" y="227" text-anchor="middle">requires a rewrite</text>
+        <text class="t-s" x="20" y="272">Answer all three: more than one can apply, and the layout fix is the only one that removes the cause.</text>
+      </svg>
+      <figcaption><b>Treat the cause, not the symptom.</b> Compaction repairs small files that a write pattern keeps creating; only a coarser layout stops partitions from being too small in the first place.</figcaption>
+    </figure>
+
+    <h2 id="sync">Keep the SQL analytics endpoint in step</h2>
+    <p>The SQL analytics endpoint reads the same Delta tables as Spark, kept in step by a background metadata sync. Normally the lag is under a minute, but spikes in file or partition counts lengthen it. Watch sync time alongside file counts after large loads, schedule regular maintenance rather than relying on the sync to cope, and use the on-demand metadata sync or the refresh SQL endpoint metadata REST API when a downstream step must see the latest commit. Not every Delta feature is supported by the automatic sync, so check the <a href="https://learn.microsoft.com/fabric/fundamentals/delta-lake-interoperability">Delta Lake interoperability</a> page before adopting a new layout feature on tables the endpoint serves.</p>
+
+    <h2 id="cadence">Operations cadence</h2>
+    <p>Match maintenance to how the table is written and read. The cadence below is a starting point: automatic compaction does the continuous work, and scheduled jobs handle what needs a window.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 196" role="img" aria-label="Maintenance cadence from continuous to quarterly: optimize write and auto compaction continuously; daily appends and slice replacement; weekly OPTIMIZE and a file health report; monthly VACUUM and deletion-vector purge; quarterly review of partition counts, query plans and Direct Lake metrics">
+        <rect class="box green" x="10" y="12" width="168" height="36" rx="8"/><text class="t-h" x="94" y="35" text-anchor="middle">Continuous</text>
+        <rect class="box blue" x="188" y="12" width="168" height="36" rx="8"/><text class="t-h" x="272" y="35" text-anchor="middle">Daily</text>
+        <rect class="box teal" x="366" y="12" width="168" height="36" rx="8"/><text class="t-h" x="450" y="35" text-anchor="middle">Weekly</text>
+        <rect class="box purple" x="544" y="12" width="168" height="36" rx="8"/><text class="t-h" x="628" y="35" text-anchor="middle">Monthly</text>
+        <rect class="box orange" x="722" y="12" width="168" height="36" rx="8"/><text class="t-h" x="806" y="35" text-anchor="middle">Quarterly</text>
+
+        <rect class="box plain" x="10" y="58" width="168" height="52" rx="8"/>
+        <text class="t-s" x="94" y="80" text-anchor="middle">Optimize write and</text><text class="t-s" x="94" y="96" text-anchor="middle">auto compaction</text>
+        <rect class="box plain" x="10" y="120" width="168" height="52" rx="8"/>
+        <text class="t-s" x="94" y="142" text-anchor="middle">Adaptive file size sets</text><text class="t-s" x="94" y="158" text-anchor="middle">the target per table</text>
+
+        <rect class="box plain" x="188" y="58" width="168" height="52" rx="8"/>
+        <text class="t-s" x="272" y="80" text-anchor="middle">Append new data;</text><text class="t-s" x="272" y="96" text-anchor="middle">replaceWhere for fixes</text>
+        <rect class="box plain" x="188" y="120" width="168" height="52" rx="8"/>
+        <text class="t-s" x="272" y="142" text-anchor="middle">OPTIMIZE if write latency</text><text class="t-s" x="272" y="158" text-anchor="middle">rules out auto compaction</text>
+
+        <rect class="box plain" x="366" y="58" width="168" height="52" rx="8"/>
+        <text class="t-s" x="450" y="80" text-anchor="middle">OPTIMIZE recent</text><text class="t-s" x="450" y="96" text-anchor="middle">partitions or clusters</text>
+        <rect class="box plain" x="366" y="120" width="168" height="52" rx="8"/>
+        <text class="t-s" x="450" y="142" text-anchor="middle">File health report:</text><text class="t-s" x="450" y="158" text-anchor="middle">count, size, skew</text>
+
+        <rect class="box plain" x="544" y="58" width="168" height="52" rx="8"/>
+        <text class="t-s" x="628" y="80" text-anchor="middle">VACUUM per retention</text><text class="t-s" x="628" y="96" text-anchor="middle">and time-travel policy</text>
+        <rect class="box plain" x="544" y="120" width="168" height="52" rx="8"/>
+        <text class="t-s" x="628" y="142" text-anchor="middle">Purge deletion vectors</text><text class="t-s" x="628" y="158" text-anchor="middle">auto compaction missed</text>
+
+        <rect class="box plain" x="722" y="58" width="168" height="52" rx="8"/>
+        <text class="t-s" x="806" y="80" text-anchor="middle">Review partition counts,</text><text class="t-s" x="806" y="96" text-anchor="middle">sizes and skew</text>
+        <rect class="box plain" x="722" y="120" width="168" height="52" rx="8"/>
+        <text class="t-s" x="806" y="142" text-anchor="middle">Review query plans and</text><text class="t-s" x="806" y="158" text-anchor="middle">Direct Lake metrics</text>
+      </svg>
+      <figcaption><b>Automatic first, scheduled second, reviewed on a rhythm.</b> A quarterly review is where you decide whether a table has outgrown its layout.</figcaption>
+    </figure>
+    <table>
+      <thead><tr><th>Table class</th><th>Compaction</th><th>Layout</th><th>VACUUM and refresh</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Bronze, append-only, high volume</strong></td><td>Auto compaction and optimize write</td><td>V-Order not needed; partition by ingest month only if retention or writers justify it</td><td>VACUUM on the retention policy</td></tr>
+        <tr><td><strong>Silver, merged</strong></td><td>Auto compaction, deletion vectors on; periodic <code>OPTIMIZE</code> to purge them</td><td>Partition column in merge conditions; Z-Order or clustering for secondary filters</td><td>VACUUM weekly to monthly</td></tr>
+        <tr><td><strong>Gold read by Direct Lake</strong></td><td>Scheduled <code>OPTIMIZE</code> at quiet times, scoped to recent partitions</td><td>V-Order on; row groups of 1 to 16 million rows</td><td>Retention longer than the framing gap; refresh the model after maintenance</td></tr>
+        <tr><td><strong>Liquid clustered, Runtime 2.0</strong></td><td>Auto compaction or <code>OPTIMIZE</code> after loads</td><td>Check <code>clusteringQuality()</code>; <code>OPTIMIZE FULL</code> only after changing keys</td><td>VACUUM on the retention policy</td></tr>
+        <tr><td><strong>Written by Copy activity or Dataflow Gen2</strong></td><td>Scheduled Lakehouse maintenance (pipeline activity or Lakehouse maintenance); incremental-refresh dataflow tables cannot be optimized</td><td>Inspect the resulting layout; do not assume Spark defaults</td><td>VACUUM on the retention policy</td></tr>
+      </tbody>
+    </table>
+    <p>Maintenance can be run from the Lakehouse maintenance experience, from a pipeline Lakehouse maintenance activity, from notebooks, or through the Lakehouse REST API, so it can be orchestrated alongside the loads that create the files.</p>
+
+    <h2 id="checklist">Layout checklist</h2>
+    <ul class="checklist">
+      <li>The decision tree was walked and the answer recorded next to the table: unpartitioned, partitioned (with the reason) or clustered.</li>
+      <li>If partitioned: the partition column is low-cardinality, stable, known at write time, and each partition is at least about 1 GB.</li>
+      <li>Partition values contain no sensitive identifiers, and null or malformed values are rejected before the write.</li>
+      <li>Optimize write and auto compaction are on for Spark-written tables, or a scheduled <code>OPTIMIZE</code> exists where write latency rules them out.</li>
+      <li>V-Order is enabled on tables Direct Lake reads and not forced elsewhere without a reason.</li>
+      <li>Merge and update conditions include the partition column, and concurrent writers have a bounded retry.</li>
+      <li>Large Direct Lake tables are updated by append or slice replacement, and <code>OPTIMIZE</code> is scoped and scheduled for quiet periods.</li>
+      <li><code>VACUUM</code> retention exceeds the longest gap between model refreshes and the time-travel requirement.</li>
+      <li>A file health report runs on a schedule, with owners for the signals it raises, and a quarterly review of layout decisions is on the calendar.</li>
+    </ul>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p><ul>
+      <li>Measure before you tune: file count, average file size against the adaptive target, per-partition size and the plan's partition filters.</li>
+      <li>Compare files removed and added in <code>DESCRIBE HISTORY</code> to see the real blast radius of each write.</li>
+      <li>Compaction repairs small files, but only a layout of right-sized partitions stops them from being created.</li>
+      <li>Scope <code>OPTIMIZE</code> to recent partitions for Direct Lake tables, and keep <code>VACUUM</code> retention longer than the framing gap.</li>
+      <li>Writers that bypass Spark defaults, such as pipelines and dataflows, need their own scheduled maintenance.</li>
+      <li>Review layout decisions regularly: tables outgrow their partition schemes.</li>
+    </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/fabric/fundamentals/table-maintenance-optimization">Cross-workload table maintenance and optimization</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/table-compaction">Compacting Delta tables</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/tune-file-size">Tune the size of Delta table data files</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/sql-analytics-endpoint-performance">SQL analytics endpoint performance considerations</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/fundamentals/direct-lake-understand-storage">Understand Direct Lake query performance</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/lakehouse-table-maintenance">Lakehouse table maintenance</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/delta-lake-vacuum">Delta Lake table VACUUM</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/fundamentals/delta-lake-interoperability">Delta Lake table format interoperability</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

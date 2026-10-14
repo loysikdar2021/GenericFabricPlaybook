@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Overview · Delta Partitioning</title>
+<meta name="description" content="When to partition a Delta table in Fabric, when liquid clustering or plain compaction is the better choice, and how Direct Lake, the SQL analytics endpoint and Warehouse shape the answer.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="08-delta-partitioning" data-page="index.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 08 · Data Engineering</p>
+      <h1>Delta Lake Partitioning Strategy</h1>
+      <p class="lede">A decision guide for the physical layout of Delta tables in Microsoft Fabric: whether to partition at all, what to use instead when the goal is faster reads, how Direct Lake and the SQL analytics endpoint react to your choice, and how to operate the result so it stays healthy.</p>
+      <ul class="chips"><li><b>Audience</b> data engineers, architects</li><li><b>Level</b> intermediate</li><li><b>Reading time</b> 45 min</li><li><b>Pages</b> 6</li></ul>
+    </header>
+
+    <h2 id="purpose">Purpose and scope</h2>
+    <p>Partitioning is one of the oldest data-layout tools and one of the easiest to misuse. Done well, it lets an engine skip whole directories, keeps concurrent writers from colliding and limits how much data a rewrite disturbs. Done badly, it multiplies small files, slows every write, burdens the SQL analytics endpoint and forces Direct Lake to juggle thousands of tiny row groups.</p>
+    <p>This playbook answers three questions: <strong>when</strong> a Delta table in a Fabric lakehouse should be partitioned, <strong>how</strong> to do it (and what to use when partitioning is not the right tool), and <strong>how to operate</strong> the tables so queries, including Direct Lake and Warehouse consumers, stay fast and reliable.</p>
+    <p>The short version of current Fabric guidance is: <strong>do not partition by default</strong>. Keep files well sized with the runtime defaults, compaction and, where Direct Lake reads the table, V-Order. Reach for liquid clustering when queries repeatedly filter on the same selective columns. Partition only when a specific requirement justifies the operational cost, chiefly isolating concurrent writers or bounding how much a rolling-window rewrite touches.</p>
+
+    <h2 id="when-to-use">When to use this playbook</h2>
+    <div class="pros-cons">
+      <div class="pros"><h4>Use it when you are</h4><ul><li>Creating a large Delta table and deciding on its layout</li><li>Seeing slow queries, a growing file count or slow SQL endpoint sync</li><li>Planning concurrent pipelines that write to one table</li><li>Preparing Gold tables for Direct Lake</li><li>Reviewing an existing partitioned table that no longer fits its workload</li></ul></div>
+      <div class="cons"><h4>Look elsewhere when you need</h4><ul><li>Load patterns such as <code>MERGE</code> and SCD2, covered in the <a href="../02-data-load-strategy/index.html">data load strategy playbook</a></li><li>Workspace and layer design, covered in the <a href="../03-medallion-architecture/index.html">medallion architecture playbook</a></li><li>Warehouse table design in depth, which the Warehouse performance guidelines cover</li><li>Real-time analytics on Eventhouse, which has its own storage model</li></ul></div>
+    </div>
+
+    <h2 id="audience">Audience and prerequisites</h2>
+    <dl class="kv">
+      <dt>Primary readers</dt><dd>Data engineers who create and maintain lakehouse tables, architects who set layout standards, and platform owners who watch capacity and file health.</dd>
+      <dt>You should know</dt><dd>What a Delta table, a Parquet file and the Delta transaction log are, and basic Spark SQL or PySpark.</dd>
+      <dt>Environment</dt><dd>A Fabric lakehouse and Spark notebooks. Examples target Fabric Runtime 2.0, and each page notes where Runtime 1.3 behaves differently. Check which runtime your workspace and environment use, because several recommendations depend on it.</dd>
+      <dt>Example domain</dt><dd>Neutral retail, finance and device-telemetry data: <code>orders</code> by order date, <code>transactions</code> by posting date and <code>device_events</code> by event time.</dd>
+    </dl>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>Layout guidance in Fabric has changed quickly: liquid clustering became the recommended read-optimization strategy and several defaults moved with Runtime 2.0. Confirm runtime status and feature availability on <a href="https://learn.microsoft.com/fabric/data-engineering/runtime">Apache Spark runtimes in Fabric</a> and in the linked feature pages before you standardize.</p></div>
+
+    <h2 id="decision-tree">The decision in one picture</h2>
+    <p>Walk the questions from the top. The first question answered yes selects the layout. If none applies, the answer is the default: no partitioning.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 366" role="img" aria-label="Decision tree for Delta table layout: partition when concurrent writers need isolation, partition by a coarse period for large Direct Lake tables with rolling-window changes, use liquid clustering when queries repeatedly filter on the same columns, otherwise do not partition">
+        <defs>
+          <marker id="fig-index-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box gray" x="20" y="14" width="400" height="62" rx="8"/>
+        <text class="t-s" x="220" y="40" text-anchor="middle">Do concurrent writers update, delete or merge</text>
+        <text class="t-s" x="220" y="58" text-anchor="middle">into disjoint slices of the same table?</text>
+        <path class="ln" d="M420 45H468" marker-end="url(#fig-index-1-a)"/>
+        <text class="t-s" x="430" y="38">yes</text>
+        <rect class="box purple" x="470" y="14" width="410" height="62" rx="8"/>
+        <text class="t-b" x="675" y="34" text-anchor="middle">Hive partitioning</text>
+        <text class="t-s" x="675" y="52" text-anchor="middle">low-cardinality slice column, 1 GB or more per partition</text>
+        <text class="t-s" x="675" y="67" text-anchor="middle">partition column in every MERGE condition</text>
+        <path class="ln" d="M220 76V104" marker-end="url(#fig-index-1-a)"/>
+        <text class="t-s" x="228" y="94">no</text>
+
+        <rect class="box gray" x="20" y="104" width="400" height="62" rx="8"/>
+        <text class="t-s" x="220" y="130" text-anchor="middle">Is it a large Direct Lake source that gets</text>
+        <text class="t-s" x="220" y="148" text-anchor="middle">rolling-window deletes or updates?</text>
+        <path class="ln" d="M420 135H468" marker-end="url(#fig-index-1-a)"/>
+        <text class="t-s" x="430" y="128">yes</text>
+        <rect class="box purple" x="470" y="104" width="410" height="62" rx="8"/>
+        <text class="t-b" x="675" y="124" text-anchor="middle">Partition by a coarse period</text>
+        <text class="t-s" x="675" y="142" text-anchor="middle">month, fewer than about 100 to 200 values</text>
+        <text class="t-s" x="675" y="157" text-anchor="middle">bounds rewrites and OPTIMIZE reloads</text>
+        <path class="ln" d="M220 166V194" marker-end="url(#fig-index-1-a)"/>
+        <text class="t-s" x="228" y="184">no</text>
+
+        <rect class="box gray" x="20" y="194" width="400" height="62" rx="8"/>
+        <text class="t-s" x="220" y="220" text-anchor="middle">Do queries repeatedly filter on the same</text>
+        <text class="t-s" x="220" y="238" text-anchor="middle">selective columns (Runtime 2.0 or later)?</text>
+        <path class="ln" d="M420 225H468" marker-end="url(#fig-index-1-a)"/>
+        <text class="t-s" x="430" y="218">yes</text>
+        <rect class="box blue" x="470" y="194" width="410" height="62" rx="8"/>
+        <text class="t-b" x="675" y="214" text-anchor="middle">Liquid clustering</text>
+        <text class="t-s" x="675" y="232" text-anchor="middle">CLUSTER BY 1 to 4 filter columns</text>
+        <text class="t-s" x="675" y="247" text-anchor="middle">applied by OPTIMIZE or auto compaction</text>
+        <path class="ln" d="M220 256V284" marker-end="url(#fig-index-1-a)"/>
+        <text class="t-s" x="228" y="274">no</text>
+
+        <rect class="box gray" x="20" y="284" width="400" height="62" rx="8"/>
+        <text class="t-b" x="220" y="320" text-anchor="middle">None of the above</text>
+        <path class="ln" d="M420 315H468" marker-end="url(#fig-index-1-a)"/>
+        <text class="t-s" x="430" y="308">so</text>
+        <rect class="box green" x="470" y="284" width="410" height="62" rx="8"/>
+        <text class="t-b" x="675" y="304" text-anchor="middle">No partitioning</text>
+        <text class="t-s" x="675" y="322" text-anchor="middle">adaptive file size, auto compaction or OPTIMIZE</text>
+        <text class="t-s" x="675" y="337" text-anchor="middle">V-Order if Direct Lake reads the table</text>
+      </svg>
+      <figcaption><b>Partition for a reason, not by habit.</b> Partitioning and liquid clustering cannot be combined on one table. If both the first and third questions apply, partition for the writers and use Z-Order inside the partitions for the filters.</figcaption>
+    </figure>
+
+    <h2 id="principles">Six principles behind the guidance</h2>
+    <ol class="steps">
+      <li><strong>Start unpartitioned</strong><p>A well-sized file set with statistics already gives engines something to skip. Partitioning adds directories, and every directory is a place where small files can accumulate. Add it when a requirement names it.</p></li>
+      <li><strong>Partition columns are low-cardinality and aligned with how data is written</strong><p>Tens to hundreds of distinct values, each holding at least about 1 GB. A month, a region or a business unit qualifies; a day for a modest table, a customer or a device does not.</p></li>
+      <li><strong>Use clustering, not more partitions, for secondary filters</strong><p>Extra partition levels multiply cardinality. Liquid clustering (or Z-Order on an existing partitioned table) improves file skipping on other columns without more directories.</p></li>
+      <li><strong>Layout is maintained, not set once</strong><p>Write-time features, automatic compaction and scheduled <code>OPTIMIZE</code> keep file sizes healthy. A partitioned table with no maintenance is usually worse than an unpartitioned one with it.</p></li>
+      <li><strong>Consumers have their own requirements</strong><p>Direct Lake wants few, large row groups and append-friendly updates. The SQL analytics endpoint wants a manageable file and partition count so metadata sync stays quick. Check both before you finalize a layout.</p></li>
+      <li><strong>Changing the scheme means rewriting the table</strong><p>Partition columns cannot be edited in place. Choose deliberately, document the reason, and plan a rewrite as an operation, not an accident.</p></li>
+    </ol>
+
+    <h2 id="defaults">Defaults at a glance</h2>
+    <table>
+      <thead><tr><th>Topic</th><th>Default guidance</th><th>Depart from it when</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Partitioning</strong></td><td>None</td><td>Concurrent writers need isolation, or a large Direct Lake table gets rolling-window rewrites</td></tr>
+        <tr><td><strong>Read optimization</strong></td><td>Liquid clustering on 1 to 4 frequently filtered columns, Runtime 2.0 or later</td><td>You are on Runtime 1.3 with a small table (clustering rewrites more), or the table is already partitioned (use Z-Order)</td></tr>
+        <tr><td><strong>File size</strong></td><td>Adaptive target file size, which selects 128 MB to 1 GB per table</td><td>A tested requirement justifies a fixed <code>delta.targetFileSize</code></td></tr>
+        <tr><td><strong>Compaction</strong></td><td>Auto compaction for Spark-written tables, plus <code>OPTIMIZE</code> where write latency matters</td><td>Streaming or frequent micro-batches also need optimize write</td></tr>
+        <tr><td><strong>V-Order</strong></td><td>Enable for Gold tables read by Direct Lake; not needed for Spark or SQL endpoint alone</td><td>Write-heavy ingestion tables that nobody queries through Direct Lake</td></tr>
+        <tr><td><strong>Partition granularity</strong></td><td>Month, never finer than needed to reach about 1 GB per partition</td><td>Very large daily volumes where each day exceeds about 1 GB</td></tr>
+        <tr><td><strong>Maintenance cadence</strong></td><td>Automatic compaction continuously; <code>VACUUM</code> on a schedule that respects retention</td><td>Consumers frame Direct Lake models less often than the retention period</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="outcomes">What you will be able to do</h2>
+    <ul class="checklist">
+      <li>Decide with evidence whether a table should be partitioned, clustered or left alone.</li>
+      <li>Estimate partition size and count before you commit to a granularity.</li>
+      <li>Combine V-Order, optimize write, auto compaction and <code>OPTIMIZE</code> without conflicting settings.</li>
+      <li>Choose a layout that fits Direct Lake, the SQL analytics endpoint and Warehouse consumers.</li>
+      <li>Implement partitioned and clustered tables, selective overwrites and concurrent merges correctly.</li>
+      <li>Change a layout safely, and monitor file health with a repeatable routine.</li>
+    </ul>
+
+    <h2 id="map">Map of this playbook</h2>
+    <table>
+      <thead><tr><th>Page</th><th>What it answers</th></tr></thead>
+      <tbody>
+        <tr><td><a href="concepts.html">Why and when to partition</a></td><td>How pruning works, how to size partitions, and when concurrent writers justify the cost.</td></tr>
+        <tr><td><a href="fabric-features.html">Fabric layout features</a></td><td>What V-Order, optimize write, auto compaction, <code>OPTIMIZE</code>, Z-Order and liquid clustering each do, and which combine.</td></tr>
+        <tr><td><a href="patterns.html">Patterns by layer and consumer</a></td><td>What layout fits Bronze, Silver and Gold, and what Direct Lake, the SQL endpoint and Warehouse need.</td></tr>
+        <tr><td><a href="implementation.html">Implementation examples</a></td><td>Create tables, append, replace a slice, merge concurrently and change a layout.</td></tr>
+        <tr><td><a href="operations.html">Validation and operations</a></td><td>How to measure health, diagnose problems and schedule maintenance.</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="related">How this fits with the other playbooks</h2>
+    <ul>
+      <li><a href="../02-data-load-strategy/index.html">Data Load Strategy</a> decides how data arrives; this playbook decides how it is laid out once written, and why <code>replaceWhere</code> and slice replacement behave the way they do.</li>
+      <li><a href="../03-medallion-architecture/index.html">Medallion Architecture</a> defines the Bronze, Silver and Gold layers whose layouts are recommended here.</li>
+    </ul>
+    <p>See the <a href="../../glossary.html">glossary</a> for terms such as V-Order, liquid clustering and framing.</p>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p><ul>
+      <li>The default is no partitioning, with adaptive file sizes and automatic compaction doing the layout work.</li>
+      <li>Use liquid clustering for repeated selective filters; use partitioning for concurrent-writer isolation or bounded Direct Lake rewrites.</li>
+      <li>Partition columns need low cardinality and at least about 1 GB per partition; a month is usually the finest sensible grain.</li>
+      <li>Partitioning and liquid clustering are mutually exclusive, and changing either scheme means rewriting data.</li>
+      <li>Measure file counts and average file size; layout is a maintenance practice, not a one-time setting.</li>
+    </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/delta-lake-partitioning">Partitioning for Delta tables</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/liquid-clustering">Apply liquid clustering on Delta tables</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/fundamentals/table-maintenance-optimization">Cross-workload table maintenance and optimization</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/fundamentals/direct-lake-understand-storage">Understand Direct Lake query performance</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/sql-analytics-endpoint-performance">SQL analytics endpoint performance considerations</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

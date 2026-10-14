@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pipeline setup and pairing · Deployment Pipelines</title>
+<meta name="description" content="Create a deployment pipeline, define and assign stages, choose between the original and new UI, understand item pairing, and fix the most common setup problems with verified causes.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="07-deployment" data-page="pipeline-setup.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 07 · Deployment Pipelines</p>
+      <h1>Pipeline setup and pairing</h1>
+      <p class="lede">A pipeline is quick to create and hard to change: the stage count and names are permanent, and pairing is created once. This page covers the setup steps, the two user interfaces, how items become paired and a corrected list of known issues.</p>
+    </header>
+<h2 id="prerequisites">Prerequisites</h2>
+<ul class="checklist">
+<li>You have a Fabric license and are an admin of at least one workspace; that is what makes the <strong>Deployment pipelines</strong> entry point visible.</li>
+<li>Every workspace you intend to assign resides on a Fabric capacity. Plan the capacity per environment before you create anything.</li>
+<li>You are admin of each workspace you assign, and at least Contributor on the workspaces in the adjacent stages.</li>
+<li>Workspace names follow the convention <code>&lt;ENV&gt;_&lt;DOMAIN&gt;_&lt;LAYER&gt;</code> so that a human can tell which workspace is which stage.</li>
+<li>Items have identical names across the DEV, TST and PRD workspaces you will assign. Pairing depends on it (see <a href="#pairing">Item pairing</a>).</li>
+</ul>
+<div class="callout note"><p class="callout-title">Who creates pipelines</p><p>Creating a pipeline needs a license that allows it (see the permissions table on Microsoft Learn), and pipeline permission is separate from workspace permission. In many organizations only a platform group creates pipelines and grants the pipeline admin role to the developers who deploy. That is a reasonable control, but it means pipeline creation is a request you must plan into the schedule.</p></div>
+
+<h2 id="create">Create the pipeline</h2>
+<ol class="steps">
+<li><strong>Open the creation dialog</strong><p>From the workspaces flyout choose <strong>Deployment pipelines</strong>, then <strong>Create pipeline</strong> (or <strong>+ New pipeline</strong>). You can also create a pipeline from inside a workspace you administer; that workspace is then assigned automatically.</p></li>
+<li><strong>Name it</strong><p>Use <code>DPLY_&lt;DOMAIN&gt;_&lt;LAYER&gt;</code>, for example <code>DPLY_SALES_SLV</code>, and add a purpose suffix only if you need two pipelines for one layer. Name and description can be edited later in the pipeline settings.</p></li>
+<li><strong>Define the stages</strong><p>The dialog proposes Development, Test and Production. You can have 2 to 10 stages; add, delete or rename them before you confirm. <strong>The number of stages and their names are permanent</strong>, so decide now whether you need a UAT or staging stage.</p></li>
+<li><strong>Create</strong><p>Select <strong>Create</strong>. The pipeline exists with empty stages.</p></li>
+</ol>
+<figure class="diagram">
+<svg class="dg" viewBox="0 0 880 292" role="img" aria-label="A deployment pipeline named DPLY_SALES_GLD has three stages, each assigned one workspace; deploys run forward between adjacent stages, backward deploy is allowed only into an empty stage, and only the first stage is Git-connected">
+<defs>
+<marker id="fig-ps-1-a-teal" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar teal" d="M0 0L10 5L0 10z"/></marker>
+<marker id="fig-ps-1-a-orange" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar orange" d="M0 0L10 5L0 10z"/></marker>
+</defs>
+<rect class="zone teal" x="10" y="12" width="860" height="268" rx="12"/>
+<text class="t-b" x="24" y="31">DPLY_SALES_GLD  ·  2 to 10 stages, count fixed at creation</text>
+<rect class="zone" x="26" y="52" width="228" height="150" rx="12"/>
+<text class="t-b" x="40" y="71">Stage 1 · Development</text>
+<rect class="box gold" x="46" y="86" width="188" height="46" rx="10"/>
+<text class="t-b" x="140" y="104.5" text-anchor="middle">DEV_SALES_GLD</text>
+<text class="t-s" x="140" y="121.5" text-anchor="middle">assigned workspace</text>
+<rect class="box blue" x="46" y="146" width="188" height="40" rx="10"/>
+<text class="t-s" x="140" y="170" text-anchor="middle">Git sync: main branch</text>
+<rect class="zone" x="326" y="52" width="228" height="150" rx="12"/>
+<text class="t-b" x="340" y="71">Stage 2 · Test</text>
+<rect class="box gold" x="346" y="86" width="188" height="46" rx="10"/>
+<text class="t-b" x="440" y="104.5" text-anchor="middle">TST_SALES_GLD</text>
+<text class="t-s" x="440" y="121.5" text-anchor="middle">assigned workspace</text>
+<rect class="box purple" x="346" y="146" width="188" height="40" rx="10"/>
+<text class="t-s" x="440" y="170" text-anchor="middle">Rules for this target stage</text>
+<rect class="zone" x="626" y="52" width="228" height="150" rx="12"/>
+<text class="t-b" x="640" y="71">Stage 3 · Production</text>
+<rect class="box gold" x="646" y="86" width="188" height="46" rx="10"/>
+<text class="t-b" x="740" y="104.5" text-anchor="middle">PRD_SALES_GLD</text>
+<text class="t-s" x="740" y="121.5" text-anchor="middle">assigned workspace</text>
+<rect class="box purple" x="646" y="146" width="188" height="40" rx="10"/>
+<text class="t-s" x="740" y="170" text-anchor="middle">Rules for this target stage</text>
+<path class="ln teal" d="M254 100H326" marker-end="url(#fig-ps-1-a-teal)"/>
+<rect class="pill-bg" x="266.2" y="83.5" width="47.6" height="16"/>
+<text class="t-s" x="290" y="96" text-anchor="middle">deploy</text>
+<path class="ln orange dash" d="M326 150H254" marker-end="url(#fig-ps-1-a-orange)"/>
+<rect class="pill-bg" x="260.2" y="153.5" width="59.5" height="16"/>
+<text class="t-s" x="290" y="166" text-anchor="middle">backward</text>
+<path class="ln teal" d="M554 100H626" marker-end="url(#fig-ps-1-a-teal)"/>
+<rect class="pill-bg" x="566.2" y="83.5" width="47.6" height="16"/>
+<text class="t-s" x="590" y="96" text-anchor="middle">deploy</text>
+<path class="ln orange dash" d="M626 150H554" marker-end="url(#fig-ps-1-a-orange)"/>
+<rect class="pill-bg" x="560.2" y="153.5" width="59.5" height="16"/>
+<text class="t-s" x="590" y="166" text-anchor="middle">backward</text>
+<rect class="lane" x="26" y="218" width="828" height="48" rx="8"/>
+<text class="t-b" x="38" y="246">Deployment history</text>
+<text class="t-s" x="220" y="247">source and target stage, who, when, status, and the note you typed</text>
+</svg>
+<figcaption><b>Anatomy of one pipeline.</b> One pipeline, one workspace per stage. Stage count and names are fixed when the pipeline is created; each workspace belongs to at most one pipeline.</figcaption>
+</figure>
+
+<h3 id="assign">Assign workspaces</h3>
+<ol class="steps">
+<li><strong>Pick the stage</strong><p>In an empty stage open <strong>Add content to this stage</strong> and choose the workspace. Only workspaces that meet the conditions in the prerequisites appear in the list.</p></li>
+<li><strong>Assign</strong><p>Select <strong>Assign</strong>. Fabric scans the workspace and tries to pair its items with items in the adjacent stage.</p></li>
+<li><strong>Repeat for each stage</strong><p>Assign DEV first, then TST and PRD. Because pairing happens at assignment, assign workspaces that already contain matching items before you deploy anything.</p></li>
+<li><strong>Review the stage settings</strong><p>The last stage is public by default: a consumer without pipeline access sees it as a regular workspace without the stage tag. Change this with <strong>Make this stage public</strong> in the stage settings if needed.</p></li>
+</ol>
+<div class="callout warning"><p class="callout-title">Pre-create the TST and PRD workspaces, or let a deploy create them?</p><p>Deploying to an empty stage creates a new workspace on a capacity and makes the deploying user its only admin. Pre-creating and assigning workspaces instead lets you set the name, capacity, roles and Git or security settings first. Prefer pre-creation for a platform with a naming convention. Unassigning a workspace later discards that stage's deployment history and configured rules, so treat assignments as long-lived.</p></div>
+
+<h2 id="uis">The original and the new UI</h2>
+<p>There are two interfaces for the same functionality. The new UI is the default and is in preview; a toggle in the upper right corner switches to the original UI, and your choice is remembered. Both support the same deployment rules, history and change review.</p>
+<table>
+<thead><tr><th></th><th>Original (classic) UI</th><th>New UI</th></tr></thead>
+<tbody>
+<tr><td>Perspective</td><td>You deploy from the <em>source</em> stage and create rules from the <em>target</em> stage</td><td>Everything is done from the selected <em>target</em> stage: content, sync status, compare, history, rules</td></tr>
+<tr><td>Deploy action</td><td>Deploy button on the source stage card</td><td>Select the target stage, pick the source in the drop-down next to <strong>Deploy</strong>, select items, deploy</td></tr>
+<tr><td>Compare labels</td><td><em>New</em>, <em>Different</em>, <em>Missing from</em></td><td><em>Only in source</em>, <em>Different from source</em>, <em>Same as source</em>, <em>Not in source</em></td></tr>
+<tr><td>Folders and parent-child items</td><td>Flat list</td><td>Folder hierarchy and child items are shown</td></tr>
+<tr><td>Unsupported items</td><td>Not listed</td><td>Listed and filterable, but not deployable</td></tr>
+<tr><td>Search, filter, sort</td><td>Limited</td><td>Free-text search, filter by type or sync status, sort</td></tr>
+<tr><td>Deployment plan in the deploy dialog</td><td>Not offered</td><td>Optional (preview)</td></tr>
+</tbody>
+</table>
+<div class="callout tip"><p class="callout-title">Training your team</p><p>Pick one UI for the runbook and teach it. When something looks wrong in one UI, switching to the other is a legitimate diagnostic step, and it is also the fallback this playbook recommends when a preview behaviour blocks a release. Document the UI you used in the deployment note so you can reproduce the steps.</p></div>
+
+<h2 id="pairing">Item pairing</h2>
+<p>Pairing is the stored link between an item in one stage and its counterpart in the adjacent stage. It decides whether a deployment overwrites an item or creates a second copy, and everything else (compare, autobinding, rules) builds on it.</p>
+<figure class="diagram">
+<svg class="dg" viewBox="0 0 900 316" role="img" aria-label="Three pairing scenes: assigning a workspace pairs items with the same name and type in the adjacent stage; deploying a paired item overwrites its counterpart; an unpaired item with the same name creates a duplicate instead of overwriting">
+<defs>
+<marker id="fig-ps-3-a-green" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+<marker id="fig-ps-3-a-teal" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar teal" d="M0 0L10 5L0 10z"/></marker>
+<marker id="fig-ps-3-a-orange" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar orange" d="M0 0L10 5L0 10z"/></marker>
+</defs>
+<rect class="zone" x="10" y="12" width="280" height="238" rx="12"/>
+<text class="t-b" x="24" y="34">1. Assign: pair by name + type</text>
+<rect class="zone" x="310" y="12" width="280" height="238" rx="12"/>
+<text class="t-b" x="324" y="34">2. Deploy a paired item</text>
+<rect class="zone" x="610" y="12" width="280" height="238" rx="12"/>
+<text class="t-b" x="624" y="34">3. Deploy an unpaired item</text>
+<rect class="box" x="28" y="62" width="100" height="36" rx="10"/>
+<text class="t-s" x="78" y="84" text-anchor="middle">SM_Orders</text>
+<rect class="box" x="180" y="62" width="92" height="36" rx="10"/>
+<text class="t-s" x="226" y="84" text-anchor="middle">SM_Orders</text>
+<path class="ln green" d="M128 80H180" marker-end="url(#fig-ps-3-a-green)" marker-start="url(#fig-ps-3-a-green)"/>
+<rect class="pill-bg" x="130.2" y="63.5" width="47.6" height="16"/>
+<text class="t-s" x="154" y="76" text-anchor="middle">paired</text>
+<rect class="box" x="28" y="122" width="100" height="36" rx="10"/>
+<text class="t-s" x="78" y="144" text-anchor="middle">NB_Load</text>
+<rect class="box" x="180" y="122" width="92" height="36" rx="10"/>
+<text class="t-s" x="226" y="144" text-anchor="middle">NB_Load</text>
+<path class="ln green" d="M128 140H180" marker-end="url(#fig-ps-3-a-green)" marker-start="url(#fig-ps-3-a-green)"/>
+<rect class="pill-bg" x="130.2" y="123.5" width="47.6" height="16"/>
+<text class="t-s" x="154" y="136" text-anchor="middle">paired</text>
+<rect class="box" x="28" y="182" width="100" height="36" rx="10"/>
+<text class="t-s" x="78" y="204" text-anchor="middle">RPT_New</text>
+<rect class="box gray dashed" x="180" y="182" width="92" height="36" rx="10"/>
+<text class="t-s" x="226" y="204" text-anchor="middle">no match yet</text>
+<rect class="box blue" x="324" y="62" width="92" height="50" rx="10"/>
+<text class="t-s" x="370" y="84" text-anchor="middle">Source v2</text>
+<text class="t-s" x="370" y="98" text-anchor="middle">changed</text>
+<rect class="box" x="488" y="62" width="88" height="50" rx="10"/>
+<text class="t-s" x="532" y="84" text-anchor="middle">Target v1</text>
+<text class="t-s" x="532" y="98" text-anchor="middle">same ID, URL</text>
+<path class="ln teal" d="M416 87H488" marker-end="url(#fig-ps-3-a-teal)"/>
+<rect class="pill-bg" x="419.3" y="67.5" width="65.5" height="16"/>
+<text class="t-s" x="452" y="80" text-anchor="middle">overwrite</text>
+<text class="t-s" x="328" y="150">Only definition content changes.</text>
+<text class="t-s" x="328" y="170">ID, URL and permissions stay.</text>
+<text class="t-s" x="328" y="190">Data is not copied.</text>
+<text class="t-s" x="328" y="210">Different becomes Same as source.</text>
+<rect class="box" x="628" y="62" width="100" height="36" rx="10"/>
+<text class="t-s" x="678" y="84" text-anchor="middle">SM_Orders</text>
+<rect class="box red" x="780" y="62" width="92" height="36" rx="10"/>
+<text class="t-s" x="826" y="84" text-anchor="middle">SM_Orders</text>
+<text class="t-s" x="826" y="114" text-anchor="middle">existing, unpaired</text>
+<rect class="box orange" x="780" y="130" width="92" height="36" rx="10"/>
+<text class="t-s" x="826" y="152" text-anchor="middle">SM_Orders</text>
+<path class="ln orange" d="M728 80H754V148H780" marker-end="url(#fig-ps-3-a-orange)"/>
+<text class="t-s" x="628" y="190">Result: a second item with</text>
+<text class="t-s" x="628" y="208">the same name and a new pairing.</text>
+<text class="t-s" x="10" y="282">Pairing is created when a workspace is assigned or when an unpaired item is deployed for the first time (a clean deploy).</text>
+</svg>
+<figcaption><b>How pairing decides overwrite or duplicate.</b> Pairing is a stored link, not a live name match. Paired items overwrite on deploy even if renamed; identical-looking items that were never paired are duplicated.</figcaption>
+</figure>
+<h3 id="pairing-rules">How items become paired</h3>
+<table>
+<thead><tr><th>Moment</th><th>What happens</th></tr></thead>
+<tbody>
+<tr><td>A workspace is assigned to a stage</td><td>Fabric pairs items of the same <strong>type and name</strong> in the adjacent stage. Folder location breaks ties only when a stage holds duplicates (same name and type). If one item per stage matches, they pair regardless of folder.</td></tr>
+<tr><td>An unpaired item is deployed for the first time (a clean deploy)</td><td>A copy is created in the target stage and paired with the source item.</td></tr>
+<tr><td>A paired item is deployed</td><td>The target item is overwritten, including its name if the source was renamed.</td></tr>
+<tr><td>An item is added to a workspace that is already assigned</td><td>It is <strong>not</strong> paired with an identical item in the adjacent stage. The next deploy creates a duplicate.</td></tr>
+</tbody>
+</table>
+<h3 id="pairing-consequences">What this means in practice</h3>
+<ul>
+<li><strong>There is no way to pair items manually.</strong> Pairing happens only through the two moments above, so align names and types before the first assignment or deploy.</li>
+<li><strong>A rename does not unpair.</strong> Paired items can carry different names, and a rename in the source is applied to the target on the next deploy. Do not rename items directly in TST or PRD.</li>
+<li><strong>Folders count as part of the name.</strong> Moving an item to another folder is a change that shows as <em>Different</em>; the next deploy moves the paired item and creates the folder if it does not exist. Folders are created or updated only as a side effect of deploying one of their items.</li>
+<li><strong>Duplicates block assignment.</strong> If an adjacent stage contains two items with the same type and name, Fabric cannot choose, and the workspace cannot be assigned until you rename one.</li>
+<li><strong>Same-looking but unpaired items are the usual cause of duplicates.</strong> Typical sources are a workspace built by hand and an environment populated by a different pipeline.</li>
+</ul>
+<div class="callout important"><p class="callout-title">Verify pairing before the first real deployment</p><p>Open the content list of the target stage and confirm that every item you expect to be overwritten sits on the same row as its source item. Items on a row by themselves are unpaired. Fix names first; it is much cheaper than cleaning up duplicates.</p></div>
+
+<h2 id="known-issues">Known issues and how to resolve them</h2>
+<p>The table below replaces the community-sourced list that circulates in many playbooks. Each row is a documented behaviour with its cause, so you can tell a permission problem from a product problem. The first row is by far the most common.</p>
+<figure class="diagram">
+<svg class="dg" viewBox="0 0 900 268" role="img" aria-label="Decision path for a disabled Deploy button: check pipeline admin, check workspace role on both source and target, check the stage assignment, check that the pipeline still has an owner, then switch to the original UI">
+<defs>
+<marker id="fig-ps-2-a-orange" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar orange" d="M0 0L10 5L0 10z"/></marker>
+<marker id="fig-ps-2-a-green" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+</defs>
+<rect class="box purple" x="14" y="40" width="140" height="58" rx="29"/>
+<text class="t-b" x="84" y="65.5" text-anchor="middle">Pipeline admin?</text>
+<text class="t-s" x="84" y="80.5" text-anchor="middle">on this pipeline</text>
+<rect class="box orange" x="14" y="160" width="140" height="52" rx="10"/>
+<text class="t-s" x="84" y="182.5" text-anchor="middle">Get the pipeline</text>
+<text class="t-s" x="84" y="197.5" text-anchor="middle">admin role</text>
+<path class="ln orange" d="M84 98V160" marker-end="url(#fig-ps-2-a-orange)"/>
+<rect class="pill-bg" x="92.1" y="121.5" width="23.9" height="16"/>
+<text class="t-s" x="104" y="134" text-anchor="middle">no</text>
+<rect class="box purple" x="198" y="40" width="140" height="58" rx="29"/>
+<text class="t-b" x="268" y="65.5" text-anchor="middle">Contributor+?</text>
+<text class="t-s" x="268" y="80.5" text-anchor="middle">source AND target</text>
+<rect class="box orange" x="198" y="160" width="140" height="52" rx="10"/>
+<text class="t-s" x="268" y="182.5" text-anchor="middle">Get a workspace role</text>
+<text class="t-s" x="268" y="197.5" text-anchor="middle">on both workspaces</text>
+<path class="ln orange" d="M268 98V160" marker-end="url(#fig-ps-2-a-orange)"/>
+<rect class="pill-bg" x="276.1" y="121.5" width="23.9" height="16"/>
+<text class="t-s" x="288" y="134" text-anchor="middle">no</text>
+<rect class="box purple" x="382" y="40" width="140" height="58" rx="29"/>
+<text class="t-b" x="452" y="65.5" text-anchor="middle">Stage mapped?</text>
+<text class="t-s" x="452" y="80.5" text-anchor="middle">workspace assigned</text>
+<rect class="box orange" x="382" y="160" width="140" height="52" rx="10"/>
+<text class="t-s" x="452" y="182.5" text-anchor="middle">Unassign and</text>
+<text class="t-s" x="452" y="197.5" text-anchor="middle">reassign the stage</text>
+<path class="ln orange" d="M452 98V160" marker-end="url(#fig-ps-2-a-orange)"/>
+<rect class="pill-bg" x="460.1" y="121.5" width="23.9" height="16"/>
+<text class="t-s" x="472" y="134" text-anchor="middle">no</text>
+<rect class="box purple" x="566" y="40" width="140" height="58" rx="29"/>
+<text class="t-b" x="636" y="65.5" text-anchor="middle">Has an owner?</text>
+<text class="t-s" x="636" y="80.5" text-anchor="middle">pipeline owner exists</text>
+<rect class="box orange" x="566" y="160" width="140" height="52" rx="10"/>
+<text class="t-s" x="636" y="182.5" text-anchor="middle">Fabric admin adds</text>
+<text class="t-s" x="636" y="197.5" text-anchor="middle">an owner or deletes</text>
+<path class="ln orange" d="M636 98V160" marker-end="url(#fig-ps-2-a-orange)"/>
+<rect class="pill-bg" x="644.1" y="121.5" width="23.9" height="16"/>
+<text class="t-s" x="656" y="134" text-anchor="middle">no</text>
+<path class="ln green" d="M154 69H198" marker-end="url(#fig-ps-2-a-green)"/>
+<rect class="pill-bg" x="161.1" y="53.5" width="29.8" height="16"/>
+<text class="t-s" x="176" y="66" text-anchor="middle">yes</text>
+<path class="ln green" d="M338 69H382" marker-end="url(#fig-ps-2-a-green)"/>
+<rect class="pill-bg" x="345.1" y="53.5" width="29.8" height="16"/>
+<text class="t-s" x="360" y="66" text-anchor="middle">yes</text>
+<path class="ln green" d="M522 69H566" marker-end="url(#fig-ps-2-a-green)"/>
+<rect class="pill-bg" x="529.1" y="53.5" width="29.8" height="16"/>
+<text class="t-s" x="544" y="66" text-anchor="middle">yes</text>
+<rect class="box gray" x="750" y="40" width="136" height="58" rx="10"/>
+<text class="t-b" x="818" y="65.5" text-anchor="middle">Toggle UI, retry</text>
+<text class="t-s" x="818" y="80.5" text-anchor="middle">then escalate</text>
+<path class="ln green" d="M706 69H750" marker-end="url(#fig-ps-2-a-green)"/>
+<rect class="pill-bg" x="713.1" y="53.5" width="29.8" height="16"/>
+<text class="t-s" x="728" y="66" text-anchor="middle">yes</text>
+<text class="t-s" x="14" y="250">Pipeline admin and workspace roles are separate grants; both are needed to deploy.</text>
+</svg>
+<figcaption><b>Why is Deploy greyed out?.</b> Walk left to right; the first answer that is no is the fix. Permissions on the pipeline and on the workspaces are granted separately.</figcaption>
+</figure>
+<table>
+<thead><tr><th>Symptom</th><th>Cause</th><th>Resolution</th></tr></thead>
+<tbody>
+<tr><td><strong>Deploy</strong> is disabled although you administer the workspace</td><td>Deployment needs two separate grants: pipeline admin, and at least Contributor on both the source and the target workspace. Workspace admin alone is not enough.</td><td>Add yourself as pipeline admin and check your role on both workspaces. If it is still disabled, toggle the UI to rule out a display problem. Unassigning and reassigning the stage workspace is a last resort because it discards history and rules.</td></tr>
+<tr><td>Nobody can deploy or unassign; the pipeline owner left</td><td>The pipeline has no owner, so nobody can access it, and workspaces assigned to it cannot be released.</td><td>A Fabric administrator adds a new pipeline admin with the admin pipelines API (<em>Admin - Pipelines UpdateUserAsAdmin</em>) or deletes the pipeline.</td></tr>
+<tr><td>"Can't assign the workspace"</td><td>Two items with the same name and type exist in an adjacent stage, so pairing is ambiguous.</td><td>Rename one of the duplicates (the error message links to the items).</td></tr>
+<tr><td>A workspace is missing from the assign list</td><td>The list shows only workspaces you administer, that are not in another pipeline, that are on a Fabric capacity and that do not contain sample content or template apps.</td><td>Fix the missing condition, or ask someone who administers the workspace.</td></tr>
+<tr><td>"Workspace permissions needed" when assigning</td><td>Assignment needs at least Contributor on workspaces in the adjacent stages, so that Fabric can create the links.</td><td>Get the role on the adjacent stage workspaces first.</td></tr>
+<tr><td><em>Different</em> appears on semantic models right after assignment</td><td>Models that use the legacy metadata format cannot be compared, so they are always shown as different. Deployment of such models fails.</td><td>Upgrade the model to enhanced metadata by saving and republishing from a current Power BI Desktop, then deploy.</td></tr>
+<tr><td>Items lost their links after you unassigned and deployed</td><td>Fabric could not re-establish the connections between source and target items, for example after an item was deleted.</td><td>Unassign and reassign the same workspace in the target stage. Remember that unassigning discards the stage's deployment history and rules.</td></tr>
+<tr><td>First deployment fails</td><td>No capacity permission, no workspace permission, workspace creation disabled by the Fabric admin, or a selective deployment that left out linked items.</td><td>Fix the permission, or use <strong>Select related</strong> to include the dependencies.</td></tr>
+<tr><td><strong>Deploy to previous stage</strong> is disabled</td><td>Backward deployment works only into an empty stage and only as a full deployment.</td><td>Fix the bug in DEV and promote forward.</td></tr>
+<tr><td>"Continue the deployment" dialog</td><td>A breaking schema change (for example a column type change) would drop data in the target semantic model.</td><td>Continue only if intended, then refresh the target model; otherwise fix the source and redeploy.</td></tr>
+<tr><td>Status or options look wrong in the new UI (stale status, rule picker incomplete)</td><td>The new UI is a preview and community reports describe intermittent display issues. These are not documented as product limits.</td><td>Toggle to the original UI, confirm the real state in the compare view and the deployment history, and open a support case if it reproduces.</td></tr>
+</tbody>
+</table>
+<div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>Preview behaviours move. Before you write a workaround into your runbook, check the <a href="https://learn.microsoft.com/fabric/cicd/troubleshoot-cicd">lifecycle management troubleshooting</a> article and the <a href="https://learn.microsoft.com/fabric/cicd/deployment-pipelines/deployment-pipelines-new-ui">new UI overview</a> for the status of the behaviour you are working around.</p></div>
+
+<div class="takeaways"><p class="tk-title">Key takeaways</p>
+<ul>
+<li>Stage count and names are permanent; decide on UAT or staging stages before you click Create.</li>
+<li>Pre-create and assign TST and PRD workspaces so you control names, capacity and roles; unassigning loses history and rules.</li>
+<li>Pairing is by type and name (folder only breaks ties) and is created only at assignment or at a clean deploy. There is no manual pairing.</li>
+<li>A disabled Deploy button is almost always a missing pipeline-admin or workspace-role grant, not a bug.</li>
+<li>Use the UI toggle as a diagnostic, but confirm state through compare and deployment history.</li>
+</ul></div>
+
+<section class="refs">
+<h2 id="refs">References</h2>
+<ul>
+<li><a href="https://learn.microsoft.com/fabric/cicd/deployment-pipelines/get-started-with-deployment-pipelines">Get started with deployment pipelines</a></li>
+<li><a href="https://learn.microsoft.com/fabric/cicd/deployment-pipelines/assign-pipeline">Assign a workspace to a deployment pipeline</a></li>
+<li><a href="https://learn.microsoft.com/fabric/cicd/deployment-pipelines/deployment-pipelines-new-ui">Overview of the new deployment pipelines UI</a></li>
+<li><a href="https://learn.microsoft.com/fabric/cicd/deployment-pipelines/understand-the-deployment-process">The deployment pipelines process</a></li>
+<li><a href="https://learn.microsoft.com/fabric/cicd/troubleshoot-cicd">Troubleshoot the Fabric lifecycle management tools</a></li>
+</ul>
+</section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

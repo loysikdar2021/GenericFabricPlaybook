@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Patterns by layer and consumer · Delta Partitioning</title>
+<meta name="description" content="Recommended Delta table layouts for Bronze, Silver and Gold, what Direct Lake, the SQL analytics endpoint and Warehouse need from them, and worked examples for orders, telemetry and ledger data.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="08-delta-partitioning" data-page="patterns.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 08 · Delta Partitioning</p>
+      <h1>Patterns by layer and consumer</h1>
+      <p class="lede">Bronze, Silver and Gold describe the purpose of data, not the layout it needs. This page turns the principles into layout recommendations for each layer, explains what Direct Lake, the SQL analytics endpoint and Warehouse each ask of a table, and works through neutral examples.</p>
+    </header>
+
+    <h2 id="layers">Layout by medallion layer</h2>
+    <p>The medallion layers do not determine whether a layout is user-managed or system-managed, and they do not require a separate copy of a table for each consumer. Use one shared table where its requirements are compatible, and let the layer tell you the priority: write throughput in Bronze, reuse in Silver, read performance in Gold.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 282" role="img" aria-label="Recommended layout per layer: Bronze defaults to unpartitioned or ingest-month partitions, Silver uses a business-month partition or liquid clustering with the partition column in every merge condition, Gold stays minimal with V-Order and clustering on hot filters">
+        <rect class="box bronze" x="10" y="14" width="280" height="40" rx="8"/>
+        <text class="t-h" x="150" y="40" text-anchor="middle">Bronze: write throughput</text>
+        <rect class="box plain" x="25" y="68" width="250" height="40" rx="8"/><text class="t-s" x="150" y="93" text-anchor="middle">Default: unpartitioned</text>
+        <rect class="box plain" x="25" y="116" width="250" height="40" rx="8"/><text class="t-s" x="150" y="141" text-anchor="middle">Or ingest-month for retention</text>
+        <rect class="box plain" x="25" y="164" width="250" height="40" rx="8"/><text class="t-s" x="150" y="189" text-anchor="middle">Optimize write, auto compaction</text>
+        <rect class="box plain" x="25" y="212" width="250" height="40" rx="8"/><text class="t-s" x="150" y="237" text-anchor="middle">No sensitive values in paths</text>
+
+        <rect class="box silver" x="310" y="14" width="280" height="40" rx="8"/>
+        <text class="t-h" x="450" y="40" text-anchor="middle">Silver: reuse and merges</text>
+        <rect class="box plain" x="325" y="68" width="250" height="40" rx="8"/><text class="t-s" x="450" y="93" text-anchor="middle">Business month if 1 GB+ each</text>
+        <rect class="box plain" x="325" y="116" width="250" height="40" rx="8"/><text class="t-s" x="450" y="141" text-anchor="middle">Otherwise cluster on filter columns</text>
+        <rect class="box plain" x="325" y="164" width="250" height="40" rx="8"/><text class="t-s" x="450" y="189" text-anchor="middle">Partition column in MERGE condition</text>
+        <rect class="box plain" x="325" y="212" width="250" height="40" rx="8"/><text class="t-s" x="450" y="237" text-anchor="middle">One partition level, rarely two</text>
+
+        <rect class="box gold" x="610" y="14" width="280" height="40" rx="8"/>
+        <text class="t-h" x="750" y="40" text-anchor="middle">Gold: read performance</text>
+        <rect class="box plain" x="625" y="68" width="250" height="40" rx="8"/><text class="t-s" x="750" y="93" text-anchor="middle">Minimal: unpartitioned or monthly</text>
+        <rect class="box plain" x="625" y="116" width="250" height="40" rx="8"/><text class="t-s" x="750" y="141" text-anchor="middle">V-Order on for Direct Lake tables</text>
+        <rect class="box plain" x="625" y="164" width="250" height="40" rx="8"/><text class="t-s" x="750" y="189" text-anchor="middle">Cluster or Z-Order hot filters</text>
+        <rect class="box plain" x="625" y="212" width="250" height="40" rx="8"/><text class="t-s" x="750" y="237" text-anchor="middle">Append or replace slices only</text>
+      </svg>
+      <figcaption><b>One rule per layer.</b> The more a table is read by BI tools, the less partitioning you want and the more you rely on file size, V-Order and clustering.</figcaption>
+    </figure>
+
+    <h3 id="bronze">Bronze: landing and raw history</h3>
+    <ul>
+      <li><strong>Default to no partitioning.</strong> Bronze is append-heavy, so the priority is write throughput. Optimize write and auto compaction keep the file count in check.</li>
+      <li><strong>Ingest-month partitions</strong> (for example <code>ingest_month</code>) are a good choice when retention is by month and old months are dropped with a partition-aligned <code>DELETE</code>, or when several source-specific pipelines write to one table. They are simple and robust, and they accept late or messy data safely because the partition value comes from the load, not the content.</li>
+      <li><strong>A trusted event date</strong> (for example <code>event_month</code>) is acceptable only if it is always present and always valid. A null or wildly wrong date in a partition column creates stray partitions.</li>
+      <li><strong>Never partition by a sensitive identifier.</strong> Partition values become folder names that appear in storage listings.</li>
+      <li><strong>Avoid building Direct Lake models directly on raw Bronze tables</strong> unless you have deliberately shaped the data for that use. Bronze is for fidelity and throughput, not serving.</li>
+    </ul>
+
+    <h3 id="silver">Silver: conformed, reusable data</h3>
+    <ul>
+      <li><strong>Partition by the business time that drives most filters</strong>, but only when each partition is large enough: <code>order_month</code> for orders, <code>posting_month</code> for ledger entries, <code>event_date</code> for very high-volume telemetry.</li>
+      <li><strong>Otherwise cluster.</strong> If the table is smaller than the partition arithmetic allows, or the dominant filter is a high-cardinality column, use liquid clustering on one to four filter columns instead (Runtime 2.0 and later).</li>
+      <li><strong>Two-level schemes (a month plus a coarse region) only if they meaningfully reduce scans</strong> and every combination still holds about 1 GB. Cardinality multiplies, so confirm the count first.</li>
+      <li><strong>Put the partition column in the <code>MERGE</code> condition.</strong> It lets Delta prune target files, and it is the requirement for concurrent merges to run side by side. See <a href="implementation.html#concurrent-merge">Implementation examples</a>.</li>
+      <li><strong>Reuse the table across consumers</strong> where compatible, and enable V-Order only when Direct Lake is a primary consumer.</li>
+    </ul>
+
+    <h3 id="gold">Gold: serving</h3>
+    <ul>
+      <li><strong>Keep partitioning minimal</strong>, often none and at most a month. Small aggregate tables should be unpartitioned.</li>
+      <li><strong>Favor file layout over more partitions:</strong> V-Order on tables that Direct Lake reads, regular <code>OPTIMIZE</code>, and liquid clustering or Z-Order on the hot predicates (for example region or product category) for the Spark and SQL consumers.</li>
+      <li><strong>Update by append or by replacing a slice</strong>, so Direct Lake can reuse what it has already loaded. See the <a href="../02-data-load-strategy/gold-direct-lake.html">Gold layer and Direct Lake</a> page of the data load playbook.</li>
+      <li><strong>Prefer Gold for Direct Lake semantic models.</strong> It is the layer shaped for dimensional queries and the layer where you control the layout.</li>
+    </ul>
+
+    <h2 id="consumers">What each consumer needs</h2>
+    <table>
+      <thead><tr><th>Consumer</th><th>What it wants from the layout</th><th>Implication for partitioning</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Spark</strong></td><td>Right-sized files, statistics for skipping, no small-file overhead</td><td>Adaptive file size and compaction first; clustering for selective filters</td></tr>
+        <tr><td><strong>SQL analytics endpoint</strong></td><td>A manageable file and partition count so metadata sync stays fast; the same layout as Spark</td><td>Avoid high-cardinality partitions; do not enable V-Order or set static file sizes just for it</td></tr>
+        <tr><td><strong>Power BI Direct Lake</strong></td><td>Few, large row groups; V-Order; append-friendly updates; files within SKU guardrails</td><td>No partitioning for append or streaming; a low-cardinality partition only to bound batch deletes and updates</td></tr>
+        <tr><td><strong>Fabric Data Warehouse</strong></td><td>System-managed layout; V-Order on by default; optional data clustering (Preview)</td><td>Hive-style partitioning does not apply to Warehouse tables; use data clustering instead</td></tr>
+        <tr><td><strong>Mirrored data</strong></td><td>Layout managed by the mirroring service</td><td>You cannot choose partitioning on a database-mirrored destination</td></tr>
+      </tbody>
+    </table>
+
+    <h3 id="direct-lake">Direct Lake</h3>
+    <p>Direct Lake loads whole columns from Delta tables into memory on demand, and the physical layout decides how fast that is and how much has to be reloaded after an update. Row groups become column segments in the semantic model, so many tiny row groups mean many tiny segments and many Parquet dictionaries to merge. Direct Lake does not use Delta or Parquet statistics to skip files or row groups while loading, so layouts built purely for skipping, such as clustering, do not speed up the load itself.</p>
+    <table>
+      <thead><tr><th>Factor</th><th>Guidance</th></tr></thead>
+      <tbody>
+        <tr><td><strong>V-Order</strong></td><td>Enable on tables Direct Lake reads, using the session setting, table property or <code>readHeavyForPBI</code> profile.</td></tr>
+        <tr><td><strong>Row groups</strong></td><td>Roughly 1 million to 16 million rows each, with limited variation. Small row groups well under a million rows cause problems; larger ones are acceptable.</td></tr>
+        <tr><td><strong>Files and guardrails</strong></td><td>Fewer, larger files. Each SKU caps files and row groups per table, and exceeding a cap makes the model fall back or fail depending on the Direct Lake mode.</td></tr>
+        <tr><td><strong>Update pattern</strong></td><td>Appends and slice replacement preserve most loaded data. An overwrite or a wide delete reloads nearly everything.</td></tr>
+        <tr><td><strong>Partitioning</strong></td><td>Not needed for append or streaming patterns. For batch loads that delete or update, a partition column with fewer than about 100 to 200 distinct values confines the rewrite.</td></tr>
+        <tr><td><strong><code>OPTIMIZE</code></strong></td><td>It replaces files, which invalidates the matching in-memory segments and costs a short cold-state penalty. Run it at quiet times, and scope it to recent partitions where you can.</td></tr>
+        <tr><td><strong><code>VACUUM</code></strong></td><td>Keep retention longer than the longest gap between model refreshes, so the framed table version still exists.</td></tr>
+      </tbody>
+    </table>
+    <p>The effect of partitioning on rewrites is the strongest Direct Lake argument for it. The figure shows the published measurement for a one-day delete from a table of one billion rows.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 266" role="img" aria-label="Deleting one day of data from a one billion row table rewrote all 8 files, about 7.7 gigabytes, when unpartitioned, but only one file, about 126 megabytes, when partitioned by month">
+        <text class="t-h" x="10" y="22">Unpartitioned table</text>
+        <rect class="zone red" x="10" y="30" width="430" height="226" rx="12"/>
+        <rect class="box red" x="30" y="52" width="88" height="48" rx="8"/><text class="t-s" x="74" y="80" text-anchor="middle">rewritten</text>
+        <rect class="box red" x="130" y="52" width="88" height="48" rx="8"/><text class="t-s" x="174" y="80" text-anchor="middle">rewritten</text>
+        <rect class="box red" x="230" y="52" width="88" height="48" rx="8"/><text class="t-s" x="274" y="80" text-anchor="middle">rewritten</text>
+        <rect class="box red" x="330" y="52" width="88" height="48" rx="8"/><text class="t-s" x="374" y="80" text-anchor="middle">rewritten</text>
+        <rect class="box red" x="30" y="110" width="88" height="48" rx="8"/><text class="t-s" x="74" y="138" text-anchor="middle">rewritten</text>
+        <rect class="box red" x="130" y="110" width="88" height="48" rx="8"/><text class="t-s" x="174" y="138" text-anchor="middle">rewritten</text>
+        <rect class="box red" x="230" y="110" width="88" height="48" rx="8"/><text class="t-s" x="274" y="138" text-anchor="middle">rewritten</text>
+        <rect class="box red" x="330" y="110" width="88" height="48" rx="8"/><text class="t-s" x="374" y="138" text-anchor="middle">rewritten</text>
+        <text class="t-s" x="225" y="190" text-anchor="middle">One day removed from five years of rows</text>
+        <text class="t-b c-red" x="225" y="212" text-anchor="middle">8 files removed, 18 added</text>
+        <text class="t-b c-red" x="225" y="234" text-anchor="middle">about 7.7 GB rewritten</text>
+
+        <text class="t-h" x="460" y="22">Partitioned by month (60 partitions)</text>
+        <rect class="zone green" x="460" y="30" width="430" height="226" rx="12"/>
+        <rect class="box gray" x="476" y="52" width="62" height="44" rx="6"/><text class="t-s" x="507" y="79" text-anchor="middle">M1</text>
+        <rect class="box gray" x="544" y="52" width="62" height="44" rx="6"/><text class="t-s" x="575" y="79" text-anchor="middle">M2</text>
+        <rect class="box red" x="612" y="52" width="62" height="44" rx="6"/><text class="t-b" x="643" y="79" text-anchor="middle">M3</text>
+        <rect class="box gray" x="680" y="52" width="62" height="44" rx="6"/><text class="t-s" x="711" y="79" text-anchor="middle">M4</text>
+        <rect class="box gray" x="748" y="52" width="62" height="44" rx="6"/><text class="t-s" x="779" y="79" text-anchor="middle">M5</text>
+        <rect class="box gray" x="816" y="52" width="62" height="44" rx="6"/><text class="t-s" x="847" y="79" text-anchor="middle">M6</text>
+        <rect class="box gray" x="476" y="106" width="62" height="44" rx="6"/><text class="t-s" x="507" y="133" text-anchor="middle">M7</text>
+        <rect class="box gray" x="544" y="106" width="62" height="44" rx="6"/><text class="t-s" x="575" y="133" text-anchor="middle">M8</text>
+        <rect class="box gray" x="612" y="106" width="62" height="44" rx="6"/><text class="t-s" x="643" y="133" text-anchor="middle">M9</text>
+        <rect class="box gray" x="680" y="106" width="62" height="44" rx="6"/><text class="t-s" x="711" y="133" text-anchor="middle">M10</text>
+        <rect class="box gray" x="748" y="106" width="62" height="44" rx="6"/><text class="t-s" x="779" y="133" text-anchor="middle">M11</text>
+        <rect class="box gray" x="816" y="106" width="62" height="44" rx="6"/><text class="t-s" x="847" y="133" text-anchor="middle">M12</text>
+        <text class="t-s" x="675" y="190" text-anchor="middle">The same delete touches one partition</text>
+        <text class="t-b c-green" x="675" y="212" text-anchor="middle">1 file removed, 1 added</text>
+        <text class="t-b c-green" x="675" y="234" text-anchor="middle">about 126 MB rewritten</text>
+      </svg>
+      <figcaption><b>Blast radius of a delete.</b> The partitioned layout limits the rewrite, and therefore the data Direct Lake must reload, to the partition that changed. Figures come from the Delta Analyzer example in the Direct Lake storage documentation; measure your own table, because results depend on data and layout.</figcaption>
+    </figure>
+    <div class="callout tip"><p class="callout-title">Reconcile this with "avoid partitioning"</p><p>The two statements are consistent. Fabric guidance says to avoid partitioning by default because it is costly, and to use it where a specific requirement justifies the cost. Bounding rewrites for a large Direct Lake table that gets rolling-window deletes or updates is such a requirement. An append-only fact table is not.</p></div>
+
+    <h3 id="sql-endpoint">SQL analytics endpoint</h3>
+    <p>Every lakehouse has a SQL analytics endpoint that a background process keeps in sync with the Delta tables. Under normal conditions the lag is under a minute, but it grows with the number of files and partitions the process has to scan. Parquet files are immutable, so updates and deletes add files over time, and without maintenance that adds read overhead and slows the sync.</p>
+    <ul>
+      <li><strong>Avoid high-cardinality partition columns.</strong> Choose a column that produces partitions close to or greater than 1 GB.</li>
+      <li><strong>Maintain the tables.</strong> Auto compaction or scheduled <code>OPTIMIZE</code> keeps file counts down; <code>VACUUM</code> reclaims storage but does not improve the active layout.</li>
+      <li><strong>Do not over-tune for it.</strong> The endpoint performs well on the same adaptive layout as Spark. Do not set static target file sizes, arbitrary row limits or V-Order solely for its benefit.</li>
+      <li><strong>Force a refresh when you must.</strong> If a downstream step needs the latest commit, start an on-demand metadata sync from the portal or use the refresh SQL endpoint metadata REST API instead of waiting.</li>
+      <li><strong>Find tables that need care.</strong> The <code>sys.sp_get_table_health_metrics</code> stored procedure helps identify tables for maintenance when you are not using auto compaction.</li>
+    </ul>
+    <h3 id="warehouse">Warehouse</h3>
+    <p>Fabric Data Warehouse manages its own physical layout and compaction. You do not choose Hive-style partitions for Warehouse tables. Keep the default V-Order setting for read-oriented and mixed workloads, and consider data clustering (Preview) for large tables with recurring selective predicates. When a Warehouse reads Lakehouse tables through the SQL analytics endpoint or shortcuts, the lakehouse layout guidance on this page applies to those tables.</p>
+
+    <h2 id="examples">Worked examples</h2>
+    <p>The examples below use neutral retail, finance and telemetry data and assumed volumes. They show how the arithmetic and the decision tree turn into choices; replace the assumed sizes with yours.</p>
+    <table>
+      <thead><tr><th>Table</th><th>Assumed size and pattern</th><th>Recommended layout</th><th>Why</th></tr></thead>
+      <tbody>
+        <tr><td><strong><code>orders</code> fact (Silver)</strong></td><td>600 GB over five years, merged daily; analysts filter by date and region</td><td>Liquid clustering on <code>(order_date, region)</code>. If regional pipelines merge concurrently, or a Direct Lake model needs bounded rewrites, partition by <code>order_month</code> (60 partitions, about 10 GB each) and Z-Order on <code>region</code></td><td>Clustering covers the filters; month partitions justify themselves only through writer isolation or bounded rewrites</td></tr>
+        <tr><td><strong><code>daily_sales</code> aggregate (Gold)</strong></td><td>3 GB, rebuilt by date slice, read by Direct Lake</td><td>Unpartitioned, V-Order on, <code>replaceWhere</code> for changed dates</td><td>Too small to partition; slice replacement keeps the rewrite small</td></tr>
+        <tr><td><strong><code>device_events</code> (Bronze and Silver)</strong></td><td>About 50 GB a day from streaming, 90-day retention</td><td>Bronze: partition by <code>event_date</code>; Silver: liquid clustering on <code>(event_date, device_id)</code> or partitions plus Z-Order on <code>device_id</code>. Optimize write and auto compaction on both</td><td>At roughly 50 GB a day, daily partitions clear 1 GB easily and make retention deletes cheap; the device identifier is high-cardinality, so it is a clustering column, never a partition</td></tr>
+        <tr><td><strong><code>transactions</code> ledger (Silver)</strong></td><td>2 TB over seven years, loaded monthly, merged by several entity pipelines</td><td>Partition by <code>posting_month</code> (84 partitions, about 24 GB each); partition column in every merge condition; Z-Order on <code>account_id</code></td><td>Month grain is comfortably above 1 GB, and aligned writers need the isolation; account lookups use Z-Order</td></tr>
+        <tr><td><strong><code>customers</code> dimension (Silver)</strong></td><td>Under 2 GB, SCD2 merges</td><td>Unpartitioned; optionally cluster on <code>customer_id</code> if lookups dominate</td><td>Too small for partitions; clustering only if measured</td></tr>
+        <tr><td><strong><code>products</code> dimension (Gold)</strong></td><td>Tens of MB</td><td>Unpartitioned, V-Order on</td><td>Direct Lake loads small tables quickly regardless of layout</td></tr>
+      </tbody>
+    </table>
+    <div class="callout note"><p class="callout-title">Why the telemetry example partitions by day</p><p>Daily partitions fail for a modest table because they dip below 1 GB. They are reasonable here because each day holds tens of gigabytes. The rule is the size per partition, not the calendar unit. Always run the sizing arithmetic with your own volumes.</p></div>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p><ul>
+      <li>Bronze optimizes for writes, Silver for reuse and merges, Gold for reads; partition least where reads matter most.</li>
+      <li>Put the partition column in <code>MERGE</code> conditions for pruning and for concurrent merges.</li>
+      <li>Direct Lake wants large row groups, V-Order and append-friendly updates; a low-cardinality partition is justified only to bound batch rewrites.</li>
+      <li>The SQL analytics endpoint needs a small, healthy file and partition count; do not over-tune for it.</li>
+      <li>Warehouse tables use system-managed layout and optional data clustering, not Hive partitions.</li>
+      <li>Judge a grain by size per partition, not by calendar unit.</li>
+    </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/fabric/fundamentals/table-maintenance-optimization">Cross-workload table maintenance and optimization</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/fundamentals/direct-lake-understand-storage">Understand Direct Lake query performance</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/fundamentals/direct-lake-overview">Direct Lake overview</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/sql-analytics-endpoint-performance">SQL analytics endpoint performance considerations</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-warehouse/guidelines-warehouse-performance">Performance guidelines in Fabric Data Warehouse</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-warehouse/data-clustering">Data clustering in Fabric Data Warehouse</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

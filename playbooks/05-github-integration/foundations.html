@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Prerequisites and authentication · GitHub Integration</title>
+<meta name="description" content="Tenant settings, capacity, workspace roles and GitHub token permissions needed to connect Fabric to GitHub, plus token types, GitHub Enterprise Cloud support and the two-tier identity model.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="05-github-integration" data-page="foundations.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+
+    <header class="page-header">
+      <p class="eyebrow">Playbook 05 · GitHub Integration</p>
+      <h1>Prerequisites and authentication</h1>
+      <p class="lede">Most failed first connections come down to one of four things: a tenant switch that is still off, a workspace role that is too low, a token with the wrong scope, or a GitHub plan that quietly lacks a feature you planned to rely on. This page is the checklist that prevents all four, and the reasoning behind the two-tier identity model used for the rest of the playbook.</p>
+      <ul class="chips"><li><b>Audience</b> Fabric admins, workspace admins, GitHub org owners</li><li><b>Outcome</b> a verified, least-privilege starting position</li></ul>
+    </header>
+
+    <h2 id="concepts">Core concepts in three sentences</h2>
+    <p><strong>Git integration</strong> keeps the definition of each supported item in a Git folder and gives developers branches, history and review. <strong>Deployment</strong> moves those definitions between environments, either with Fabric deployment pipelines or with code (the Fabric Git and Items REST APIs, or the <code>fabric-cicd</code> library). <strong>Automation</strong> is whatever triggers that movement, here GitHub Actions. The first is the subject of most of this playbook; the other two are covered in <a href="../07-deployment/index.html">playbook 07</a> and on the <a href="service-principals-automation.html">service principals and Actions</a> page.</p>
+
+    <h2 id="providers">Supported Git providers and GitHub variants</h2>
+    <p>Fabric supports Azure DevOps and GitHub, and in both cases only the cloud-hosted products. The details matter when your organization runs GitHub in a non-default way.</p>
+    <table>
+      <thead><tr><th>GitHub flavour</th><th>Supported?</th><th>What to know</th></tr></thead>
+      <tbody>
+        <tr><td>GitHub.com (Free, Pro, Team, Enterprise Cloud)</td><td class="yes">Yes</td><td>The repository URL is optional when you add the account; if you leave it blank the connection can reach any repository the token can.</td></tr>
+        <tr><td>GitHub Enterprise Cloud with data residency (<code>ghe.com</code>)</td><td class="yes">Yes</td><td>The repository URL is mandatory when you add the account, and the REST API takes a custom domain name.</td></tr>
+        <tr><td>GitHub Enterprise Server (self-hosted)</td><td class="no">No</td><td>Not supported, including a publicly reachable server on a custom domain and a server on a private network.</td></tr>
+        <tr><td>GitHub behind an IP allow list</td><td class="no">No</td><td>Listed by Microsoft as an unsupported setting.</td></tr>
+        <tr><td>Sovereign clouds</td><td class="no">No</td><td>Git integration is not available there.</td></tr>
+      </tbody>
+    </table>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>Provider support is one of the most frequently updated statements in the Git integration documentation. Before committing to an architecture that depends on a GitHub Enterprise variant, read the "GitHub Enterprise limitations" section of <a href="https://learn.microsoft.com/fabric/cicd/git-integration/git-integration-process">Git integration process</a>, and run a proof of concept on the exact tenant and organization you will use.</p></div>
+
+    <h2 id="tenant-settings">Tenant settings checklist</h2>
+    <p>These switches live in the Fabric admin experience under tenant settings. They are organization-wide unless you scope them to security groups, which is usually the right call for Git integration: start with a pilot group, then widen.</p>
+    <table>
+      <thead><tr><th>Setting (label in the portal)</th><th>Why you need it</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Users can create Fabric items</strong></td><td>Required whenever the workspace holds Fabric (non-Power BI) items such as notebooks, lakehouses and pipelines.</td><td>Part of the Fabric enablement switch; Git integration for Fabric items only works if Fabric is enabled.</td></tr>
+        <tr><td><strong>Users can synchronize workspace items with their Git repositories</strong></td><td>The primary Git integration switch.</td><td>Enabled by default. Disable it to stop users syncing at all.</td></tr>
+        <tr><td><strong>Users can synchronize workspace items with GitHub repositories</strong></td><td>The additional switch that allows GitHub specifically.</td><td><strong>Disabled by default.</strong> This is the one people miss. Some articles abbreviate the label to "sync".</td></tr>
+        <tr><td><strong>Create workspaces</strong></td><td>Needed for the branch-out workflow, because branching out creates a new workspace.</td><td>Not needed if developers branch out into pre-provisioned workspaces.</td></tr>
+        <tr><td><strong>Users can export workspace items with applied sensitivity labels to Git repositories</strong></td><td>Sensitivity labels are not exported to Git. This switch decides whether labelled items may be committed at all.</td><td>Allowing it means the committed definition carries no label. Decide this together with your information-protection owner.</td></tr>
+        <tr><td><strong>Users can export items to Git repositories in other geographical locations</strong></td><td>Controls commits when the workspace capacity and the Azure DevOps repository are in different regions.</td><td>GitHub does not support enforcement of this switch, so it gives you no control over where GitHub data resides.</td></tr>
+        <tr><td><strong>Service principals can call Fabric public APIs</strong></td><td>Required for any automation that authenticates as a service principal.</td><td>Covered on the <a href="service-principals-automation.html">service principals</a> page.</td></tr>
+      </tbody>
+    </table>
+    <p>Two behaviors apply to every one of these switches. First, <strong>Apply to</strong> lets you target the entire organization, specific security groups, or everyone except specific groups, and the settings apply to the Fabric user who performs the Git operation, not to the account used to connect to the repository. Second, the tenant admin can <strong>delegate</strong> a switch so that capacity admins and then workspace admins can override it for their scope.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 880 200" role="img" aria-label="A Git integration switch is set by the tenant admin and can be overridden by the capacity admin and then the workspace admin, but only when the tenant admin delegates it">
+        <defs>
+          <marker id="fig-fnd-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar purple" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box purple" x="30" y="30" width="220" height="64" rx="10"/>
+        <text class="t-b" x="140" y="56" text-anchor="middle">Tenant admin</text>
+        <text class="t-s" x="140" y="76" text-anchor="middle">sets the switch</text>
+        <rect class="box blue" x="330" y="30" width="220" height="64" rx="10"/>
+        <text class="t-b" x="440" y="56" text-anchor="middle">Capacity admin</text>
+        <text class="t-s" x="440" y="76" text-anchor="middle">overrides for one capacity</text>
+        <rect class="box blue" x="630" y="30" width="220" height="64" rx="10"/>
+        <text class="t-b" x="740" y="56" text-anchor="middle">Workspace admin</text>
+        <text class="t-s" x="740" y="76" text-anchor="middle">overrides for one workspace</text>
+        <path class="ln purple" d="M252 62H328" marker-end="url(#fig-fnd-1-a)"/>
+        <text class="t-s" x="290" y="54" text-anchor="middle">delegates</text>
+        <path class="ln purple" d="M552 62H628" marker-end="url(#fig-fnd-1-a)"/>
+        <text class="t-s" x="590" y="54" text-anchor="middle">delegates</text>
+        <rect class="box gray" x="30" y="124" width="220" height="56" rx="10"/>
+        <text class="t-s" x="140" y="148" text-anchor="middle">Apply to: whole organization,</text>
+        <text class="t-s" x="140" y="164" text-anchor="middle">include or exclude groups</text>
+        <text class="t-s" x="330" y="146">An override works only if the tenant admin turned on</text>
+        <text class="t-s" x="330" y="164">"Delegate settings to other admins" for that switch.</text>
+      </svg>
+      <figcaption><b>Precedence.</b> Tenant, then capacity, then workspace. Without delegation the tenant value is final, which is the safer default for a switch that decides where source code can go.</figcaption>
+    </figure>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>Setting labels and the navigation path to tenant settings are renamed from time to time, and individual articles do not always use the same wording (for example "synchronize" versus "sync"). Match by meaning, and confirm against <a href="https://learn.microsoft.com/fabric/admin/git-integration-admin-settings">Git integration tenant settings</a> and the prerequisites in <a href="https://learn.microsoft.com/fabric/cicd/git-integration/git-get-started">Get started with Git integration</a>.</p></div>
+
+    <h2 id="capacity">Capacity and workspace prerequisites</h2>
+    <ul class="checklist">
+      <li>The workspace is assigned to a Fabric capacity (a trial capacity works). Power BI Premium capacities can be used, but some Power BI SKUs only support Power BI items.</li>
+      <li>The workspace is a regular workspace. <em>My workspace</em> cannot connect to Git, and neither can a workspace with template apps installed.</li>
+      <li>There is capacity headroom for feature workspaces. Branching out creates a workspace and must have capacity available.</li>
+      <li>Workspace admins are named and are the only people who will connect and disconnect Git, unless you deliberately enable the contributor branch-switching setting (below).</li>
+    </ul>
+
+    <h2 id="permissions">Who needs what: workspace role and GitHub permission</h2>
+    <p>Every Git operation is gated twice: by the person's role in the workspace, and by what the stored GitHub credential is allowed to do in the repository. The table combines both, using fine-grained token permissions for the GitHub column.</p>
+    <table>
+      <thead><tr><th>Operation</th><th>Workspace role</th><th>Fine-grained token (Contents)</th></tr></thead>
+      <tbody>
+        <tr><td>Connect, disconnect or change the connection</td><td>Admin</td><td>Read (disconnect needs nothing)</td></tr>
+        <tr><td>Initial sync</td><td>Admin</td><td>Read to import; read and write to commit the workspace</td></tr>
+        <tr><td>View connection details and Git status</td><td>Admin, Member, Contributor</td><td>Read (details: read or none)</td></tr>
+        <tr><td>Update from Git</td><td>Contributor with write permission on all items; item owner if the tenant restricts updates to owners; Build permission on external dependencies</td><td>Read</td></tr>
+        <tr><td>Commit to Git</td><td>Same as update</td><td>Read and write; the branch policy must allow the commit</td></tr>
+        <tr><td>Create a branch from Fabric (checkout, switch)</td><td>Admin; Member or Contributor only if the workspace setting below is on</td><td>Read and write to create a branch</td></tr>
+        <tr><td>Branch out to another workspace</td><td>Admin, Member, Contributor</td><td>Read and write</td></tr>
+      </tbody>
+    </table>
+    <p>Viewers cannot do anything with Git and do not see Git information in the workspace. A workspace admin can switch on <strong>Allow users with at least Contributor role to change Git branch</strong> to let Members and Contributors who have write access to all items switch branches and create branches under their own identity. The setting is per workspace, requires an active Git connection, and does not extend connect or disconnect to anyone other than admins.</p>
+    <div class="callout important"><p class="callout-title">A commit needs more than "Contents: write"</p><p>If a ruleset on the connected branch requires pull requests, a commit from Fabric to that branch is rejected, because Fabric pushes directly with the user's token. That is exactly what you want for the DEV workspaces on <code>main</code> (they should only receive updates), and exactly what you do not want on a feature branch. Plan the rulesets with the workspace-to-branch mapping in mind; the <a href="security-hardening.html">hardening page</a> shows how.</p></div>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>Microsoft has announced that Git integration will require read-write permission on workspace items, with consequences for items that carry sensitivity labels and protection policies. Check the permissions note in <a href="https://learn.microsoft.com/fabric/cicd/git-integration/git-integration-process">Git integration process</a> for the effective timing and plan any viewer-level contributors accordingly.</p></div>
+
+    <h2 id="authentication">Authenticating the Git connection</h2>
+    <p>When a developer connects a workspace to GitHub, Fabric stores a credential for that developer. The credential is a personal access token (PAT). The documented options are narrower than the GitHub ecosystem as a whole.</p>
+    <table>
+      <thead><tr><th>Credential</th><th>Use for Fabric Git connection?</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Fine-grained personal access token</strong></td><td class="yes">Recommended</td><td>Scope it to the one repository and grant <strong>Contents: read and write</strong>. A token scoped to a single repository also pre-fills and locks the repository URL in Fabric.</td></tr>
+        <tr><td><strong>Classic personal access token</strong></td><td class="maybe">Works, avoid</td><td>Needs the <code>repo</code> scope, which reaches every repository the user can access. In organizations that enforce SAML SSO the token must be authorized after creation, and an organization can disable classic tokens entirely.</td></tr>
+        <tr><td>GitHub App or OAuth app</td><td class="no">Not documented</td><td>Microsoft documents only PATs for the GitHub credential. Do not plan around an app-based credential without a written confirmation.</td></tr>
+        <tr><td>Service principal or managed identity</td><td class="no">Not for the GitHub credential</td><td>Service principal credentials for the Git connection exist for Azure DevOps. A service principal can call the Fabric Git APIs, but for GitHub it must use a configured connection that itself holds a PAT.</td></tr>
+      </tbody>
+    </table>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 880 260" role="img" aria-label="A classic token reaches every repository its owner can access, while a fine-grained token reaches only the one repository it is scoped to">
+        <defs>
+          <marker id="fig-fnd-2-r" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar red" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-fnd-2-g" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <text class="t-h" x="20" y="22">Classic token (repo scope)</text>
+        <rect class="zone red" x="20" y="34" width="410" height="208" rx="12"/>
+        <rect class="box red" x="40" y="110" width="130" height="52" rx="8"/>
+        <text class="t-b" x="105" y="132" text-anchor="middle">Token</text>
+        <text class="t-s" x="105" y="150" text-anchor="middle">repo scope</text>
+        <rect class="box" x="250" y="56" width="150" height="38" rx="8"/><text class="t-b" x="325" y="80" text-anchor="middle">fabric-analytics</text>
+        <rect class="box" x="250" y="117" width="150" height="38" rx="8"/><text class="t-b" x="325" y="141" text-anchor="middle">finance-reports</text>
+        <rect class="box" x="250" y="178" width="150" height="38" rx="8"/><text class="t-b" x="325" y="202" text-anchor="middle">platform-infra</text>
+        <path class="ln red" d="M172 128L248 77" marker-end="url(#fig-fnd-2-r)"/>
+        <path class="ln red" d="M172 136L248 136" marker-end="url(#fig-fnd-2-r)"/>
+        <path class="ln red" d="M172 144L248 196" marker-end="url(#fig-fnd-2-r)"/>
+        <text class="t-s" x="40" y="196">Reaches every repository</text>
+        <text class="t-s" x="40" y="212">its owner can write to.</text>
+        <text class="t-h" x="450" y="22">Fine-grained token</text>
+        <rect class="zone green" x="450" y="34" width="410" height="208" rx="12"/>
+        <rect class="box green" x="470" y="110" width="130" height="52" rx="8"/>
+        <text class="t-b" x="535" y="132" text-anchor="middle">Token</text>
+        <text class="t-s" x="535" y="150" text-anchor="middle">one repo · Contents</text>
+        <rect class="box green" x="680" y="56" width="150" height="38" rx="8"/><text class="t-b" x="755" y="80" text-anchor="middle">fabric-analytics</text>
+        <rect class="box gray dashed" x="680" y="117" width="150" height="38" rx="8"/><text class="t-s" x="755" y="141" text-anchor="middle">finance-reports</text>
+        <rect class="box gray dashed" x="680" y="178" width="150" height="38" rx="8"/><text class="t-s" x="755" y="202" text-anchor="middle">platform-infra</text>
+        <path class="ln green" d="M602 128L678 77" marker-end="url(#fig-fnd-2-g)"/>
+        <text class="t-s" x="470" y="196">The Fabric connection is limited</text>
+        <text class="t-s" x="470" y="212">to that repository.</text>
+      </svg>
+      <figcaption><b>Blast radius.</b> A leaked or misused token is bounded by its scope. The fine-grained token turns a developer's credential into a single-repository credential.</figcaption>
+    </figure>
+
+    <h3 id="create-token">Create the fine-grained token</h3>
+    <ol class="steps">
+      <li><strong>Open the token settings</strong><p>In GitHub, go to <em>Settings</em> &gt; <em>Developer settings</em> &gt; <em>Personal access tokens</em> &gt; <em>Fine-grained tokens</em> and choose to generate a new token.</p></li>
+      <li><strong>Choose the resource owner</strong><p>Select the organization that owns the repository, not your personal account. A token is bound to one resource owner. If the organization requires approval for fine-grained tokens, the token stays pending, and can only read public resources, until an organization owner approves it.</p></li>
+      <li><strong>Set an expiry you can operate</strong><p>Pick the shortest lifetime you will actually rotate, and put the rotation in a calendar. An expired token surfaces as a failed commit or update in Fabric, usually at the worst moment.</p></li>
+      <li><strong>Scope to the repository</strong><p>Under <em>Repository access</em> choose <em>Only select repositories</em> and pick the Fabric repository, for example <code>contoso-org/fabric-analytics</code>.</p></li>
+      <li><strong>Grant the one permission</strong><p>Under <em>Repository permissions</em> set <em>Contents</em> to <em>Read and write</em>. That is the minimum for commit and branch operations. <em>Metadata: read</em> is added automatically.</p></li>
+      <li><strong>Store it, then paste it into Fabric once</strong><p>Copy the token into your password manager; GitHub shows it only once. In the workspace, <em>Workspace settings</em> &gt; <em>Git integration</em> &gt; <em>GitHub</em> &gt; <em>Add account</em>, give it a unique display name, paste the token, and optionally enter the repository URL.</p></li>
+    </ol>
+    <div class="callout warning"><p class="callout-title">Per-user means per-user</p><p>The Fabric Git connection belongs to the user who created it. Each developer who works in a connected workspace configures their own connection, and the documentation is explicit that for GitHub you should not share one token among users. Shared tokens also destroy the audit trail: every commit would appear to come from one person.</p></div>
+
+    <h2 id="two-tiers">The two-tier identity model</h2>
+    <p>Because the Git credential for GitHub is a user token, the cleanest design splits identities by purpose instead of trying to make one identity do both jobs.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 880 300" role="img" aria-label="People use a fine-grained token stored in their own Fabric Git connection; automation uses a GitHub OIDC token exchanged for a Microsoft Entra service principal that calls the Fabric API">
+        <defs>
+          <marker id="fig-fnd-3-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-fnd-3-t" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar teal" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <text class="t-h" x="14" y="26">Tier 1 · People: user-delegated, one connection per developer</text>
+        <rect class="lane" x="10" y="34" width="860" height="92" rx="10"/>
+        <rect class="box gray" x="30" y="52" width="160" height="56" rx="8"/>
+        <text class="t-b" x="110" y="76" text-anchor="middle">Developer</text>
+        <text class="t-s" x="110" y="94" text-anchor="middle">Entra ID + GitHub user</text>
+        <rect class="box orange" x="254" y="52" width="160" height="56" rx="8"/>
+        <text class="t-b" x="334" y="76" text-anchor="middle">Fine-grained token</text>
+        <text class="t-s" x="334" y="94" text-anchor="middle">Contents: read and write</text>
+        <rect class="box blue" x="478" y="52" width="160" height="56" rx="8"/>
+        <text class="t-b" x="558" y="76" text-anchor="middle">Fabric connection</text>
+        <text class="t-s" x="558" y="94" text-anchor="middle">stored per user</text>
+        <rect class="box gray" x="702" y="52" width="160" height="56" rx="8"/>
+        <text class="t-b" x="782" y="76" text-anchor="middle">Repository</text>
+        <text class="t-s" x="782" y="94" text-anchor="middle">feature branches</text>
+        <path class="ln" d="M192 80H252" marker-end="url(#fig-fnd-3-a)"/>
+        <text class="t-s" x="222" y="72" text-anchor="middle">creates</text>
+        <path class="ln" d="M416 80H476" marker-end="url(#fig-fnd-3-a)"/>
+        <text class="t-s" x="446" y="72" text-anchor="middle">stored in</text>
+        <path class="ln" d="M640 80H700" marker-end="url(#fig-fnd-3-a)"/>
+        <text class="t-s" x="670" y="72" text-anchor="middle">pushes to</text>
+
+        <text class="t-h" x="14" y="160">Tier 2 · Automation: non-human, scoped, secret-less where possible</text>
+        <rect class="lane" x="10" y="168" width="860" height="92" rx="10"/>
+        <rect class="box gray" x="30" y="186" width="160" height="56" rx="8"/>
+        <text class="t-b" x="110" y="210" text-anchor="middle">Actions job</text>
+        <text class="t-s" x="110" y="228" text-anchor="middle">environment: production</text>
+        <rect class="box orange" x="254" y="186" width="160" height="56" rx="8"/>
+        <text class="t-b" x="334" y="210" text-anchor="middle">GitHub OIDC token</text>
+        <text class="t-s" x="334" y="228" text-anchor="middle">short-lived, per run</text>
+        <rect class="box teal" x="478" y="186" width="160" height="56" rx="8"/>
+        <text class="t-b" x="558" y="210" text-anchor="middle">Service principal</text>
+        <text class="t-s" x="558" y="228" text-anchor="middle">federated credential</text>
+        <rect class="box blue" x="702" y="186" width="160" height="56" rx="8"/>
+        <text class="t-b" x="782" y="210" text-anchor="middle">Fabric REST API</text>
+        <text class="t-s" x="782" y="228" text-anchor="middle">TST and PRD workspaces</text>
+        <path class="ln teal" d="M192 214H252" marker-end="url(#fig-fnd-3-t)"/>
+        <text class="t-s" x="222" y="206" text-anchor="middle">requests</text>
+        <path class="ln teal" d="M416 214H476" marker-end="url(#fig-fnd-3-t)"/>
+        <text class="t-s" x="446" y="206" text-anchor="middle">presents</text>
+        <path class="ln teal" d="M640 214H700" marker-end="url(#fig-fnd-3-t)"/>
+        <text class="t-s" x="670" y="206" text-anchor="middle">calls</text>
+        <text class="t-s" x="14" y="286">The workflow reads the repository with its own GITHUB_TOKEN, so Fabric never needs a GitHub credential for deployment.</text>
+      </svg>
+      <figcaption><b>Different identities for different jobs.</b> People need a GitHub credential because Fabric pushes commits on their behalf. Automation can deploy from a checked-out repository and needs no GitHub credential in Fabric at all.</figcaption>
+    </figure>
+    <div class="callout important"><p class="callout-title">Why the automation lane skips the Git sync APIs</p><p>The Fabric Git REST APIs do accept service principals, but the <em>connect</em> call accepts them only through a configured connection, and for GitHub that connection holds a PAT. <em>Commit</em> and <em>update</em> work for a service principal only when all items involved support service principals. Definition-based deployment (<code>fabric-cicd</code> or the Items APIs) has neither limitation, which is why the later pages use it for TST and PRD and reserve Git sync for DEV.</p></div>
+
+    <h2 id="constraints">Constraints that surface late</h2>
+    <ul>
+      <li><strong>MFA parity.</strong> The authentication method in Fabric must be at least as strong as the one required for Git. If GitHub requires multifactor authentication, Fabric must require it too, through Entra ID conditional access.</li>
+      <li><strong>Guest users.</strong> B2B guests are not supported in Git integration scenarios.</li>
+      <li><strong>Workspace identity.</strong> An item that uses a workspace identity and is committed to Git can only be updated back into a workspace that has the same identity. This also affects branch-out.</li>
+      <li><strong>Network security.</strong> Workspace-level inbound and outbound protections interact with CI/CD tools. Read Microsoft's network security guidance for CI/CD before you lock a workspace down.</li>
+    </ul>
+
+    <h2 id="github-plan">What your GitHub plan decides</h2>
+    <p>Several controls recommended in this playbook are plan-dependent for private repositories. Find out which plan you are on before you design the hardening, not after.</p>
+    <table>
+      <thead><tr><th>Capability</th><th>Private repositories need</th></tr></thead>
+      <tbody>
+        <tr><td>CODEOWNERS and required code-owner review</td><td>GitHub Pro, Team or Enterprise</td></tr>
+        <tr><td>Rulesets</td><td>GitHub Pro, Team or Enterprise Cloud</td></tr>
+        <tr><td>Environments, environment secrets, deployment branch rules</td><td>GitHub Pro, Team or Enterprise</td></tr>
+        <tr><td>Required reviewers and wait timers on an environment</td><td>GitHub Enterprise (on Free, Pro and Team these work for public repositories only)</td></tr>
+        <tr><td>Team code review settings (notify only requested members, auto-assignment)</td><td>GitHub Team or Enterprise</td></tr>
+      </tbody>
+    </table>
+    <div class="callout learn"><p class="callout-title">Verify against GitHub documentation</p><p>Plan boundaries are repackaged periodically. Confirm in <a href="https://docs.github.com/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments">Managing environments for deployment</a> and <a href="https://docs.github.com/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/about-rulesets">About rulesets</a> before you promise a control to a risk owner.</p></div>
+
+    <h2 id="operating-model">Who does what during setup</h2>
+    <p>Many organizations restrict workspace creation and repository creation to a central team. That is a good control, and it needs a defined hand-off, otherwise the branch-out workflow stalls on the first feature.</p>
+    <table>
+      <thead><tr><th>Step</th><th>Fabric admin</th><th>Workspace admin</th><th>GitHub org owner or repo admin</th><th>Developers</th></tr></thead>
+      <tbody>
+        <tr><td>Enable tenant switches for a pilot group</td><td>Owns</td><td>Informed</td><td>-</td><td>-</td></tr>
+        <tr><td>Create repository, teams and rulesets</td><td>Consulted</td><td>Consulted</td><td>Owns</td><td>-</td></tr>
+        <tr><td>Create workspaces and assign capacity</td><td>Owns (or delegates)</td><td>Accountable after hand-off</td><td>-</td><td>Requests</td></tr>
+        <tr><td>Create tokens</td><td>-</td><td>-</td><td>Approves token requests</td><td>Owns, individually</td></tr>
+        <tr><td>Connect each workspace to its branch and folder</td><td>-</td><td>Owns</td><td>-</td><td>-</td></tr>
+        <tr><td>Create the service principal and its workspace roles</td><td>Owns</td><td>Grants role</td><td>Stores secrets or federation</td><td>-</td></tr>
+      </tbody>
+    </table>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p><ul>
+      <li>Enable both Git switches, and remember the GitHub one is off by default; scope them to a pilot security group first.</li>
+      <li>Give each developer their own fine-grained token, scoped to one repository with Contents read and write, and never share it.</li>
+      <li>Keep people and automation on separate identities: user tokens for Git sync in DEV, a service principal with OIDC for deployment.</li>
+      <li>Confirm the GitHub variant and plan before you design; Enterprise Server, IP allow lists and some private-repository controls change the answer.</li>
+    </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/fabric/admin/git-integration-admin-settings">Git integration tenant settings</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/cicd/git-integration/git-get-started">Get started with Git integration</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/cicd/git-integration/git-integration-process">Git integration process: permissions and limitations</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/cicd/git-integration/git-automation">Automate Git integration by using APIs</a></li>
+        <li><a href="https://learn.microsoft.com/rest/api/fabric/core/git/connect">Git - Connect (REST API)</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/admin/service-admin-portal-developer">Developer admin settings</a></li>
+        <li><a href="https://docs.github.com/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens">Managing your personal access tokens (GitHub)</a></li>
+        <li><a href="https://docs.github.com/organizations/managing-programmatic-access-to-your-organization/setting-a-personal-access-token-policy-for-your-organization">Setting a personal access token policy for your organization (GitHub)</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hub-and-spoke architecture · Hub and Spoke</title>
+<meta name="description" content="Hub and spoke roles in Fabric, the contract between hub and spokes, how to cut spoke workspaces by layer or domain, and the capacity and permission model that makes the pattern governable.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="04-cross-workspace-orchestration" data-page="architecture.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 04 · Hub and spoke</p>
+      <h1>Hub-and-spoke architecture</h1>
+      <p class="lede">What the hub and the spokes each own, why the contract between them is the part that needs governance, how to decide where to draw spoke boundaries, and how capacity and permissions fit together.</p>
+    </header>
+
+    <h2 id="network-paradigm">From network topology to data topology</h2>
+    <p>Hub and spoke comes from network design: a central hub virtual network hosts shared services such as the firewall, DNS and gateways, and workload networks (spokes) connect to it. Policy is centralized, workloads are isolated, and adding a spoke does not disturb the others. The same shape maps well onto Fabric workspaces, with one important difference.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 300" role="img" aria-label="Side by side comparison: in a network hub and spoke the traffic flows through the hub; in the Fabric pattern only control and status signals flow through the hub while data stays inside the spokes">
+        <defs>
+          <marker id="fig-arch-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-arch-1-at" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar teal" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <text class="t-h" x="20" y="26">Network hub and spoke</text>
+        <rect class="zone" x="20" y="36" width="420" height="254" rx="12"/>
+        <rect class="box gray" x="130" y="56" width="200" height="60" rx="10"/>
+        <text class="t-b" x="230" y="82" text-anchor="middle">Hub virtual network</text>
+        <text class="t-s" x="230" y="100" text-anchor="middle">firewall · DNS · gateway</text>
+        <rect class="box gray" x="44" y="190" width="116" height="56" rx="8"/>
+        <text class="t-b" x="102" y="214" text-anchor="middle">Spoke A</text>
+        <text class="t-s" x="102" y="232" text-anchor="middle">workloads</text>
+        <rect class="box gray" x="172" y="190" width="116" height="56" rx="8"/>
+        <text class="t-b" x="230" y="214" text-anchor="middle">Spoke B</text>
+        <text class="t-s" x="230" y="232" text-anchor="middle">workloads</text>
+        <rect class="box gray" x="300" y="190" width="116" height="56" rx="8"/>
+        <text class="t-b" x="358" y="214" text-anchor="middle">Spoke C</text>
+        <text class="t-s" x="358" y="232" text-anchor="middle">workloads</text>
+        <path class="ln" d="M230 116V150H102V188" marker-end="url(#fig-arch-1-a)"/>
+        <path class="ln" d="M230 116V188" marker-end="url(#fig-arch-1-a)"/>
+        <path class="ln" d="M230 116V150H358V188" marker-end="url(#fig-arch-1-a)"/>
+        <text class="t-s" x="240" y="172">peering</text>
+        <text class="t-s" x="230" y="266" text-anchor="middle">Traffic flows through the hub</text>
+
+        <text class="t-h" x="460" y="26">Fabric hub and spoke</text>
+        <rect class="zone teal" x="460" y="36" width="420" height="254" rx="12"/>
+        <rect class="box accent" x="570" y="56" width="200" height="60" rx="10"/>
+        <text class="t-h t-w" x="670" y="82" text-anchor="middle">Hub workspace</text>
+        <text class="t-s t-w" x="670" y="100" text-anchor="middle">master pipelines · run log</text>
+        <rect class="box teal" x="484" y="190" width="116" height="56" rx="8"/>
+        <text class="t-b" x="542" y="214" text-anchor="middle">Spoke A</text>
+        <text class="t-s" x="542" y="232" text-anchor="middle">data + pipelines</text>
+        <rect class="box teal" x="612" y="190" width="116" height="56" rx="8"/>
+        <text class="t-b" x="670" y="214" text-anchor="middle">Spoke B</text>
+        <text class="t-s" x="670" y="232" text-anchor="middle">data + pipelines</text>
+        <rect class="box teal" x="740" y="190" width="116" height="56" rx="8"/>
+        <text class="t-b" x="798" y="214" text-anchor="middle">Spoke C</text>
+        <text class="t-s" x="798" y="232" text-anchor="middle">data + pipelines</text>
+        <path class="ln teal thick" d="M670 116V150H542V188" marker-end="url(#fig-arch-1-at)"/>
+        <path class="ln teal thick" d="M670 116V188" marker-end="url(#fig-arch-1-at)"/>
+        <path class="ln teal thick" d="M670 116V150H798V188" marker-end="url(#fig-arch-1-at)"/>
+        <text class="t-s" x="680" y="172">invoke · status</text>
+        <text class="t-s" x="670" y="266" text-anchor="middle">Only control and status pass through the hub</text>
+        <text class="t-s" x="670" y="282" text-anchor="middle">Data stays in the spokes</text>
+      </svg>
+      <figcaption><b>Same shape, different payload.</b> A network hub carries the traffic; a Fabric hub carries only instructions and outcomes. If data ever flows through the hub, the pattern has gone wrong.</figcaption>
+    </figure>
+    <table>
+      <thead><tr><th>Network concept</th><th>Fabric equivalent</th><th>Where the analogy holds or breaks</th></tr></thead>
+      <tbody>
+        <tr><td>Hub virtual network</td><td>Hub workspace (<code>&lt;ENV&gt;_ORCH_HUB</code>)</td><td>Holds shared services. Unlike a network hub, no data is routed through it.</td></tr>
+        <tr><td>Shared services (firewall, DNS)</td><td>Master pipelines, shared connections, run log, alert rules</td><td>Holds: policy and observability are centralized.</td></tr>
+        <tr><td>Spoke virtual network</td><td>Spoke workspace per domain or layer</td><td>Holds: the isolation boundary for roles, capacity and Git.</td></tr>
+        <tr><td>Peering</td><td>Invoke pipeline activity plus a role assignment</td><td>Peering opens a route; here you authorize one identity to start jobs in another workspace.</td></tr>
+        <tr><td>Transitive routing</td><td>None</td><td>Breaks by design: a spoke should not invoke another spoke. Cross-spoke order belongs in the hub.</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="roles">Roles and responsibilities</h2>
+    <p>The pattern works only if both sides stay on their half of the line. The most common failure is a hub that slowly accumulates transformation logic, or a spoke that quietly starts calling its neighbour.</p>
+    <table>
+      <thead><tr><th></th><th>Hub workspace</th><th>Spoke workspace</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Owns</strong></td><td>Execution order, dependency gates, retry and failure policy, run logging, notifications</td><td>Domain or layer data, transformation logic, data quality rules, its own deployment</td></tr>
+        <tr><td><strong>Contains</strong></td><td>Master pipelines, shared connections, run log (Warehouse or Lakehouse), alert rules, monitoring item</td><td>Lakehouses, warehouses, notebooks, dataflows, small modular pipelines with parameters</td></tr>
+        <tr><td><strong>Must not contain</strong></td><td>Business data, transformations, domain-specific rules</td><td>Calls to other spokes, schedules that assume another spoke's timing</td></tr>
+        <tr><td><strong>Identity</strong></td><td>A workspace identity or service principal that holds Contributor on each spoke</td><td>Its own connections to sources; no inbound trust beyond the hub identity</td></tr>
+        <tr><td><strong>Capacity</strong></td><td>Small; orchestration activity runs are cheap, the work happens elsewhere</td><td>Sized for the workload; separate capacity for heavy or noisy spokes</td></tr>
+        <tr><td><strong>Change cadence</strong></td><td>Slow and reviewed: a change affects every spoke's schedule</td><td>Fast and independent, as long as the contract holds</td></tr>
+      </tbody>
+    </table>
+    <table>
+      <thead><tr><th>Team</th><th>Typical access</th><th>Responsible for</th></tr></thead>
+      <tbody>
+        <tr><td>Platform or orchestration team</td><td>Admin or Member on the hub</td><td>Master pipelines, connections, logging, alert routing, the contract definition</td></tr>
+        <tr><td>Domain data teams</td><td>Admin or Member on their spokes</td><td>Spoke pipelines that honour the contract, data quality, idempotent loads</td></tr>
+        <tr><td>DevOps or release engineering</td><td>Deployment identity with Admin where it deploys</td><td>Promotion order, ID resolution, environment configuration</td></tr>
+        <tr><td>Operations and on-call</td><td>Read access to hub run history and the log dashboard</td><td>Responding to alerts, re-running from the failed step</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="contract">The contract between hub and spokes</h2>
+    <p>Hub and spoke is often described as giving teams full autonomy. In Fabric it gives <strong>managed decentralization</strong>. The hub's Invoke pipeline activity references a spoke pipeline by workspace and item ID and passes parameters by name. That is tight coupling: rename a parameter or recreate a pipeline and the hub breaks. Spoke teams therefore have to treat the signature of a spoke pipeline the way an API owner treats an endpoint.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 270" role="img" aria-label="The hub passes parameters into a spoke pipeline treated as a black box and receives a status back; internal activities can change freely while parameters and status semantics are the contract; both write to the run log">
+        <defs>
+          <marker id="fig-arch-2-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-arch-2-at" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar teal" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-arch-2-ag" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box accent" x="20" y="70" width="180" height="110" rx="10"/>
+        <text class="t-h t-w" x="110" y="116" text-anchor="middle">Hub master</text>
+        <text class="t-s t-w" x="110" y="136" text-anchor="middle">calls by logical name</text>
+        <text class="t-s t-w" x="110" y="152" text-anchor="middle">waits, then decides</text>
+        <rect class="box teal" x="360" y="30" width="330" height="190" rx="10"/>
+        <text class="t-h" x="376" y="56">Spoke pipeline</text>
+        <text class="t-s" x="376" y="76">in: batchId · runDate · parentRunId · loadMode</text>
+        <rect class="box dashed" x="376" y="92" width="298" height="60" rx="8"/>
+        <text class="t-b" x="525" y="118" text-anchor="middle">Internal activities</text>
+        <text class="t-s" x="525" y="138" text-anchor="middle">free to change without notice</text>
+        <text class="t-s" x="376" y="176">out: pipeline status, rows written to the log</text>
+        <text class="t-s" x="376" y="200">contract = names, types, defaults, status rules</text>
+        <rect class="box green" x="740" y="70" width="140" height="110" rx="10"/>
+        <text class="t-b" x="810" y="116" text-anchor="middle">Run log</text>
+        <text class="t-s" x="810" y="136" text-anchor="middle">envelope: hub</text>
+        <text class="t-s" x="810" y="152" text-anchor="middle">metrics: spoke</text>
+        <path class="ln teal thick" d="M200 110H358" marker-end="url(#fig-arch-2-at)"/>
+        <path class="ln" d="M358 150H202" marker-end="url(#fig-arch-2-a)"/>
+        <path class="ln green" d="M690 125H738" marker-end="url(#fig-arch-2-ag)"/>
+        <text class="t-s" x="279" y="102" text-anchor="middle">parameters</text>
+        <text class="t-s" x="279" y="168" text-anchor="middle">status</text>
+        <text class="t-s" x="714" y="115" text-anchor="middle">writes</text>
+      </svg>
+      <figcaption><b>The contract is the surface, not the inside.</b> The hub depends on parameter names, defaults and status behaviour. Everything inside the spoke pipeline can be refactored freely as long as that surface does not move.</figcaption>
+    </figure>
+    <table>
+      <thead><tr><th>Contract element</th><th>Rule</th><th>Why</th></tr></thead>
+      <tbody>
+        <tr><td>Pipeline name</td><td>Logical name <code>PL_&lt;DOMAIN&gt;_&lt;LAYER&gt;_&lt;Function&gt;</code>, stable over time</td><td>The hub and the logging dashboards identify spokes by name; a rename is a breaking change.</td></tr>
+        <tr><td>Parameters</td><td>Typed, documented, with defaults. Always accept <code>batchId</code>, a run date or window, and <code>parentRunId</code>.</td><td>Adding a parameter with a default is non-breaking; renaming or removing one is not. Explicit parent context avoids depending on system variables that may be empty.</td></tr>
+        <tr><td>Status</td><td>The pipeline <strong>fails</strong> whenever the data is not safe for the next stage</td><td>The hub's dependency gates read pipeline status. A spoke that catches its own errors and ends green poisons everything downstream.</td></tr>
+        <tr><td>Idempotency</td><td>The same parameters always produce the same end state</td><td>Retries and re-runs are normal operations, not incidents (see <a href="control-flow.html#idempotency">idempotency and re-runs</a>).</td></tr>
+        <tr><td>Logging</td><td>The hub writes the run envelope; the spoke writes business metrics keyed by <code>batchId</code></td><td>Each side logs what only it can know.</td></tr>
+        <tr><td>Change policy</td><td>Add, do not change; announce deprecations; release hub and spoke changes together when a signature changes</td><td>The two sides deploy independently, so the contract has to carry the compatibility promise.</td></tr>
+      </tbody>
+    </table>
+    <div class="callout tip"><p class="callout-title">Keep one contract document per spoke</p><p>A short table in the spoke's repository (parameters, defaults, example values, what "failed" means, typical duration) is enough. It is the first thing a hub engineer needs when wiring a new Invoke pipeline activity, and the first thing a reviewer should diff when a spoke pipeline changes.</p></div>
+
+    <h2 id="cutting-spokes">How to cut spokes</h2>
+    <p>There is no single correct granularity. Choose the boundary that matches how you deploy and who owns the work, then let the hub express the dependencies. The naming convention <code>&lt;ENV&gt;_&lt;DOMAIN&gt;_&lt;LAYER&gt;</code> supports both layouts below.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 310" role="img" aria-label="Two spoke layouts compared: one workspace per medallion layer where the hub sequences three invocations, versus one workspace per domain where each domain pipeline sequences its own layers and the hub only sequences domains">
+        <defs>
+          <marker id="fig-arch-3-at" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar teal" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <text class="t-h" x="20" y="26">Spokes by layer</text>
+        <rect class="zone" x="20" y="36" width="420" height="260" rx="12"/>
+        <rect class="box accent" x="130" y="52" width="200" height="44" rx="8"/>
+        <text class="t-h t-w" x="230" y="79" text-anchor="middle">Hub</text>
+        <rect class="box bronze" x="44" y="150" width="116" height="100" rx="8"/>
+        <text class="t-b" x="102" y="182" text-anchor="middle">Bronze</text>
+        <text class="t-s" x="102" y="204" text-anchor="middle">DEV_SALES_BRZ</text>
+        <text class="t-s" x="102" y="222" text-anchor="middle">ingest</text>
+        <rect class="box silver" x="172" y="150" width="116" height="100" rx="8"/>
+        <text class="t-b" x="230" y="182" text-anchor="middle">Silver</text>
+        <text class="t-s" x="230" y="204" text-anchor="middle">DEV_SALES_SLV</text>
+        <text class="t-s" x="230" y="222" text-anchor="middle">conform</text>
+        <rect class="box gold" x="300" y="150" width="116" height="100" rx="8"/>
+        <text class="t-b" x="358" y="182" text-anchor="middle">Gold</text>
+        <text class="t-s" x="358" y="204" text-anchor="middle">DEV_SALES_GLD</text>
+        <text class="t-s" x="358" y="222" text-anchor="middle">model</text>
+        <path class="ln teal thick" d="M180 96V122H102V148" marker-end="url(#fig-arch-3-at)"/>
+        <path class="ln teal thick" d="M230 96V148" marker-end="url(#fig-arch-3-at)"/>
+        <path class="ln teal thick" d="M280 96V122H358V148" marker-end="url(#fig-arch-3-at)"/>
+        <text class="t-s" x="108" y="142">1</text>
+        <text class="t-s" x="238" y="142">2</text>
+        <text class="t-s" x="364" y="142">3</text>
+        <text class="t-s" x="230" y="282" text-anchor="middle">The hub sequences the layers</text>
+
+        <text class="t-h" x="460" y="26">Spokes by domain</text>
+        <rect class="zone" x="460" y="36" width="420" height="260" rx="12"/>
+        <rect class="box accent" x="570" y="52" width="200" height="44" rx="8"/>
+        <text class="t-h t-w" x="670" y="79" text-anchor="middle">Hub</text>
+        <rect class="box teal" x="480" y="130" width="190" height="130" rx="10"/>
+        <text class="t-b" x="575" y="152" text-anchor="middle">DEV_SALES</text>
+        <rect class="box bronze" x="492" y="176" width="52" height="44" rx="6"/>
+        <text class="t-s" x="518" y="203" text-anchor="middle">BRZ</text>
+        <rect class="box silver" x="549" y="176" width="52" height="44" rx="6"/>
+        <text class="t-s" x="575" y="203" text-anchor="middle">SLV</text>
+        <rect class="box gold" x="606" y="176" width="52" height="44" rx="6"/>
+        <text class="t-s" x="632" y="203" text-anchor="middle">GLD</text>
+        <text class="t-s" x="575" y="244" text-anchor="middle">orders its own layers</text>
+        <rect class="box teal" x="690" y="130" width="190" height="130" rx="10"/>
+        <text class="t-b" x="785" y="152" text-anchor="middle">DEV_FINANCE</text>
+        <rect class="box bronze" x="702" y="176" width="52" height="44" rx="6"/>
+        <text class="t-s" x="728" y="203" text-anchor="middle">BRZ</text>
+        <rect class="box silver" x="759" y="176" width="52" height="44" rx="6"/>
+        <text class="t-s" x="785" y="203" text-anchor="middle">SLV</text>
+        <rect class="box gold" x="816" y="176" width="52" height="44" rx="6"/>
+        <text class="t-s" x="842" y="203" text-anchor="middle">GLD</text>
+        <text class="t-s" x="785" y="244" text-anchor="middle">orders its own layers</text>
+        <path class="ln teal thick" d="M620 96V112H575V128" marker-end="url(#fig-arch-3-at)"/>
+        <path class="ln teal thick" d="M720 96V112H785V128" marker-end="url(#fig-arch-3-at)"/>
+        <text class="t-s" x="670" y="282" text-anchor="middle">Each domain orders its layers; the hub orders domains</text>
+      </svg>
+      <figcaption><b>Where the sequencing logic lives.</b> With layer spokes the hub holds the medallion order; with domain spokes the order moves inside each domain's own pipeline and the hub holds only cross-domain dependencies.</figcaption>
+    </figure>
+    <table>
+      <thead><tr><th>Layout</th><th>Strengths</th><th>Weaknesses</th><th>Choose when</th></tr></thead>
+      <tbody>
+        <tr><td><strong>By layer</strong><br><code>DEV_SALES_BRZ</code>, <code>_SLV</code>, <code>_GLD</code></td><td>Matches the medallion model; permissions differ per layer (engineers write Bronze, analysts read Gold); hub order equals layer order</td><td>One domain change can touch three workspaces and three deployments; more invoke edges to maintain</td><td>Regulated or sensitive data, separate teams per layer, per-layer capacity</td></tr>
+        <tr><td><strong>By domain</strong><br><code>DEV_SALES</code>, <code>DEV_FINANCE</code></td><td>A domain team deploys as one unit; fewer workspaces; the hub stays small</td><td>Weaker layer-level isolation; one capacity absorbs ingest bursts and modelling together</td><td>Small domain teams who own the whole flow</td></tr>
+        <tr><td><strong>Hybrid</strong></td><td>Layer spokes for the domains that need isolation, domain spokes for the rest, shared platform spokes (reference data, ingestion platform)</td><td>Hardest to explain; needs a written convention</td><td>Larger organizations; the common end state</td></tr>
+      </tbody>
+    </table>
+    <p>See the <a href="../03-medallion-architecture/index.html">medallion architecture playbook</a> for the trade-offs behind workspace-per-layer. Whatever you choose, keep the hub in its own workspace: a master pipeline that lives inside one of its spokes is a spoke with opinions, and it cannot be promoted or secured independently.</p>
+
+    <h2 id="capacity-permissions">Capacity and permissions</h2>
+    <h3 id="capacity">Capacity</h3>
+    <p>For a small platform one capacity can host the hub and every spoke. As load grows, the usual move is to give heavy spokes (typically ingestion) their own capacity so a burst of copy activity cannot throttle modelling or reporting. Microsoft's deployment-pattern guidance describes both options: multiple workspaces on one capacity is simpler to administer, multiple workspaces on separate capacities gives performance isolation and per-team chargeback at the price of more administration, and a hybrid is common.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 330" role="img" aria-label="The hub workspace sits on a small shared capacity and invokes Bronze spokes on an ingestion capacity and Silver and Gold spokes on a modelling capacity, so each capacity bears its own compute cost">
+        <defs>
+          <marker id="fig-arch-4-at" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar teal" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="zone purple" x="290" y="20" width="320" height="100" rx="12"/>
+        <text class="t-s" x="304" y="40">Capacity A · small, shared platform</text>
+        <rect class="box accent" x="310" y="52" width="280" height="50" rx="8"/>
+        <text class="t-h t-w" x="450" y="82" text-anchor="middle">DEV_ORCH_HUB · orchestration only</text>
+        <rect class="box gray" x="640" y="36" width="240" height="72" rx="8"/>
+        <text class="t-b" x="760" y="58" text-anchor="middle">Where cost lands</text>
+        <text class="t-s" x="760" y="76" text-anchor="middle">hub: its own activity runs</text>
+        <text class="t-s" x="760" y="92" text-anchor="middle">spokes: their own compute</text>
+        <rect class="zone" x="20" y="170" width="430" height="140" rx="12"/>
+        <text class="t-s" x="34" y="190">Capacity B · ingestion, sized for bursts</text>
+        <rect class="box bronze" x="40" y="204" width="190" height="84" rx="8"/>
+        <text class="t-b" x="135" y="236" text-anchor="middle">DEV_SALES_BRZ</text>
+        <text class="t-s" x="135" y="256" text-anchor="middle">copy-heavy, spiky</text>
+        <rect class="box bronze" x="240" y="204" width="190" height="84" rx="8"/>
+        <text class="t-b" x="335" y="236" text-anchor="middle">DEV_FIN_BRZ</text>
+        <text class="t-s" x="335" y="256" text-anchor="middle">copy-heavy, spiky</text>
+        <rect class="zone" x="470" y="170" width="410" height="140" rx="12"/>
+        <text class="t-s" x="484" y="190">Capacity C · modelling, sized for Spark</text>
+        <rect class="box silver" x="490" y="204" width="180" height="84" rx="8"/>
+        <text class="t-b" x="580" y="236" text-anchor="middle">DEV_SALES_SLV</text>
+        <text class="t-s" x="580" y="256" text-anchor="middle">Spark, steady</text>
+        <rect class="box gold" x="680" y="204" width="180" height="84" rx="8"/>
+        <text class="t-b" x="770" y="236" text-anchor="middle">DEV_SALES_GLD</text>
+        <text class="t-s" x="770" y="256" text-anchor="middle">Spark, steady</text>
+        <path class="ln teal thick" d="M380 102V145H135V202" marker-end="url(#fig-arch-4-at)"/>
+        <path class="ln teal thick" d="M380 102V145H335V202" marker-end="url(#fig-arch-4-at)"/>
+        <path class="ln teal thick" d="M520 102V145H580V202" marker-end="url(#fig-arch-4-at)"/>
+        <path class="ln teal thick" d="M520 102V145H770V202" marker-end="url(#fig-arch-4-at)"/>
+        <text class="t-s" x="450" y="138" text-anchor="middle">invoke</text>
+      </svg>
+      <figcaption><b>Isolation follows the workload.</b> The hub is cheap and can share a small capacity; each spoke's pipelines run on the capacity of the workspace they live in, so an ingestion burst throttles ingestion and nothing else.</figcaption>
+    </figure>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>Pipeline orchestration activity runs are billed per activity run, and activities such as Copy and Notebook consume capacity where they execute. Confirm in the Capacity Metrics app which capacity a child pipeline's consumption lands on in your topology before you size anything. <a href="https://learn.microsoft.com/fabric/data-factory/pricing-pipelines">Pricing for pipelines</a>.</p></div>
+
+    <h3 id="permissions">Permissions</h3>
+    <p>The hub does not need to read any spoke data. It needs the right to <em>start and observe pipeline runs</em> in each spoke, granted to a single non-human identity.</p>
+    <table>
+      <thead><tr><th>Principal</th><th>Where</th><th>Minimum role</th><th>Why</th></tr></thead>
+      <tbody>
+        <tr><td>Hub connection identity (service principal or workspace identity)</td><td>Each spoke workspace</td><td>Contributor</td><td>Learn states Contributor is sufficient for most scenarios when a workspace identity invokes a pipeline in another workspace. Do not grant Admin.</td></tr>
+        <tr><td>The identity that runs the hub pipeline (schedule owner or caller)</td><td>Hub workspace</td><td>Admin, Member or Contributor</td><td>For workspace identity connections Fabric checks the role at run time; a pipeline can succeed manually but fail on a schedule that runs under a different identity.</td></tr>
+        <tr><td>Workspace identity itself</td><td>Created in the workspace that owns the connection</td><td>Created by a workspace Admin</td><td>Only workspace admins can create and manage it.</td></tr>
+        <tr><td>Hub engineers</td><td>Hub</td><td>Member or Contributor</td><td>Author master pipelines under review.</td></tr>
+        <tr><td>Spoke engineers</td><td>Their spoke</td><td>Member or Contributor</td><td>Build and deploy spoke pipelines.</td></tr>
+        <tr><td>Deployment identity</td><td>Every workspace it deploys to</td><td>Admin</td><td>Deployment pipelines require admin access to the workspaces involved.</td></tr>
+      </tbody>
+    </table>
+    <p>A tenant setting also matters: for service principal and workspace identity authentication the tenant setting <em>Service principals can call Fabric public APIs</em> must be enabled (it is off by default). Scope it to a security group rather than the whole tenant.</p>
+
+    <h2 id="benefits-costs">Benefits and what they cost</h2>
+    <div class="pros-cons">
+      <div class="pros"><h4>What you gain</h4><ul>
+        <li><strong>Governance:</strong> one place for order, failure policy, audit trail and alert routing.</li>
+        <li><strong>Reuse:</strong> parameterised spoke pipelines serve many callers; a new spoke is one more invoke edge, not a rewrite.</li>
+        <li><strong>Autonomy within limits:</strong> spoke teams build and deploy independently while the contract holds.</li>
+        <li><strong>Isolation:</strong> roles, capacity and Git history per spoke.</li>
+      </ul></div>
+      <div class="cons"><h4>What you pay</h4><ul>
+        <li><strong>Coupling:</strong> hub and spokes share IDs and parameter names, so spoke teams must coordinate signature changes.</li>
+        <li><strong>ID management:</strong> workspace and pipeline IDs differ per environment and must be resolved during promotion.</li>
+        <li><strong>Monitoring overhead:</strong> run history lives where the run happens, so you must build the central view.</li>
+        <li><strong>One more identity to secure</strong> and more workspaces to administer.</li>
+      </ul></div>
+    </div>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p><ul>
+      <li>The hub is a control plane only. If data or transformation logic accumulates there, move it to a spoke.</li>
+      <li>Spokes never call spokes. Cross-spoke order belongs in the hub, where it is visible and logged.</li>
+      <li>Treat each spoke pipeline's parameters and failure behaviour as a versioned API, and document it.</li>
+      <li>Grant the hub identity Contributor on spokes, not Admin, and keep the hub on a small capacity.</li>
+      <li>Pick the spoke granularity that matches how you deploy and who owns the work; write the convention down.</li>
+    </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/azure/architecture/data-guide/technology-choices/fabric-deployment-patterns">Choose a Microsoft Fabric deployment pattern</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/fundamentals/roles-workspaces">Roles in workspaces in Microsoft Fabric</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/fundamentals/give-access-workspaces">Give users access to workspaces</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/security/workspace-identity">Workspace identity</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/enterprise/licenses">Understand Microsoft Fabric licenses and capacity</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/pricing-pipelines">Pricing for pipelines</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

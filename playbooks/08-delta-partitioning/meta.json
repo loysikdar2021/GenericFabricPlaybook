@@ -1,0 +1,19 @@
+{
+  "id": "08-delta-partitioning",
+  "number": "08",
+  "title": "Delta Lake Partitioning Strategy",
+  "short": "Delta Partitioning",
+  "summary": "Decide whether to partition a Delta table, when liquid clustering or compaction is better, how Direct Lake, the SQL endpoint and Warehouse consume the layout, and how to implement and operate it.",
+  "category": "data-engineering",
+  "level": "Intermediate",
+  "audience": "Data engineers, architects, platform and capacity owners",
+  "readingTime": "45 min",
+  "pages": [
+    { "file": "index.html", "title": "Overview", "description": "What the partitioning decision covers, the default answer, and a decision tree for the exceptions." },
+    { "file": "concepts.html", "title": "Why and when to partition", "description": "Partition pruning, small-file arithmetic, concurrent-writer isolation, cardinality limits and the principles behind the defaults." },
+    { "file": "fabric-features.html", "title": "Fabric layout features", "description": "V-Order, optimize write, auto compaction, adaptive file size, OPTIMIZE, Z-Order, VACUUM and liquid clustering, and how they combine." },
+    { "file": "patterns.html", "title": "Patterns by layer and consumer", "description": "Bronze, Silver and Gold layouts, Direct Lake, SQL analytics endpoint and Warehouse considerations, and neutral worked examples." },
+    { "file": "implementation.html", "title": "Implementation examples", "description": "Create partitioned and clustered tables, append, replace a slice, run concurrent merges, and change a layout safely." },
+    { "file": "operations.html", "title": "Validation and operations", "description": "Measure layout health, diagnose small files, keep the SQL endpoint in sync, schedule maintenance and use the checklist." }
+  ]
+}

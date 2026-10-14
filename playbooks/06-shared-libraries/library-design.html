@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Designing the library · Shared Libraries</title>
+<meta name="description" content="Turn the transform, projection and call pattern into a safe shared API: a full_load_overwrite function, an incremental merge_upsert helper, and the design rules that keep a shared library from breaking its callers.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="06-shared-libraries" data-page="library-design.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 06 · Shared Python Libraries</p>
+      <h1>Designing the library</h1>
+      <p class="lede">Before packaging anything, decide where the seam between library and notebook runs. This page defines the transform, projection and call pattern, the load and merge helpers that implement it, and the API rules that keep a shared library from breaking its callers.</p>
+    </header>
+
+    <h2 id="pattern">The notebook pattern the library comes from</h2>
+    <p>Most silver and gold notebooks follow the same three steps: a <strong>transformation</strong> function that derives columns, a <strong>projection</strong> list that fixes the output columns, and a <strong>call</strong> to a load function that reads, filters, writes and reports. The first two are specific to a table. The third is identical everywhere, which makes it the natural thing to lift into a library.</p>
+
+    <h3 id="pattern-transform">Step 1: the transformation (stays in the notebook)</h3>
+    <p>A transformation is a pure function from DataFrame to DataFrame. It reads nothing, writes nothing and uses no globals, so it can be unit tested with a three-row DataFrame.</p>
+<pre data-title="Notebook cell (PySpark): transformation"><code class="language-python">from pyspark.sql import DataFrame
+from pyspark.sql import functions as F
+
+
+def orders_transform(df: DataFrame) -&gt; DataFrame:
+    """Derive net amount, order month and a large-order flag."""
+    net = F.round(
+        F.col("quantity") * F.col("unit_price") - F.coalesce(F.col("discount_amount"), F.lit(0)),
+        2,
+    )
+    return (
+        df.withColumn("net_amount", net)
+          .withColumn("order_month", F.date_trunc("month", F.col("order_ts")).cast("date"))
+          .withColumn("is_large_order", F.col("net_amount") &gt;= F.lit(1000))
+    )</code></pre>
+
+    <h3 id="pattern-projection">Step 2: the projection (stays in the notebook)</h3>
+    <p>The projection is data, not code: the ordered list of columns the target table must have. Keeping it explicit makes schema changes visible in review and lets the load function fail fast when a column goes missing.</p>
+<pre data-title="Notebook cell (PySpark): projection"><code class="language-python">ORDERS_SELECT = [
+    "order_id", "customer_id", "order_ts", "order_month",
+    "quantity", "unit_price", "discount_amount", "net_amount",
+    "is_large_order", "is_deleted", "_ingested_at",
+]</code></pre>
+
+    <h3 id="pattern-call">Step 3: the call (one line of intent)</h3>
+<pre data-title="Notebook cell (PySpark): call the shared function"><code class="language-python">from contoso_fabric_utils import full_load_overwrite
+
+metrics = full_load_overwrite(
+    source_table="orders",            # resolved against the notebook's default lakehouse
+    target_table="fact_orders",
+    transform_fn=orders_transform,
+    select_cols=ORDERS_SELECT,
+    row_filter="coalesce(is_deleted, false) = false",   # prune soft-deleted rows early
+    validate_required_cols=["order_id", "customer_id", "quantity", "unit_price"],
+)
+print(metrics)   # {'rows_written': 12840}</code></pre>
+    <p>Everything the library cannot know (which columns, which filter, which transformation) arrives as an argument. Everything the library can standardize (reading, validating, writing, counting) lives behind the function.</p>
+
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 290" role="img" aria-label="Inside the load function: the library reads, validates, filters, applies the transform, projects and overwrites a Delta table, while the notebook supplies the required columns, row filter, transform function and column list as arguments and receives a metrics dictionary back">
+        <defs>
+          <marker id="fig-design-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-design-1-ag" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="zone green" x="14" y="10" width="872" height="96" rx="12"/>
+        <text class="t-s" x="30" y="30">Notebook owns: the table-specific logic, passed in as arguments</text>
+        <rect class="box green" x="176" y="44" width="110" height="44" rx="8"/><text class="t-m" x="231" y="71" text-anchor="middle">required_cols</text>
+        <rect class="box green" x="322" y="44" width="110" height="44" rx="8"/><text class="t-m" x="377" y="71" text-anchor="middle">row_filter</text>
+        <rect class="box green" x="468" y="44" width="110" height="44" rx="8"/><text class="t-m" x="523" y="71" text-anchor="middle">transform_fn</text>
+        <rect class="box green" x="614" y="44" width="110" height="44" rx="8"/><text class="t-m" x="669" y="71" text-anchor="middle">select_cols</text>
+        <rect class="box green" x="760" y="44" width="110" height="44" rx="8"/><text class="t-m" x="815" y="71" text-anchor="middle">rows_written</text>
+        <rect class="zone blue" x="14" y="124" width="872" height="150" rx="12"/>
+        <rect class="box blue" x="30" y="152" width="110" height="64" rx="8"/>
+        <text class="t-b" x="85" y="178" text-anchor="middle">Read</text><text class="t-s" x="85" y="196" text-anchor="middle">spark.table(src)</text>
+        <rect class="box blue" x="176" y="152" width="110" height="64" rx="8"/>
+        <text class="t-b" x="231" y="178" text-anchor="middle">Validate</text><text class="t-s" x="231" y="196" text-anchor="middle">fail fast on gaps</text>
+        <rect class="box blue" x="322" y="152" width="110" height="64" rx="8"/>
+        <text class="t-b" x="377" y="178" text-anchor="middle">Filter</text><text class="t-s" x="377" y="196" text-anchor="middle">before the work</text>
+        <rect class="box blue" x="468" y="152" width="110" height="64" rx="8"/>
+        <text class="t-b" x="523" y="178" text-anchor="middle">Transform</text><text class="t-s" x="523" y="196" text-anchor="middle">df in, df out</text>
+        <rect class="box blue" x="614" y="152" width="110" height="64" rx="8"/>
+        <text class="t-b" x="669" y="178" text-anchor="middle">Project</text><text class="t-s" x="669" y="196" text-anchor="middle">select and cast</text>
+        <rect class="box blue" x="760" y="152" width="110" height="64" rx="8"/>
+        <text class="t-b" x="815" y="178" text-anchor="middle">Write</text><text class="t-s" x="815" y="196" text-anchor="middle">Delta overwrite</text>
+        <path class="ln" d="M140 184H174" marker-end="url(#fig-design-1-a)"/>
+        <path class="ln" d="M286 184H320" marker-end="url(#fig-design-1-a)"/>
+        <path class="ln" d="M432 184H466" marker-end="url(#fig-design-1-a)"/>
+        <path class="ln" d="M578 184H612" marker-end="url(#fig-design-1-a)"/>
+        <path class="ln" d="M724 184H758" marker-end="url(#fig-design-1-a)"/>
+        <path class="ln green" d="M231 88V150" marker-end="url(#fig-design-1-ag)"/>
+        <path class="ln green" d="M377 88V150" marker-end="url(#fig-design-1-ag)"/>
+        <path class="ln green" d="M523 88V150" marker-end="url(#fig-design-1-ag)"/>
+        <path class="ln green" d="M669 88V150" marker-end="url(#fig-design-1-ag)"/>
+        <path class="ln green" d="M815 150V90" marker-end="url(#fig-design-1-ag)"/>
+        <text class="t-s" x="30" y="256">Library owns: the mechanics, identical in every notebook</text>
+      </svg>
+      <figcaption><b>The seam.</b> Green arrows down are arguments the notebook supplies; the green arrow up is the metrics dictionary it gets back. Nothing table-specific is hard-coded inside the library.</figcaption>
+    </figure>
+
+    <h2 id="full-load">The reusable full-load function</h2>
+    <p><code>full_load_overwrite</code> reads a source table, optionally validates, filters, transforms and projects it, and overwrites a Delta target. The complete module code is on the <a href="packaging.html#module-code">packaging page</a>; this table is the contract.</p>
+    <table>
+      <thead><tr><th>Parameter</th><th>Type</th><th>Default</th><th>Behavior</th></tr></thead>
+      <tbody>
+        <tr><td><code>source_table</code>, <code>target_table</code></td><td>str</td><td>required</td><td>Names resolved by Spark. Qualify them (<code>lakehouse.schema.table</code>) for cross-lakehouse work.</td></tr>
+        <tr><td><code>transform_fn</code></td><td>DataFrame to DataFrame</td><td>identity</td><td>Applied after validation and filtering.</td></tr>
+        <tr><td><code>select_cols</code></td><td>list of str</td><td>None</td><td>Final projection. Raises if any listed column is missing after the transform.</td></tr>
+        <tr><td><code>select_and_cast</code></td><td>dict name to type</td><td>None</td><td>Projection plus casts. Takes precedence over <code>select_cols</code>. Missing columns raise unless <code>add_missing_as_null=True</code>.</td></tr>
+        <tr><td><code>row_filter</code></td><td>SQL str, Column or callable</td><td>None</td><td>Applied early so downstream work touches fewer rows.</td></tr>
+        <tr><td><code>validate_required_cols</code></td><td>list of str</td><td>None</td><td>Fails fast with the list of missing source columns.</td></tr>
+        <tr><td><code>partition_by</code>, <code>num_repartitions</code></td><td>list, int</td><td>None</td><td>Write layout knobs. Leave unset unless you measured a problem (see <a href="../08-delta-partitioning/index.html">Delta Lake Partitioning Strategy</a>).</td></tr>
+        <tr><td><code>overwrite_schema</code></td><td>bool</td><td><code>False</code></td><td>Allow the target schema to change on overwrite. Off by default so a schema change is a deliberate act.</td></tr>
+        <tr><td><code>count_rows</code></td><td>bool</td><td><code>True</code></td><td>Return <code>rows_written</code>. Costs one extra count on the target.</td></tr>
+        <tr><td><code>spark</code></td><td>SparkSession</td><td>None</td><td>Inject a session (tests, threads). Otherwise the active session is used.</td></tr>
+      </tbody>
+    </table>
+
+    <h3 id="changes">What changes when the code moves out of the notebook</h3>
+    <p>Copying the cell into a module verbatim does not work and, in a few places, would not be good enough if it did. These are the deliberate differences from the notebook version.</p>
+    <table>
+      <thead><tr><th>Notebook version</th><th>Library version</th><th>Why</th></tr></thead>
+      <tbody>
+        <tr><td>Uses the notebook's global <code>spark</code></td><td>Takes an optional <code>spark</code> argument and falls back to the active session</td><td>A module has no global <code>spark</code>; the import would work and the first call would raise <code>NameError</code>. Injection also makes unit tests and thread pools straightforward.</td></tr>
+        <tr><td><code>overwrite_schema=True</code> by default</td><td><code>False</code> by default</td><td>A silent schema change on a gold table breaks downstream semantic models. Make it an explicit choice per call.</td></tr>
+        <tr><td>Counts the source and the target after the write</td><td>Counts the target only, and only if asked</td><td>Counting the source after the write re-executes the read and filter. That is a second scan of the source for a log line.</td></tr>
+        <tr><td>Missing columns in a cast list become typed nulls</td><td>They raise unless <code>add_missing_as_null=True</code></td><td>A typed null silently hides an upstream change. Opt in when you really want a stable output schema regardless of the source.</td></tr>
+        <tr><td><code>print</code> for the summary</td><td>Logs through <code>logging</code> and returns a dictionary</td><td>Log lines can be filtered and captured; the return value lets the notebook assert or exit with it.</td></tr>
+        <tr><td>Module name <code>io.py</code></td><td>Module name <code>loads.py</code></td><td>A module called <code>io</code> shadows the standard library as soon as its folder lands on <code>sys.path</code>, which is exactly what the notebook-resources trick in <a href="distribution-and-ops.html#test-without-env">testing without an Environment</a> does.</td></tr>
+      </tbody>
+    </table>
+    <div class="callout important"><p class="callout-title">Changing a default is a breaking change</p><p>Flipping <code>overwrite_schema</code> from <code>True</code> to <code>False</code> changes behavior for every existing caller. Make that kind of change in a major version, say so in the changelog, and search your notebooks for callers before you release. See <a href="#api-rules">API design rules</a>.</p></div>
+
+    <h2 id="incremental">Incremental helpers</h2>
+    <p>Full overwrite is the right default for small dimensions and for tables that are cheap to rebuild. For large facts you need an incremental path. Two small helpers cover most of it. <code>max_value</code> reads a high-water mark from the target. <code>merge_upsert</code> applies a deduplicated change set to a Delta table with <code>MERGE</code>.</p>
+<pre data-title="Notebook cell (PySpark): incremental load with the shared helpers"><code class="language-python">from pyspark.sql import functions as F
+from contoso_fabric_utils import max_value, merge_upsert
+
+# 1) High-water mark from the target (None on the very first run)
+last_ts = max_value("silver_orders", "_modified_at")
+
+# 2) Pick up only changed rows, with a small overlap to tolerate late arrivals
+changes = spark.table("bronze_orders")
+if last_ts is not None:
+    changes = changes.filter(F.col("_modified_at") &gt; F.lit(last_ts) - F.expr("INTERVAL 1 HOUR"))
+
+# 3) Upsert; rows flagged as deleted at the source are removed from the target
+metrics = merge_upsert(
+    source_df=changes,
+    target_table="silver_orders",
+    key_cols=["order_id"],
+    delete_when="s.is_deleted = true",   # condition on the source alias s
+    ignore_cols=["is_deleted"],          # used by the condition, never written to the target
+)
+print(metrics)   # {'inserted': 120, 'updated': 31, 'deleted': 4}</code></pre>
+
+    <table>
+      <thead><tr><th>Behavior</th><th>How it is implemented</th><th>Failure it prevents</th></tr></thead>
+      <tbody>
+        <tr><td>Duplicate keys in the change set fail early</td><td>Group by <code>key_cols</code> and raise if any group has more than one row (switch off with <code>check_duplicates=False</code> when you already deduplicate)</td><td>Delta raises "multiple source rows matched" at merge time, after the cost of a shuffle and scan</td></tr>
+        <tr><td>Unchanged rows are not rewritten as new versions</td><td><code>WHEN MATCHED AND NOT (t.c &lt;=&gt; s.c ...)</code> using the null-safe comparison across <code>update_cols</code></td><td>Every run bumping every row, inflating change feeds and file churn</td></tr>
+        <tr><td>Deletes are driven by a flag</td><td>A first <code>WHEN MATCHED AND (delete_when) THEN DELETE</code> clause; inserts exclude flagged rows; <code>ignore_cols</code> keeps the flag column out of the target</td><td>Resurrecting a row that was deleted at the source and never existed in the target</td></tr>
+        <tr><td>First run creates the table</td><td>If the target does not exist, write the change set with <code>saveAsTable</code></td><td>A bootstrap special case in every notebook</td></tr>
+        <tr><td>Explicit column lists</td><td>Update and insert clauses list columns instead of <code>*</code></td><td>Extra source columns or schema drift changing what a merge writes without anyone noticing</td></tr>
+      </tbody>
+    </table>
+
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 360" role="img" aria-label="Decision path for each source row in merge_upsert: if the key exists in the target, a delete flag deletes it, otherwise a changed row is updated and an unchanged row is left alone; if the key does not exist, a flagged row is skipped and an unflagged row is inserted">
+        <defs>
+          <marker id="fig-design-2-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box gray" x="20" y="137" width="130" height="56" rx="10"/>
+        <text class="t-b" x="85" y="161" text-anchor="middle">Source row</text><text class="t-s" x="85" y="179" text-anchor="middle">one row per key</text>
+        <rect class="box purple" x="185" y="140" width="150" height="50" rx="25"/>
+        <text class="t-b" x="260" y="170" text-anchor="middle">Key in target?</text>
+        <rect class="box purple" x="380" y="30" width="150" height="50" rx="25"/>
+        <text class="t-b" x="455" y="60" text-anchor="middle">Delete flag set?</text>
+        <rect class="box purple" x="380" y="105" width="150" height="50" rx="25"/>
+        <text class="t-b" x="455" y="135" text-anchor="middle">Any column changed?</text>
+        <rect class="box purple" x="380" y="235" width="150" height="50" rx="25"/>
+        <text class="t-b" x="455" y="265" text-anchor="middle">Delete flag set?</text>
+        <rect class="box red" x="600" y="33" width="230" height="44" rx="10"/>
+        <text class="t-b" x="715" y="52" text-anchor="middle">DELETE target row</text><text class="t-s" x="715" y="68" text-anchor="middle">matched and flagged</text>
+        <rect class="box green" x="600" y="108" width="230" height="44" rx="10"/>
+        <text class="t-b" x="715" y="127" text-anchor="middle">UPDATE changed columns</text><text class="t-s" x="715" y="143" text-anchor="middle">null-safe comparison</text>
+        <rect class="box gray" x="600" y="168" width="230" height="44" rx="10"/>
+        <text class="t-b" x="715" y="187" text-anchor="middle">Leave the row as it is</text><text class="t-s" x="715" y="203" text-anchor="middle">no new row version</text>
+        <rect class="box gray" x="600" y="238" width="230" height="44" rx="10"/>
+        <text class="t-b" x="715" y="257" text-anchor="middle">Skip the row</text><text class="t-s" x="715" y="273" text-anchor="middle">nothing to delete</text>
+        <rect class="box green" x="600" y="298" width="230" height="44" rx="10"/>
+        <text class="t-b" x="715" y="317" text-anchor="middle">INSERT row</text><text class="t-s" x="715" y="333" text-anchor="middle">new key, not flagged</text>
+        <path class="ln" d="M150 165H183" marker-end="url(#fig-design-2-a)"/>
+        <path class="ln" d="M335 158H358V55H378" marker-end="url(#fig-design-2-a)"/>
+        <path class="ln" d="M335 172H358V260H378" marker-end="url(#fig-design-2-a)"/>
+        <path class="ln" d="M530 55H598" marker-end="url(#fig-design-2-a)"/>
+        <path class="ln" d="M455 80V103" marker-end="url(#fig-design-2-a)"/>
+        <path class="ln" d="M530 130H598" marker-end="url(#fig-design-2-a)"/>
+        <path class="ln" d="M455 155V190H598" marker-end="url(#fig-design-2-a)"/>
+        <path class="ln" d="M530 260H598" marker-end="url(#fig-design-2-a)"/>
+        <path class="ln" d="M455 285V320H598" marker-end="url(#fig-design-2-a)"/>
+        <text class="t-s c-green" x="364" y="100">yes</text>
+        <text class="t-s c-red" x="364" y="236">no</text>
+        <text class="t-s c-green" x="552" y="49">yes</text>
+        <text class="t-s c-red" x="466" y="96">no</text>
+        <text class="t-s c-green" x="552" y="124">yes</text>
+        <text class="t-s c-red" x="466" y="176">no</text>
+        <text class="t-s c-green" x="552" y="254">yes</text>
+        <text class="t-s c-red" x="466" y="306">no</text>
+      </svg>
+      <figcaption><b>One source row, five outcomes.</b> The clause order inside the merge (delete first, then conditional update, then conditional insert) is what makes these outcomes deterministic.</figcaption>
+    </figure>
+    <div class="callout caution"><p class="callout-title">Caution</p><p>Concurrent merges into the same Delta table can conflict and fail with a concurrency exception. Serialize writers per table in the orchestration layer, or retry with backoff. A merge helper cannot hide that; it can only make it visible by not swallowing the error.</p></div>
+
+    <h2 id="api-rules">API design rules</h2>
+    <p>A shared library is consumed by people who cannot read its source quickly and who run it unattended. These rules keep it safe to depend on.</p>
+    <table>
+      <thead><tr><th>Rule</th><th>What it looks like</th><th>What happens if you ignore it</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Keyword-only arguments</strong></td><td><code>def f(*, source_table, target_table, ...)</code></td><td>Adding or reordering a parameter silently changes the meaning of positional calls</td></tr>
+        <tr><td><strong>No hidden globals</strong></td><td>Take a <code>spark</code> argument; never read <code>spark</code>, <code>mssparkutils</code> or notebook variables from the caller's namespace</td><td><code>NameError</code> at call time, or tests that only pass inside Fabric</td></tr>
+        <tr><td><strong>No environment-specific values</strong></td><td>Workspace names, lakehouse IDs, endpoints and connection IDs are arguments, supplied from <a href="../09-variable-libraries/index.html">variable libraries</a></td><td>A wheel that only works in one stage, and a new release for every configuration change</td></tr>
+        <tr><td><strong>Pure transformations, explicit side effects</strong></td><td>Functions that write say so in their name and return metrics</td><td>Callers cannot tell a safe helper from one that overwrites a table</td></tr>
+        <tr><td><strong>Fail with names, not stack traces</strong></td><td><code>ValueError("Missing required columns in 'orders': ['quantity']")</code></td><td>A pipeline failure at night with no clue which column or table</td></tr>
+        <tr><td><strong>Idempotent by design</strong></td><td>Re-running a load with the same inputs leaves the same target state</td><td>Retries double-count or duplicate rows</td></tr>
+        <tr><td><strong>Minimal dependencies</strong></td><td>Depend on nothing the Spark runtime already provides; do not list <code>pyspark</code> or <code>delta-spark</code> as runtime dependencies</td><td>The Environment tries to resolve and install a second PySpark next to the runtime's own</td></tr>
+        <tr><td><strong>Semantic versions and a changelog</strong></td><td>Breaking change means a new major version</td><td>"Works on my Environment" incidents when a minor release changes behavior</td></tr>
+      </tbody>
+    </table>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p><ul>
+      <li>Lift the third step of the pattern (the call) into the library; leave transformations and projections in notebooks as arguments.</li>
+      <li>Remove every dependency on notebook globals; accept a <code>spark</code> argument and fall back to the active session.</li>
+      <li>Make risky behavior opt-in: schema overwrite, typed-null columns, counting the source.</li>
+      <li>Give <code>merge_upsert</code> explicit column lists, a duplicate-key check and flag-driven deletes, in a fixed clause order.</li>
+      <li>Never put workspace names, IDs or endpoints in the wheel.</li>
+    </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://docs.delta.io/latest/delta-update.html#upsert-into-a-table-using-merge">Delta Lake: upsert into a table using MERGE</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/runtime">Apache Spark runtime in Fabric</a> (Spark, Delta Lake and Python versions per runtime)</li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/author-execute-notebook">Develop, execute, and manage notebooks</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

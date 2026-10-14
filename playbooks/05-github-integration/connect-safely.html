@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Connecting safely · GitHub Integration</title>
+<meta name="description" content="Preflight safeguards, the first-sync decision, step-by-step connection of each workspace to GitHub, the baseline commit, the folder-change hazard and recovery if a workspace was overwritten.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="05-github-integration" data-page="connect-safely.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+
+    <header class="page-header">
+      <p class="eyebrow">Playbook 05 · GitHub Integration</p>
+      <h1>Connecting safely</h1>
+      <p class="lede">The moment you click <em>Connect and sync</em> is the only point in the integration where a single wrong choice can delete a workspace's content with no way back. Everything after it is recoverable from Git. This page is the procedure that makes the first sync boring: back up, connect to an empty folder, commit a baseline at once, and only then turn on the guard rails.</p>
+      <ul class="chips"><li><b>Audience</b> workspace admins</li><li><b>Risk</b> highest of any step in this playbook</li><li><b>Time</b> about 30 minutes per workspace</li></ul>
+    </header>
+
+    <h2 id="first-sync">What the first sync does</h2>
+    <p>When you connect, Fabric makes the workspace and the branch folder match. The direction depends on what each side holds. If one side is empty and the other has content, content is copied from the non-empty side to the empty one. If both have content, you must choose, and the choice overwrites one of them.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 880 290" role="img" aria-label="First sync outcomes: both empty means nothing to sync; only the workspace has items means they are copied into Git; only Git has content means it is copied into the workspace; both have content means the admin must choose which side is overwritten">
+        <text class="t-b" x="360" y="34" text-anchor="middle">Git folder is empty</text>
+        <text class="t-b" x="700" y="34" text-anchor="middle">Git folder has content</text>
+        <text class="t-b" x="20" y="100">Workspace</text>
+        <text class="t-s" x="20" y="118">has no items</text>
+        <text class="t-b" x="20" y="214">Workspace</text>
+        <text class="t-s" x="20" y="232">has items</text>
+        <rect class="box gray" x="200" y="48" width="320" height="96" rx="10"/>
+        <text class="t-b" x="360" y="84" text-anchor="middle">Nothing to sync</text>
+        <text class="t-s" x="360" y="106" text-anchor="middle">Connected, empty on both sides.</text>
+        <rect class="box blue" x="540" y="48" width="320" height="96" rx="10"/>
+        <text class="t-b" x="700" y="84" text-anchor="middle">Git content is copied in</text>
+        <text class="t-s" x="700" y="106" text-anchor="middle">The workspace now mirrors the folder.</text>
+        <rect class="box green" x="200" y="164" width="320" height="96" rx="10"/>
+        <text class="t-b" x="360" y="200" text-anchor="middle">Workspace is copied to Git</text>
+        <text class="t-s" x="360" y="222" text-anchor="middle">The safe baseline: nothing is deleted.</text>
+        <rect class="box orange" x="540" y="164" width="320" height="96" rx="10"/>
+        <text class="t-b" x="700" y="188" text-anchor="middle">You choose the direction</text>
+        <text class="t-s" x="700" y="210" text-anchor="middle">Commit to Git: overwrites the Git folder</text>
+        <text class="t-s" x="700" y="228" text-anchor="middle">Update from Git: overwrites the workspace</text>
+        <text class="t-s" x="700" y="246" text-anchor="middle">Without a choice you cannot continue.</text>
+      </svg>
+      <figcaption><b>Four outcomes.</b> Three are harmless. The fourth, with content on both sides, is where workspaces are lost: choosing <em>Update</em> replaces the workspace content, and a workspace, unlike a Git branch, cannot be restored to a previous state.</figcaption>
+    </figure>
+    <div class="callout caution"><p class="callout-title">An empty folder is a destructive source</p><p>The same logic applies after the connection. <em>Update</em> pulls what is in Git and removes workspace items that do not exist there. If the folder is empty or lacks your items, an update aligns the workspace to "empty". Never press <em>Update</em> against a branch or folder that does not yet contain your baseline.</p></div>
+
+    <h2 id="preflight">Preflight safeguards</h2>
+    <p>Do these before the first connection to a workspace that already holds work. For a brand-new, empty workspace most of them do not apply.</p>
+    <h3 id="backup-clone">1 · Clone the workspace as a safety net</h3>
+    <p>The most dependable backup that works before source control exists is a deployment pipeline: deploy the DEV workspace into a new, differently named workspace (for example <code>BAK_DEV_SALES_BRZ</code>). Fabric copies the item definitions into the target workspace. Data is the catch: a deployed lakehouse arrives as a new, empty lakehouse, and shortcut definitions are synced while their contents are not, so the clone is only a true backup after you hydrate it.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 880 230" role="img" aria-label="Deploy the live DEV workspace to a backup workspace with a deployment pipeline, which copies definitions and creates empty lakehouses, then copy the data and verify before connecting to Git">
+        <defs>
+          <marker id="fig-cs-1-t" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar teal" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-cs-1-g" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box blue" x="30" y="40" width="210" height="70" rx="10"/>
+        <text class="t-b" x="135" y="68" text-anchor="middle">DEV_SALES_BRZ</text>
+        <text class="t-s" x="135" y="88" text-anchor="middle">live, with data</text>
+        <rect class="box orange" x="335" y="40" width="210" height="70" rx="10"/>
+        <text class="t-b" x="440" y="68" text-anchor="middle">BAK_DEV_SALES_BRZ</text>
+        <text class="t-s" x="440" y="88" text-anchor="middle">definitions, empty lakehouse</text>
+        <rect class="box green" x="640" y="40" width="210" height="70" rx="10"/>
+        <text class="t-b" x="745" y="68" text-anchor="middle">Verified clone</text>
+        <text class="t-s" x="745" y="88" text-anchor="middle">data copied, pipelines pass</text>
+        <path class="ln teal" d="M242 75H333" marker-end="url(#fig-cs-1-t)"/>
+        <text class="t-s" x="288" y="67" text-anchor="middle">deploy</text>
+        <path class="ln green" d="M547 75H638" marker-end="url(#fig-cs-1-g)"/>
+        <text class="t-s" x="592" y="67" text-anchor="middle">hydrate</text>
+        <text class="t-s" x="30" y="148">Deploy copies item definitions; notebooks and Spark job definitions are re-bound to the new lakehouse.</text>
+        <text class="t-s" x="30" y="168">Hydrate with a copy job, pipeline or shortcut so Files and Tables exist; copy warehouse data too.</text>
+        <text class="t-s" x="30" y="188">Verify by running the load pipelines in the clone and comparing row counts with the live workspace.</text>
+        <text class="t-s" x="30" y="212">Only after this passes do you connect the live workspace to Git.</text>
+      </svg>
+      <figcaption><b>A clone is only a backup after it is hydrated and tested.</b> Delete the clones once the repository holds the baseline and the first feature has merged cleanly.</figcaption>
+    </figure>
+    <h3 id="capture-outside-git">2 · Record what Git will not hold</h3>
+    <ul class="checklist">
+      <li>Workspace access (roles and groups), capacity assignment and workspace-level settings. Deployment pipelines are separate objects and are not in the repository.</li>
+      <li>Data: lakehouse files and tables, warehouse tables. Git stores definitions, not data.</li>
+      <li>Items that are not supported for Git. They stay in the workspace, appear in the source control pane, and cannot be committed. Inventory them now (see the <a href="sync-and-items.html#supported-items">supported items</a> section).</li>
+      <li>Connections and credentials used by items. Document owners and where the secrets live.</li>
+      <li>Sensitivity labels. Labelled items either cannot be exported or are exported without the label, depending on the tenant switch.</li>
+    </ul>
+    <h3 id="freeze">3 · Freeze changes and check the size</h3>
+    <ul class="checklist">
+      <li>Announce a short freeze: nobody edits the workspace during the connection and baseline commit.</li>
+      <li>Confirm the workspace is under 1,000 items and that no single commit will exceed 50 MB for GitHub. If it might, plan to commit in several batches.</li>
+      <li>Confirm the repository exists, <code>main</code> exists (initialize the repository with a README at the root), and the folder you will use <strong>does not exist yet</strong>.</li>
+      <li>Confirm the person connecting has the Admin role, a fine-grained token scoped to the repository, and a repository URL ready.</li>
+    </ul>
+    <div class="callout warning"><p class="callout-title">Do not pre-create the workspace folders in GitHub</p><p>Let Fabric create each folder on first sync. Pointing at an existing folder, even one that holds only a placeholder file, puts you in the "both sides have content" case and forces the direction prompt. Microsoft's documentation does not define precisely what counts as empty, so use a folder name that does not exist and avoid the question.</p></div>
+
+    <h2 id="connect-steps">Establishing the connection</h2>
+    <p>Run these steps as the workspace admin, once per workspace. The example connects <code>DEV_SALES_BRZ</code> to the <code>SALES_BRZ</code> folder of <code>main</code>.</p>
+    <ol class="steps">
+      <li><strong>Open Git integration</strong><p>In the workspace, open <em>Workspace settings</em> and select <em>Git integration</em>. Choose <em>GitHub</em> as the provider. If GitHub is missing, the GitHub tenant switch is still off for you (see the <a href="foundations.html#tenant-settings">tenant settings</a>).</p></li>
+      <li><strong>Add your account</strong><p>Select <em>Add account</em>. Enter a display name that is unique to you, paste your fine-grained token, and enter the repository URL, for example <code>https://github.com/contoso-org/fabric-analytics</code>. The URL is optional for github.com and mandatory for a <code>ghe.com</code> enterprise domain. Select <em>Connect</em>. If you use a token scoped to one repository, the URL is filled in and locked.</p></li>
+      <li><strong>Choose branch and folder</strong><p>Select the branch (<code>main</code> for a DEV workspace) and type the new folder name <code>SALES_BRZ</code>. Leaving the folder blank would use the repository root. You can connect to only one branch and one folder.</p></li>
+      <li><strong>Connect and sync, and read the dialog</strong><p>Select <em>Connect and sync</em>. For an existing workspace and an empty folder, Fabric copies the workspace into Git without deleting anything. If instead you are asked to choose a direction, stop: the folder is not empty. Cancel, find out why, and do not select <em>Update workspace with Git content</em>.</p></li>
+      <li><strong>Verify the result</strong><p>The Git status of each item should read <em>Synced</em>, the Source control icon should show 0, and the status bar should show the connected branch, the time of the last sync and a link to the last commit. In GitHub, open the folder and check that every supported item appears as a subfolder.</p></li>
+      <li><strong>Commit anything left over</strong><p>Open <em>Source control</em> and, if the <em>Changes</em> tab lists any item, commit it to the connected branch with a clear message such as "Baseline: DEV_SALES_BRZ". From now on use <em>Commit</em> for workspace to Git, and <em>Update</em> only when the branch has incoming changes you intend to take.</p></li>
+      <li><strong>Repeat for each workspace</strong><p>Connect the remaining workspaces to their own folders of the same branch, one at a time, verifying after each.</p></li>
+    </ol>
+    <div class="callout important"><p class="callout-title">Baseline first, guard rails second</p><p>Fabric commits directly to the connected branch with the user's token. A ruleset that requires pull requests on <code>main</code> will reject the baseline commit. Do the baseline commits, verify them, and only then switch the <code>main</code> ruleset on. If you must protect <code>main</code> earlier, connect each workspace to a temporary baseline branch, merge it by pull request, then switch the workspace to <code>main</code>; the switch requires that the directory exists on the target branch.</p></div>
+
+    <h3 id="medallion-order">Connecting a layered estate</h3>
+    <p>With one workspace per layer, connect them in dependency order (Bronze, Silver, Gold, then consumption and delivery) so a failed step does not leave downstream workspaces connected to nothing. After the last one, the repository should look like the layout in the <a href="repository-design.html#layout">previous page</a>: one folder per workspace, plus the folders and files you added by hand that sit outside any workspace folder. Mark the state with a Git tag (for example <code>baseline</code>) so that "known good" is one command away.</p>
+
+    <h2 id="folder-hazard">The folder-change hazard</h2>
+    <p>Workspace subfolders are part of the synchronized structure. If you create or reorganize folders in the workspace and the Git folder does not yet have them, the two are considered different. <em>Update</em> then lets the Git structure overwrite the workspace structure, which removes the new folders and, with them, the items inside.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 880 330" role="img" aria-label="Wrong: creating folders in the workspace and pressing Update from Git removes them. Right: create the folders, commit them to a new branch, merge by pull request, then update">
+        <defs>
+          <marker id="fig-cs-2-r" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar red" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-cs-2-g" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <text class="t-h" x="20" y="22">Wrong order</text>
+        <rect class="zone red" x="20" y="34" width="400" height="280" rx="12"/>
+        <rect class="box" x="60" y="52" width="320" height="52" rx="8"/><text class="t-b" x="220" y="82" text-anchor="middle">Create folders in the workspace</text>
+        <rect class="box orange" x="60" y="130" width="320" height="52" rx="8"/><text class="t-b" x="220" y="160" text-anchor="middle">Press Update from Git first</text>
+        <rect class="box red" x="60" y="208" width="320" height="52" rx="8"/><text class="t-b" x="220" y="233" text-anchor="middle">Git folder lacks them:</text><text class="t-s" x="220" y="251" text-anchor="middle">workspace structure is overwritten</text>
+        <path class="ln red" d="M220 106V128" marker-end="url(#fig-cs-2-r)"/>
+        <path class="ln red" d="M220 184V206" marker-end="url(#fig-cs-2-r)"/>
+        <text class="t-s" x="40" y="294">Items in the removed folders leave the workspace.</text>
+        <text class="t-h" x="460" y="22">Safe order</text>
+        <rect class="zone green" x="460" y="34" width="400" height="280" rx="12"/>
+        <rect class="box" x="500" y="48" width="320" height="38" rx="8"/><text class="t-b" x="660" y="72" text-anchor="middle">Create folders in the workspace</text>
+        <rect class="box blue" x="500" y="104" width="320" height="38" rx="8"/><text class="t-b" x="660" y="128" text-anchor="middle">Commit to a new branch</text>
+        <rect class="box purple" x="500" y="160" width="320" height="38" rx="8"/><text class="t-b" x="660" y="184" text-anchor="middle">Merge the branch by pull request</text>
+        <rect class="box green" x="500" y="216" width="320" height="38" rx="8"/><text class="t-b" x="660" y="240" text-anchor="middle">Update the shared workspace from main</text>
+        <path class="ln green" d="M660 88V102" marker-end="url(#fig-cs-2-g)"/>
+        <path class="ln green" d="M660 144V158" marker-end="url(#fig-cs-2-g)"/>
+        <path class="ln green" d="M660 200V214" marker-end="url(#fig-cs-2-g)"/>
+        <text class="t-s" x="480" y="282">Structure is versioned before anything pulls over it.</text>
+        <text class="t-s" x="480" y="298">Use Checkout new branch if you cannot commit to main.</text>
+      </svg>
+      <figcaption><b>Commit structure before you update.</b> The right-hand sequence is also how a developer reorganizes folders in a feature workspace: the change is reviewed like any other.</figcaption>
+    </figure>
+    <p>If you cannot commit to the connected branch because a ruleset or permission blocks it, use <strong>Checkout new branch</strong> in the source control pane. It creates a branch from the last synced commit, keeps the current workspace state including uncommitted changes, and lets you commit the folder changes there. Merge that branch with a normal pull request, then update the shared workspace.</p>
+
+    <h2 id="recovery">If a workspace was already overwritten</h2>
+    <table>
+      <thead><tr><th>Situation</th><th>First move</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td>Items disappeared after an <em>Update</em> against an empty folder</td><td>Stop. Do not commit from the workspace.</td><td>A commit now would push the emptied state into Git. Work from the backup workspace and from Git history instead.</td></tr>
+        <tr><td>A backup clone exists</td><td>Deploy from the clone back to the live workspace, or reconnect from the clone's items.</td><td>Hydrated data in the clone saves the most time. Re-point connections and schedules afterwards.</td></tr>
+        <tr><td>The items were committed to Git before the overwrite</td><td>Restore the commit in Git (see the <a href="operations-rollback.html#rollback">rollback appendix</a>), then <em>Update</em> the workspace.</td><td>Git recreates definitions only; it does not restore data.</td></tr>
+        <tr><td>Items are in the workspace recycle bin</td><td>Restore from the recycle bin.</td><td>A restore keeps the original item ID and brings data back. A Git update re-creates an item with a new ID and definition only, and having both can leave duplicates; delete the re-created one.</td></tr>
+      </tbody>
+    </table>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>Item recovery behavior and retention differ by item type. Before you rely on the recycle bin as a recovery path, confirm what is recoverable for your item types, and read "Differences between Git Integration and recycle bin item recovery behavior" in <a href="https://learn.microsoft.com/fabric/cicd/git-integration/git-integration-process">Git integration process</a>.</p></div>
+
+    <h2 id="connect-errors">Connection symptoms and fixes</h2>
+    <table>
+      <thead><tr><th>Symptom</th><th>Likely cause</th><th>Fix</th></tr></thead>
+      <tbody>
+        <tr><td>GitHub is not offered as a provider</td><td>The GitHub tenant switch is off, or you are outside the group it applies to.</td><td>Ask the Fabric admin; check delegation at capacity and workspace level.</td></tr>
+        <tr><td>Repository or branch not listed</td><td>Token not scoped to the repository, token pending organization approval, SSO authorization missing, or token expired.</td><td>Review the token's resource owner and repository access; approve or re-create it.</td></tr>
+        <tr><td>The dialog asks for a sync direction</td><td>The folder already has content, or the workspace and branch both do.</td><td>Cancel and use a new folder name. Choose a direction only when you have verified the outcome.</td></tr>
+        <tr><td>"Sign in to a Git account" in a shared workspace</td><td>The Git connection is per user.</td><td>Add your own account on the Accounts tab and connect it. Do not borrow a colleague's token.</td></tr>
+        <tr><td>Commit rejected</td><td>A ruleset requires pull requests on the connected branch, or the token lacks write access.</td><td>Commit to a feature branch instead, or let the baseline land before the ruleset is active.</td></tr>
+        <tr><td>Maximum commit size exceeded</td><td>The selected items exceed 50 MB for GitHub in one commit.</td><td>Commit in smaller batches.</td></tr>
+        <tr><td>"Items with conflicting logical IDs detected"</td><td>Workspace and repository hold matching items with different logical IDs.</td><td>Rename the conflicting item, or align the logical ID in Git with the workspace as the error describes.</td></tr>
+        <tr><td>Invalid directory name</td><td>Leading or trailing space, or a forbidden character.</td><td>Use letters, digits, underscores and hyphens.</td></tr>
+      </tbody>
+    </table>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p><ul>
+      <li>Back up and hydrate a clone first, connect the content-bearing workspace to a folder that does not exist yet, and make sure the dialog never asks you to pick a direction.</li>
+      <li>Commit the baseline immediately, tag it, and only then enable the ruleset on <code>main</code>.</li>
+      <li>Commit workspace folder changes to a branch and merge them before any <em>Update</em>; use <em>Checkout new branch</em> when you cannot commit to the connected branch.</li>
+      <li>If something goes wrong, stop committing: a commit from an emptied workspace writes the damage into Git.</li>
+    </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/fabric/cicd/git-integration/git-get-started">Get started with Git integration</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/cicd/git-integration/git-integration-process">Git integration process: connect and sync, folders, limitations</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/cicd/git-integration/conflict-resolution">Resolve conflicts with Git integration</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/cicd/troubleshoot-cicd">Troubleshoot CI/CD</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/lakehouse-git-deployment-pipelines">Lakehouse Git integration and deployment pipelines</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

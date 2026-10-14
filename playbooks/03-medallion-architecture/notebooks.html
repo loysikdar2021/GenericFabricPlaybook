@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fabric notebooks in the medallion · Medallion Architecture</title>
+<meta name="description" content="What Fabric notebooks do, where they fit between layers, how to keep them small, how to orchestrate and log them, plus the verified hard limits and a do and do-not list.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="03-medallion-architecture" data-page="notebooks.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 03 · Engineering foundations</p>
+      <h1>Fabric notebooks in the medallion</h1>
+      <p class="lede">Every layer-to-layer move in this playbook is a notebook run by a pipeline. This page covers what notebooks can do, how to size and structure them, how to orchestrate several, which hooks to monitor and which hard limits apply.</p>
+      <ul class="chips"><li><b>Audience</b> data engineers</li><li><b>Focus</b> structure, limits, operations</li><li><b>Pages</b> 4 of 10</li></ul>
+    </header>
+    <h2 id="notebook-guidelines">What a Fabric notebook is</h2>
+    <p>A Fabric notebook is a web-based, interactive item for developing and running Apache Spark code, with cells that mix code and Markdown. In a medallion it is the main transformation tool: it reads upstream tables through shortcuts, applies logic and writes Delta tables into its own lakehouse. A notebook is also a first-class workspace item. It can be placed under Git source control and deployed across environments with deployment pipelines, which is why notebooks should hold thin, parameterized code and not tangled one-off analysis.</p>
+    <table>
+      <thead><tr><th>Capability</th><th>What it gives you</th><th>Medallion use</th></tr></thead>
+      <tbody>
+        <tr><td>Languages</td><td>PySpark (Python), Spark (Scala), Spark SQL and SparkR, mixed per cell with magic commands such as <code>%%sql</code> and <code>%%pyspark</code></td><td>SQL for set-based loads, PySpark for merges and reusable functions</td></tr>
+        <tr><td>Lakehouse integration</td><td>Read and write Delta tables and files; drag a table from the Lakehouse explorer to generate code</td><td>Every layer load</td></tr>
+        <tr><td>Parameter cell</td><td>A cell marked as parameters receives values from a pipeline or a parent notebook</td><td>Table names, watermark overrides, debug flags</td></tr>
+        <tr><td>Session configuration</td><td><code>%%configure</code> sets cores, memory, Spark properties, pool, default lakehouse and environment for the session</td><td>Per-notebook sizing when the workspace default is not right</td></tr>
+        <tr><td>Library management</td><td>Environment items carry libraries and Spark properties; <code>%pip</code> installs inline in interactive sessions</td><td>Share the merge engine and helpers; see <a href="environment.html">Environment item</a></td></tr>
+        <tr><td>Orchestration</td><td>Run from a pipeline notebook activity, from another notebook with <code>%run</code> or <code>notebookutils.notebook.run</code>, or in parallel with <code>runMultiple</code></td><td>Layer loads and DAGs of tables</td></tr>
+        <tr><td>Monitoring</td><td>Cell-level progress, Spark job indicators, links to the Spark application details and Spark UI, snapshots of every run</td><td>Debug a failed layer load</td></tr>
+        <tr><td>Source control</td><td>Notebooks are items that Git integration and deployment pipelines handle</td><td>Promotion per layer</td></tr>
+        <tr><td>Secret redaction</td><td>Secret values shown in cell output are replaced with a redaction marker</td><td>A safety net, not a substitute for never printing secrets</td></tr>
+      </tbody>
+    </table>
+    <div class="callout note"><p class="callout-title">Languages the source listed that this page does not</p><p>Earlier material listed .NET for Spark among the notebook languages. Microsoft Learn's notebook authoring page lists four Spark languages: PySpark, Scala, Spark SQL and SparkR. Use those.</p></div>
+
+    <h2 id="use-cases">Typical use cases by layer</h2>
+    <table>
+      <thead><tr><th>Use case</th><th>Layer</th><th>Notebook shape</th></tr></thead>
+      <tbody>
+        <tr><td>Batch ELT between layers: filter, conform, merge</td><td>Bronze to Silver, Silver to Gold</td><td>Thin notebook calling the <a href="incremental-merge.html">merge engine</a>, one table or a short list per notebook</td></tr>
+        <tr><td>Reconciliation and quality checks</td><td>Silver, Gold</td><td>Read-only checks that raise on failure so the pipeline stops; see <a href="silver-to-gold.html#reconciliation">reconciliation</a></td></tr>
+        <tr><td>Feature engineering and ML training</td><td>Consumption lakehouse for AI and ML</td><td>Exploratory notebooks and experiments, separate from scheduled loads</td></tr>
+        <tr><td>Ad-hoc exploration of Delta tables</td><td>Development workspaces only</td><td>Interactive; never promoted</td></tr>
+        <tr><td>Orchestration helpers</td><td>Any layer</td><td>An orchestrator notebook that runs a DAG of children</td></tr>
+      </tbody>
+    </table>
+    <div class="callout tip"><p class="callout-title">Consolidate after unit testing</p><p>Teams working in parallel can each create notebooks while they build. After unit testing, a designated lead should consolidate them into a smaller number of logically grouped notebooks. Each notebook is a workspace item, and a workspace holds at most 1,000 items counting parents and children, so unchecked notebook sprawl runs into that cap and into review fatigue long before it runs into compute limits.</p></div>
+
+    <h2 id="sizing-guidelines">Structure and sizing guidelines</h2>
+    <p>These guidelines protect specific limits (listed in the <a href="#hard-limits">hard limits</a> table) and keep runs retryable.</p>
+<figure class="diagram">
+<svg class="dg" viewBox="0 0 900 244" role="img" aria-label="A pipeline passes small parameters to a thin notebook, which calls library functions from the Environment, writes a Delta table, appends one row to a run log and returns a small exit value to the pipeline">
+<defs>
+<marker id="fig-nb-1-a-teal" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar teal" d="M0 0L10 5L0 10z"/></marker>
+<marker id="fig-nb-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+<marker id="fig-nb-1-a-gray" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar gray" d="M0 0L10 5L0 10z"/></marker>
+</defs>
+<rect class="box teal" x="12" y="56" width="130" height="64" rx="10"/>
+<text class="t-b" x="77" y="83.5" text-anchor="middle">PL_SALES_SLV</text>
+<text class="t-s" x="77" y="100.5" text-anchor="middle">notebook activity</text>
+<rect class="box blue" x="206" y="56" width="214" height="64" rx="10"/>
+<text class="t-b" x="313" y="83.5" text-anchor="middle">NB_SALES_SLV_LoadOrders</text>
+<text class="t-s" x="313" y="100.5" text-anchor="middle">parameters, call, exit</text>
+<rect class="box plain" x="474" y="56" width="180" height="64" rx="10"/>
+<text class="t-b" x="564" y="83.5" text-anchor="middle">Environment library</text>
+<text class="t-s" x="564" y="100.5" text-anchor="middle">merge engine, helpers</text>
+<rect class="box silver" x="710" y="56" width="178" height="64" rx="10"/>
+<text class="t-b" x="799" y="83.5" text-anchor="middle">dbo.orders</text>
+<text class="t-s" x="799" y="100.5" text-anchor="middle">Delta table in Silver</text>
+<path class="ln teal" d="M142 88H206" marker-end="url(#fig-nb-1-a-teal)"/>
+<rect class="pill-bg" x="155.1" y="71.5" width="37.8" height="16"/>
+<text class="t-s" x="174" y="84" text-anchor="middle">args</text>
+<path class="ln" d="M420 88H474" marker-end="url(#fig-nb-1-a)"/>
+<rect class="pill-bg" x="424.1" y="71.5" width="43.7" height="16"/>
+<text class="t-s" x="446" y="84" text-anchor="middle">calls</text>
+<path class="ln" d="M654 88H710" marker-end="url(#fig-nb-1-a)"/>
+<rect class="pill-bg" x="657.2" y="71.5" width="49.6" height="16"/>
+<text class="t-s" x="682" y="84" text-anchor="middle">writes</text>
+<rect class="box silver" x="474" y="170" width="180" height="56" rx="10"/>
+<text class="t-b" x="564" y="193.5" text-anchor="middle">dbo.etl_run_log</text>
+<text class="t-s" x="564" y="210.5" text-anchor="middle">one row per run</text>
+<path class="ln" d="M370 120V198H474" marker-end="url(#fig-nb-1-a)"/>
+<rect class="pill-bg" x="394.2" y="179.5" width="55.6" height="16"/>
+<text class="t-s" x="422" y="192" text-anchor="middle">appends</text>
+<path class="ln gray dash" d="M300 120V168H77V120" marker-end="url(#fig-nb-1-a-gray)"/>
+<rect class="pill-bg" x="151.3" y="149.5" width="73.4" height="16"/>
+<text class="t-s" x="188" y="162" text-anchor="middle">exit value</text>
+</svg>
+<figcaption><b>Thin notebooks over shared libraries.</b> The notebook holds only parameters, a call and an exit value. Business logic lives in a library attached through the Environment, so it is tested once and reused by every table. Parameters in and the exit value out stay small.</figcaption>
+</figure>
+    <table>
+      <thead><tr><th>Guideline</th><th>Why it matters</th><th>How</th></tr></thead>
+      <tbody>
+        <tr><td><strong>One responsibility per notebook</strong></td><td>Smaller units retry cheaply and stay under the executed-cell and size caps</td><td>Separate extract, transform and load notebooks, or thin notebooks that call library functions</td></tr>
+        <tr><td><strong>Push reusable logic into libraries</strong></td><td>Less notebook code, faster reviews, testable functions, one fix for every table</td><td>Package Python modules or wheels and attach them through an Environment item; notebooks only set parameters and call</td></tr>
+        <tr><td><strong>Keep rendered output tiny</strong></td><td>Outputs count toward the notebook and snapshot size caps and slow the UI</td><td>Use <code>df.limit(20)</code> or aggregates; write large results to a table; guard every <code>display()</code> behind a debug flag; disable rich output in production runs</td></tr>
+        <tr><td><strong>Keep parameters small and simple</strong></td><td>Pipeline parameters to notebooks accept int, float, bool and string; the per-activity payload is capped</td><td>Pass identifiers, dates and flags; for larger configuration pass a JSON string or point to a control table</td></tr>
+        <tr><td><strong>Limit nesting</strong></td><td><code>%run</code> depth and total referenced cells are capped</td><td>Prefer library calls to deep notebook chains; keep depth well under five</td></tr>
+        <tr><td><strong>Right-size the session</strong></td><td>Oversized sessions waste capacity; undersized ones spill and fail</td><td>Use the workspace default Environment; override with <code>%%configure</code> only with equal driver and executor core and memory values, from the supported sizes</td></tr>
+        <tr><td><strong>Manage the session lifecycle</strong></td><td>An idle session still holds capacity</td><td>Stop sessions at the end of automated runs; raise the idle timeout only while developing</td></tr>
+        <tr><td><strong>Respect pipeline timeouts</strong></td><td>The pipeline activity governs when a notebook is invoked from a pipeline</td><td>Split long jobs, checkpoint to Delta and make every step resumable</td></tr>
+        <tr><td><strong>Log compactly</strong></td><td>Print-heavy notebooks bloat snapshots</td><td>Append one structured row per load to a Delta log table</td></tr>
+      </tbody>
+    </table>
+    <h3 id="workload-shapes">Sizing the work, not just the cluster</h3>
+    <table>
+      <thead><tr><th>Table shape</th><th>Approach</th><th>Notebook shape</th></tr></thead>
+      <tbody>
+        <tr><td>Small reference tables</td><td>Full reload with the reusable function</td><td>Many tables in one notebook, looped</td></tr>
+        <tr><td>Large, slowly changing tables</td><td>Incremental merge on a watermark</td><td>One notebook per table or per small group</td></tr>
+        <tr><td>Very large facts</td><td>Incremental merge with a lookback window, partition-aware layout</td><td>One notebook per table; see <a href="../08-delta-partitioning/index.html">Delta Partitioning</a> and <a href="../06-shared-libraries/index.html">Shared Libraries</a></td></tr>
+        <tr><td>Small data manipulation outside Spark</td><td>Pure Python notebooks with Polars or Pandas</td><td>Only for data that fits one node; never materialize a large Pandas frame</td></tr>
+      </tbody>
+    </table>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>The pure Python notebook experience (no Spark session) is a separate kernel with its own limitations, for example no session timeout setting and no environment resources folder. Check its release status and limitations on <a href="https://learn.microsoft.com/fabric/data-engineering/using-python-experience-on-notebook">Use Python experience on Notebook</a> before you standardize on it for scheduled loads.</p></div>
+
+    <h2 id="parameters-and-orchestration">Parameters and orchestration</h2>
+    <h3 id="child-notebook">A parameterized child notebook</h3>
+    <p>The first cell is marked as the parameter cell. Its values are defaults; a pipeline or a parent notebook overrides them at run time. The last cell hands a small result back as a string.</p>
+<pre data-title="Child notebook skeleton"><code class="language-python"># ---- Cell 1: mark this cell as the parameter cell ("Mark cell as parameters") ----
+watermark_value = ""        # ISO-8601 string from the control table; empty means "derive from the target"
+debug = False               # guard every display() behind this flag
+
+# ---- Cell 2: imports and shared helpers (or import them from a library in the Environment) ----
+from datetime import datetime
+
+# ... helper definitions from the library or a %run cell ...
+
+# ---- Cell 3: the work, thin and parameterised ----
+metrics = incremental_merge_scd1(
+    spark,
+    source_table="brz.orders",
+    target_table="dbo.orders",
+    key_candidates=[["order_id"]],
+    watermark_cols=["last_modified_utc", "ingested_at_utc"],
+    watermark_value=watermark_value or None,
+    delete_condition="is_deleted = true",
+)
+if debug:
+    display(spark.table("dbo.orders").limit(20))
+
+# ---- Cell 4 (alone in its cell, outside try/except): hand a small result back to the caller ----
+import json
+notebookutils.notebook.exit(json.dumps({
+    "rows_in_slice": metrics["rows_in_slice"],
+    "new_watermark": metrics["new_watermark"],
+    "mode": metrics["mode"],
+}))</code></pre>
+    <div class="callout warning"><p class="callout-title">Keep exit at the top level</p><p>Do not call <code>notebookutils.notebook.exit()</code> inside a try and except block: the exit does not take effect when wrapped in exception handling. Put it alone in its own cell, because it also overwrites that cell's output. In a notebook run by a pipeline, exit completes the run, returns the value to the notebook activity and stops the Spark session.</p></div>
+    <h3 id="run-options">Choosing how to call another notebook</h3>
+    <table>
+      <thead><tr><th>Mechanism</th><th>Session and scope</th><th>Parallel</th><th>Best for</th></tr></thead>
+      <tbody>
+        <tr><td>Pipeline notebook activity</td><td>Its own Spark session per activity unless you configure session sharing; separate retry, timeout and monitoring row per activity</td><td>Yes, by pipeline design</td><td>Layer-level steps, anything that needs isolation or visible per-step status</td></tr>
+        <tr><td><code>%run</code></td><td>Same session; variables of the referenced notebook become available; same workspace only; depth up to five</td><td>No</td><td>Shared helper cells during development; prefer a library in production</td></tr>
+        <tr><td><code>notebookutils.notebook.run</code></td><td>Runs on the caller's Spark pool; returns the child's exit value; timeout argument; can reference a notebook in another workspace by ID</td><td>No</td><td>Sequential children with return values</td></tr>
+        <tr><td><code>notebookutils.notebook.runMultiple</code></td><td>Children run as threads in the caller's session and share its compute</td><td>Yes, in a DAG with dependencies</td><td>Many small table loads that fit one session</td></tr>
+      </tbody>
+    </table>
+    <p>A child run through <code>notebookutils.notebook.run</code> or <code>runMultiple</code> is blocked when it specifies a different default lakehouse from its parent. Let children inherit the parent's lakehouse, or pass <code>useRootDefaultLakehouse: True</code> in the arguments. A <code>%%configure</code> cell in a child called through <code>notebookutils.notebook.run</code> is ignored.</p>
+    <h3 id="run-multiple">An orchestrator with a dependency DAG</h3>
+<figure class="diagram">
+<svg class="dg" viewBox="0 0 900 300" role="img" aria-label="A pipeline runs one orchestrator notebook, which uses runMultiple to run child notebooks in dependency order inside one shared Spark session">
+<defs>
+<marker id="fig-nb-2-a-teal" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar teal" d="M0 0L10 5L0 10z"/></marker>
+<marker id="fig-nb-2-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+</defs>
+<rect class="box teal" x="12" y="110" width="150" height="50" rx="10"/>
+<text class="t-b" x="87" y="139" text-anchor="middle">PL_SALES_SLV</text>
+<rect class="zone blue" x="200" y="14" width="686" height="272" rx="12"/>
+<text class="t-h" x="214" y="33">One Spark session shared by all children</text>
+<rect class="box blue" x="216" y="110" width="170" height="50" rx="10"/>
+<text class="t-b" x="301" y="130.5" text-anchor="middle">NB_SALES_SLV_RunAll</text>
+<text class="t-s" x="301" y="147.5" text-anchor="middle">runMultiple(DAG)</text>
+<rect class="box silver" x="420" y="44" width="134" height="50" rx="10"/>
+<text class="t-b" x="487" y="64.5" text-anchor="middle">dims_customers</text>
+<text class="t-s" x="487" y="81.5" text-anchor="middle">child notebook</text>
+<rect class="box silver" x="420" y="176" width="134" height="50" rx="10"/>
+<text class="t-b" x="487" y="196.5" text-anchor="middle">dims_departments</text>
+<text class="t-s" x="487" y="213.5" text-anchor="middle">child notebook</text>
+<rect class="box gold" x="584" y="110" width="120" height="50" rx="10"/>
+<text class="t-b" x="644" y="130.5" text-anchor="middle">fact_orders</text>
+<text class="t-s" x="644" y="147.5" text-anchor="middle">child notebook</text>
+<rect class="box gold" x="734" y="110" width="140" height="50" rx="10"/>
+<text class="t-b" x="804" y="130.5" text-anchor="middle">fact_order_lines</text>
+<text class="t-s" x="804" y="147.5" text-anchor="middle">child notebook</text>
+<path class="ln teal" d="M162 135H216" marker-end="url(#fig-nb-2-a-teal)"/>
+<path class="ln" d="M386 135H403V69H420" marker-end="url(#fig-nb-2-a)"/>
+<path class="ln" d="M386 135H403V201H420" marker-end="url(#fig-nb-2-a)"/>
+<path class="ln" d="M554 69H569V135H584" marker-end="url(#fig-nb-2-a)"/>
+<path class="ln" d="M554 201H569V135H584" marker-end="url(#fig-nb-2-a)"/>
+<path class="ln" d="M704 135H734" marker-end="url(#fig-nb-2-a)"/>
+<text class="t-s" x="216" y="262">Whole-DAG timeout, per-cell timeout and retry are set per activity</text>
+</svg>
+<figcaption><b>Orchestrating notebooks inside one session.</b> Dimensions load first and in parallel, then facts in order. All children share the orchestrator's Spark session, so the pool must be sized for the concurrency you set. Timeouts and retries are per activity in the DAG.</figcaption>
+</figure>
+    <p>The DAG runs the two dimension loads in parallel, then the order facts, then the order lines. <code>validateDAG</code> catches duplicate names, missing dependencies and cycles before anything runs, and a failure is re-raised after the partial results are inspected so the pipeline activity still fails.</p>
+<pre data-title="Orchestrator notebook with runMultiple"><code class="language-python"># Orchestrator notebook: NB_SALES_SLV_RunAll. Each child notebook keeps its own parameter cell.
+DAG = {
+    "activities": [
+        {"name": "dims_customers",   "path": "NB_SALES_SLV_LoadCustomers",
+         "timeoutPerCellInSeconds": 600, "args": {"watermark_value": ""}},
+        {"name": "dims_departments", "path": "NB_SALES_SLV_LoadDepartments",
+         "timeoutPerCellInSeconds": 600},
+        {"name": "fact_orders",      "path": "NB_SALES_SLV_LoadOrders",
+         "timeoutPerCellInSeconds": 1800, "retry": 1, "retryIntervalInSeconds": 60,
+         "dependencies": ["dims_customers", "dims_departments"]},
+        {"name": "fact_order_lines", "path": "NB_SALES_SLV_LoadOrderLines",
+         "timeoutPerCellInSeconds": 1800, "retry": 1, "retryIntervalInSeconds": 60,
+         "dependencies": ["fact_orders"]},
+    ],
+    "timeoutInSeconds": 7200,   # whole DAG
+    "concurrency": 4,           # children share ONE Spark session: size the pool for it
+}
+
+notebookutils.notebook.validateDAG(DAG)          # fail fast on cycles, duplicates, missing dependencies
+
+from notebookutils.common.exceptions import RunMultipleFailedException
+
+try:
+    results = notebookutils.notebook.runMultiple(DAG)
+except RunMultipleFailedException as ex:
+    results = ex.result                          # partial results for logging
+    failed = [name for name, r in results.items() if r["exception"]]
+    raise RuntimeError(f"Failed activities: {failed}") from ex   # still fail the pipeline activity</code></pre>
+    <table>
+      <thead><tr><th>DAG field</th><th>Level</th><th>Default</th><th>Meaning</th></tr></thead>
+      <tbody>
+        <tr><td><code>timeoutInSeconds</code></td><td>Root</td><td>12 hours</td><td>Maximum for the whole DAG</td></tr>
+        <tr><td><code>concurrency</code></td><td>Root</td><td>Three times the available CPU cores</td><td>Maximum notebooks running at once; <code>0</code> means unlimited. Set it deliberately, because children share one session</td></tr>
+        <tr><td><code>timeoutPerCellInSeconds</code></td><td>Activity</td><td>90 seconds</td><td>Maximum for each cell in the child; raise it for load cells</td></tr>
+        <tr><td><code>retry</code>, <code>retryIntervalInSeconds</code></td><td>Activity</td><td>0</td><td>Retry for transient failures</td></tr>
+        <tr><td><code>dependencies</code></td><td>Activity</td><td>None</td><td>Names of activities that must finish first</td></tr>
+        <tr><td><code>args</code>, <code>workspace</code></td><td>Activity</td><td>Empty, caller's workspace</td><td>Parameters for the child; where it lives</td></tr>
+      </tbody>
+    </table>
+    <div class="callout caution"><p class="callout-title">The default cell timeout is short</p><p>A child cell that merges a large table can exceed the 90 second per-cell default and fail with a timeout even though the Spark job is healthy. Set <code>timeoutPerCellInSeconds</code> per activity from observed run times.</p></div>
+
+    <h2 id="monitoring-hooks">Monitoring and governance hooks</h2>
+    <table>
+      <thead><tr><th>Hook</th><th>What it shows</th><th>Use it for</th></tr></thead>
+      <tbody>
+        <tr><td>Notebook run snapshot</td><td>Cell outputs and status of that run, kept with the run history</td><td>Debugging a single failed run</td></tr>
+        <tr><td>Spark application details and Spark UI</td><td>Jobs, stages, executors, skew</td><td>Performance investigation</td></tr>
+        <tr><td>Fabric Capacity Metrics app</td><td>Capacity use, throttling and backlog on the capacity that runs the notebooks</td><td>Sizing capacity, spotting load windows that collide</td></tr>
+        <tr><td>Workspace Spark settings</td><td>Session idle timeout, default Environment, pools</td><td>Standardizing behavior per layer</td></tr>
+        <tr><td>Run log table</td><td>One row per load: mode, rows in the slice, new watermark, status</td><td>Operational dashboards and alerts; survives beyond run history retention</td></tr>
+      </tbody>
+    </table>
+    <p>Notebook job history is kept for a limited period, so anything an auditor may ask about later belongs in your own log table. The helper below appends one row per load and re-raises on failure.</p>
+<pre data-title="Compact run log helper"><code class="language-python">import uuid
+from datetime import datetime, timezone
+
+from pyspark.sql import Row
+
+RUN_LOG_TABLE = "dbo.etl_run_log"
+
+
+def log_run(spark, notebook, target_table, mode, rows_in_slice, new_watermark,
+            status, started_at, message=""):
+    """Append one compact row per load: cheap to write, easy to chart, safe to show to operators."""
+    row = Row(
+        run_id=str(uuid.uuid4()),
+        notebook=notebook,
+        target_table=target_table,
+        mode=mode,
+        rows_in_slice=int(rows_in_slice or 0),
+        new_watermark=None if new_watermark is None else str(new_watermark),
+        status=status,
+        message=message[:500],
+        started_at_utc=started_at,
+        finished_at_utc=datetime.now(timezone.utc),
+    )
+    (spark.createDataFrame([row])
+          .write.format("delta").mode("append")
+          .option("mergeSchema", "true")
+          .saveAsTable(RUN_LOG_TABLE))
+
+
+# ---- usage inside a load notebook ----
+started = datetime.now(timezone.utc)
+try:
+    metrics = incremental_merge_scd1(
+        spark,
+        source_table="brz.orders",
+        target_table="dbo.orders",
+        key_candidates=[["order_id"]],
+        watermark_cols=["last_modified_utc", "ingested_at_utc"],
+        delete_condition="is_deleted = true",
+    )
+    log_run(spark, "NB_SALES_SLV_LoadOrders", "dbo.orders", metrics["mode"],
+            metrics["rows_in_slice"], metrics["new_watermark"], "succeeded", started)
+except Exception as ex:
+    log_run(spark, "NB_SALES_SLV_LoadOrders", "dbo.orders", "unknown",
+            0, None, "failed", started, message=str(ex))
+    raise            # the pipeline activity must still fail</code></pre>
+    <div class="callout note"><p class="callout-title">Small appends create small files</p><p>Each append writes at least one small file. At a few hundred rows a day that is harmless; if it grows, batch the log writes in the orchestrator or compact the log table on a schedule.</p></div>
+    <div class="callout warning"><p class="callout-title">Notebook output is not protected by data security</p><p>Data security rules apply while a query runs. A cell that has already displayed query results keeps them in the notebook, where anyone who can open the notebook can see them. Do not display sensitive rows in shared notebooks, and clear outputs before committing.</p></div>
+
+    <h2 id="do-and-dont">Do and do not</h2>
+    <div class="pros-cons">
+      <div class="pros"><h4>Do</h4><ul>
+        <li>Keep rendered outputs tiny and behind a debug flag</li>
+        <li>Checkpoint data to Delta between steps</li>
+        <li>Modularize through libraries in an Environment</li>
+        <li>Keep parameters small and typed as simple values</li>
+        <li>Stop sessions at the end of automated runs</li>
+        <li>Watch executed-cell counts and nesting depth</li>
+        <li>Set per-cell timeouts and retries per DAG activity</li>
+        <li>Test with the identity that the schedule will use</li>
+      </ul></div>
+      <div class="cons"><h4>Do not</h4><ul>
+        <li>Pass large JSON payloads into notebook activities</li>
+        <li>Nest <code>%run</code> deeply</li>
+        <li>Render full tables or keep heavy images in a notebook</li>
+        <li>Rely on inline <code>%pip</code> in scheduled runs; it is off by default there and versions drift</li>
+        <li>Wrap <code>exit()</code> in try and except</li>
+        <li>Assume a notebook's own run limit overrides the pipeline activity limit</li>
+        <li>Print secrets or sensitive rows to the cell output</li>
+      </ul></div>
+    </div>
+
+    <h2 id="hard-limits">Hard limits to plan around</h2>
+    <p>Limits are grouped by where they apply. The figure shows how they stack for a notebook run by a pipeline; the table gives values and the design response.</p>
+<figure class="diagram">
+<svg class="dg" viewBox="0 0 900 312" role="img" aria-label="Limits stack across three levels: the pipeline activity, the notebook run and the Spark session; the smallest limit on the path governs the run">
+<rect class="box teal" x="10" y="14" width="280" height="222" rx="10"/>
+<text class="t-h" x="26" y="40">Pipeline activity</text>
+<text class="t-s" x="26" y="72">Timeout: plan for 24 hours</text>
+<text class="t-s" x="26" y="96">Payload per run: 896 KB</text>
+<text class="t-s" x="26" y="120">Pipeline object: 200 KB</text>
+<text class="t-s" x="26" y="144">Parameters: simple types only</text>
+<text class="t-s" x="26" y="168">Retry is set on the activity</text>
+<rect class="box blue" x="310" y="14" width="280" height="222" rx="10"/>
+<text class="t-h" x="326" y="40">Notebook run</text>
+<text class="t-s" x="326" y="72">Content and snapshot: 32 MB each</text>
+<text class="t-s" x="326" y="96">Rich table output: 10K rows or 5 MB</text>
+<text class="t-s" x="326" y="120">Executed cells per run: 256</text>
+<text class="t-s" x="326" y="144">%run depth 5, 1,000 cells total</text>
+<text class="t-s" x="326" y="168">runMultiple: 50 notebooks</text>
+<text class="t-s" x="326" y="192">Longest job: 7 days</text>
+<text class="t-s" x="326" y="216">Run history kept: 60 days</text>
+<rect class="box orange" x="610" y="14" width="280" height="222" rx="10"/>
+<text class="t-h" x="626" y="40">Spark session</text>
+<text class="t-s" x="626" y="72">Idle timeout: 20 minutes default</text>
+<text class="t-s" x="626" y="96">Executor sizes: 4 to 64 cores</text>
+<text class="t-s" x="626" y="120">(executors + 1) x cores per executor</text>
+<text class="t-s" x="626" y="144">Children share one session</text>
+<text class="t-s" x="626" y="168">DAG default: 12 hours, 90 s per cell</text>
+<rect class="box plain" x="10" y="252" width="880" height="48" rx="10"/>
+<text class="t-s" x="450" y="271.5" text-anchor="middle">The smallest limit on the path governs</text>
+<text class="t-s" x="450" y="288.5" text-anchor="middle">a notebook that may run for days is still stopped by the pipeline activity that calls it</text>
+</svg>
+<figcaption><b>Where each limit bites.</b> A notebook run inherits the limits of everything around it. When a pipeline calls a notebook, the pipeline activity limits sit on top of the notebook limits, and the smallest applicable value is the one to design to.</figcaption>
+</figure>
+    <table>
+      <thead><tr><th>Limit</th><th>Value</th><th>Design response</th></tr></thead>
+      <tbody>
+        <tr><td>Notebook content size</td><td>32 MB</td><td>Keep logic in libraries; do not embed data or images</td></tr>
+        <tr><td>Notebook snapshot size</td><td>32 MB, content plus rendered output</td><td>Small outputs; clear outputs before commit</td></tr>
+        <tr><td>Rich DataFrame table output</td><td>10,000 rows or 5 MB</td><td>Limit and aggregate before display</td></tr>
+        <tr><td>Resource storage (built-in and environment folders)</td><td>500 MB per folder, at most 100 files and folders; single file limit stated differently on two pages</td><td>Treat resources as small files; design to the stricter single-file figure</td></tr>
+        <tr><td>Executed code cells per notebook run</td><td>256</td><td>Split notebooks; chain them from a pipeline or DAG</td></tr>
+        <tr><td><code>%run</code> nesting</td><td>Depth up to 5; 1,000 referenced cells in total; same workspace only</td><td>Use libraries, not chains of notebooks</td></tr>
+        <tr><td>Concurrent notebooks in <code>runMultiple</code></td><td>Upper limit 50; default concurrency is three times the CPU cores</td><td>Set concurrency explicitly; split a large DAG</td></tr>
+        <tr><td>Longest notebook job run</td><td>7 days</td><td>Not the governing limit under a pipeline</td></tr>
+        <tr><td>Pipeline activity run: payload and object size</td><td>896 KB payload per activity run; 200 KB per pipeline object</td><td>Pass identifiers, not documents</td></tr>
+        <tr><td>Pipeline activity timeout</td><td>Stated inconsistently; see the callout</td><td>Plan for 24 hours; checkpoint and resume</td></tr>
+        <tr><td>Notebook job history</td><td>60 days</td><td>Keep your own run log</td></tr>
+        <tr><td>Session idle timeout</td><td>20 minutes by default; configurable per notebook and per workspace</td><td>Stop automated sessions explicitly</td></tr>
+        <tr><td><code>%%configure</code> sizes</td><td>Driver and executor memory and cores must match; supported executor sizes are (4 cores, 28g), (8, 56g), (16, 112g), (32, 224g) and (64, 400g); keep (executors + 1) x cores within capacity</td><td>Pick from the list; in a pipeline run put <code>%%configure</code> in the first cell</td></tr>
+        <tr><td>Items per workspace</td><td>1,000, parents and children counted</td><td>Consolidate notebooks; split workspaces by layer</td></tr>
+        <tr><td>Pipeline-to-notebook parameter types</td><td>int, float, bool, string</td><td>Serialize lists and dictionaries to a JSON string</td></tr>
+      </tbody>
+    </table>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>Three figures are stated inconsistently across pages. Pipeline activity timeout: the Data Factory limits table gives 24 hours as the maximum for a pipeline activity run, the activity overview describes a default of 12 hours and a maximum of seven days, and the pipeline definition reference states a different default. The single-file limit in resource storage is 100 MB on the notebook limitations page and 50 MB on the environment resources page. Plan for the stricter value in each case (24 hours, 50 MB) and test the limit you depend on in your own tenant. See <a href="https://learn.microsoft.com/fabric/data-factory/data-factory-limitations">Data Factory limitations overview</a>, <a href="https://learn.microsoft.com/fabric/data-factory/activity-overview">Activity overview</a>, <a href="https://learn.microsoft.com/fabric/data-engineering/notebook-limitation">Fabric Notebook known limitation</a> and <a href="https://learn.microsoft.com/fabric/data-engineering/environment-manage-resources">Manage the resources in a Fabric environment</a>.</p></div>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p>
+      <ul>
+        <li>Keep notebooks thin: parameters, one call into a library, a small exit value. Logic lives in an Environment library.</li>
+        <li>Use <code>runMultiple</code> for many small loads in one session and pipeline activities when you need isolation or per-step visibility. Set concurrency and per-cell timeouts deliberately.</li>
+        <li>Design to the governing limit: the smallest one on the path from pipeline activity to Spark session.</li>
+        <li>Log one compact row per load to Delta; run history does not last, and notebook outputs are not access controlled.</li>
+        <li>Consolidate notebooks after unit testing; every notebook counts against the workspace item cap.</li>
+      </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/author-execute-notebook">Develop, execute, and manage notebooks</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/notebookutils/notebookutils-notebook-run">NotebookUtils notebook run and orchestration</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/notebook-limitation">Fabric Notebook known limitation</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/notebook-activity">Notebook activity in pipelines</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/data-factory-limitations">Data Factory limitations overview</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/activity-overview">Activity overview</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/configure-high-concurrency-session-notebooks">Configure high concurrency mode for notebooks</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/using-python-experience-on-notebook">Use Python experience on Notebook</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/environment-manage-resources">Manage the resources in a Fabric environment</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/fundamentals/workspaces">Workspaces in Microsoft Fabric</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

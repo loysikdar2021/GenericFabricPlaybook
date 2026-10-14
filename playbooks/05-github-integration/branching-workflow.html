@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GitHub Flow for Fabric · GitHub Integration</title>
+<meta name="description" content="How GitHub Flow maps onto Fabric workspaces: branch naming, feature workspaces and branch-out, the pull-request process and its gates, bringing DEV up to date after a merge, and why data is never copied.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="05-github-integration" data-page="branching-workflow.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+
+    <header class="page-header">
+      <p class="eyebrow">Playbook 05 · GitHub Integration</p>
+      <h1>GitHub Flow for Fabric</h1>
+      <p class="lede">One branch is always deployable, every change starts on a short-lived branch, and nothing reaches that branch without a pull request. Fabric adds one twist: every branch that holds work in progress also gets its own workspace, and that workspace is where the work is actually done.</p>
+      <ul class="chips"><li><b>Audience</b> developers, reviewers, workspace admins</li><li><b>Use it for</b> daily workflow, branch naming, pull requests, cleanup</li></ul>
+    </header>
+
+    <h2 id="github-flow">GitHub Flow, adapted to workspaces</h2>
+    <p>GitHub Flow is deliberately small. It has three rules, and they fit analytics development well because most Fabric changes are modest, frequent and independently shippable:</p>
+    <ol>
+      <li><strong><code>main</code> is always deployable.</strong> It is the source of truth, and anything merged into it is safe to promote.</li>
+      <li><strong>All work happens on a descriptive, short-lived branch</strong> created from <code>main</code>.</li>
+      <li><strong>Changes return to <code>main</code> only through a pull request</strong>, which is where review, automated checks and discussion happen.</li>
+    </ol>
+    <p>Compared with Gitflow, there are no long-lived <code>develop</code>, <code>release</code> or <code>hotfix</code> branches to reconcile. Environments are not branches here: TST and PRD are reached by promoting what is in <code>main</code> (see the <a href="../07-deployment/index.html">deployment playbook</a>), not by merging into environment branches.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 880 320" role="img" aria-label="main branch connected to the DEV workspace by update arrows; a feature branch leaves main, passes through a pull request and merges back; the feature branch is connected to a feature workspace by commit and update arrows">
+        <defs>
+          <marker id="fig-bw-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar blue" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-bw-1-b" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar purple" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="zone" x="20" y="24" width="520" height="280" rx="14"/>
+        <text class="t-h" x="38" y="48">GitHub repository</text>
+        <rect class="zone blue" x="600" y="24" width="260" height="280" rx="14"/>
+        <text class="t-h" x="618" y="48">Fabric workspaces</text>
+        <path class="ln thick" d="M50 116H520"/>
+        <text class="t-m" x="52" y="102">main</text>
+        <circle class="dot" cx="90" cy="116" r="5"/>
+        <circle class="dot" cx="150" cy="116" r="5"/>
+        <circle class="dot" cx="420" cy="116" r="5"/>
+        <circle class="dot" cx="490" cy="116" r="5"/>
+        <path class="ln thick purple" d="M150 116L180 225H390L420 116"/>
+        <circle class="dot orange" cx="230" cy="225" r="5"/>
+        <circle class="dot orange" cx="300" cy="225" r="5"/>
+        <circle class="dot orange" cx="360" cy="225" r="5"/>
+        <text class="t-m" x="180" y="252">feature/1234-add-churn-model</text>
+        <rect class="box orange" x="215" y="148" width="140" height="42" rx="8"/>
+        <text class="t-b" x="285" y="166" text-anchor="middle">Pull request</text>
+        <text class="t-s" x="285" y="181" text-anchor="middle">review and merge</text>
+        <rect class="box blue" x="620" y="76" width="220" height="80" rx="10"/>
+        <text class="t-b" x="730" y="100" text-anchor="middle">DEV_SALES_BRZ</text>
+        <text class="t-s" x="730" y="120" text-anchor="middle">connected to main</text>
+        <text class="t-s" x="730" y="138" text-anchor="middle">promoted to TST and PRD</text>
+        <rect class="box purple" x="620" y="190" width="220" height="70" rx="10"/>
+        <text class="t-b" x="730" y="216" text-anchor="middle">DEV_SALES_BRZ_F1234</text>
+        <text class="t-s" x="730" y="236" text-anchor="middle">connected to the feature branch</text>
+        <path class="ln blue" d="M522 116H618" marker-end="url(#fig-bw-1-a)"/>
+        <rect class="pill-bg" x="540" y="94" width="60" height="16"/>
+        <text class="t-s" x="570" y="106" text-anchor="middle">update</text>
+        <path class="ln purple" d="M392 225H618" marker-start="url(#fig-bw-1-b)" marker-end="url(#fig-bw-1-b)"/>
+        <rect class="pill-bg" x="448" y="214" width="100" height="16"/>
+        <text class="t-s" x="498" y="226" text-anchor="middle">commit / update</text>
+      </svg>
+      <figcaption><b>Two workspaces, two branches.</b> The DEV workspace follows <code>main</code> and is only ever updated from it. Each piece of work gets its own branch and its own feature workspace, and returns to <code>main</code> through a pull request.</figcaption>
+    </figure>
+    <div class="callout important"><p class="callout-title">DEV follows main; it does not write to it</p><p>Once the <code>main</code> ruleset requires pull requests (see <a href="security-hardening.html#rulesets">rulesets</a>), a commit from the workspace connected to <code>main</code> is rejected, because Fabric pushes the commit straight to the connected branch with the user's own token. Treat that workspace as update-only: nobody edits items in it. Edits happen in feature workspaces and arrive through pull requests.</p></div>
+
+    <h2 id="naming">Branch naming</h2>
+    <p>A branch name is the first thing a reviewer sees. Make it carry the purpose and a pointer to the work item, and keep it boring enough to type.</p>
+    <table>
+      <thead><tr><th>Prefix</th><th>Use for</th><th>Example</th></tr></thead>
+      <tbody>
+        <tr><td><code>feature/</code></td><td>New capability or an enhancement</td><td><code>feature/1234-add-churn-model</code></td></tr>
+        <tr><td><code>bugfix/</code></td><td>Defect fix for something not yet in production</td><td><code>bugfix/1250-fix-sales-report-filter</code></td></tr>
+        <tr><td><code>hotfix/</code></td><td>Urgent production fix, expedited review</td><td><code>hotfix/1301-orders-load-timeout</code></td></tr>
+        <tr><td><code>chore/</code></td><td>Housekeeping: renames, cleanup, documentation</td><td><code>chore/1262-rename-gold-notebooks</code></td></tr>
+      </tbody>
+    </table>
+    <p>Recommended pattern: <code>&lt;prefix&gt;/&lt;work-item-id&gt;-&lt;short-description&gt;</code>, lowercase, hyphens between words.</p>
+    <ul>
+      <li><strong>Lead with the work item ID.</strong> It makes the branch traceable and sorts related branches together. A date in the name goes stale and says nothing about intent.</li>
+      <li><strong>Keep it short.</strong> Fabric accepts branch names up to 244 characters, but the name also appears in the workspace status bar and in PR lists.</li>
+      <li><strong>Use one slash only.</strong> Git cannot hold a branch named <code>feature</code> and another named <code>feature/x</code> at the same time. Never create a branch that equals a prefix.</li>
+      <li><strong>Avoid spaces and special characters.</strong> Branch names are carried through URLs, scripts and API calls.</li>
+    </ul>
+    <p>The feature workspace follows the house workspace convention with the work item as the qualifier: <code>DEV_SALES_BRZ_F1234</code> for the workspace that holds feature work on <code>DEV_SALES_BRZ</code>.</p>
+
+    <h2 id="feature-workspaces">Getting a feature workspace</h2>
+    <p>There are two ways to end up with a branch and a workspace connected to each other. Both produce the same result; they differ in who needs which permission.</p>
+    <table>
+      <thead><tr><th></th><th>Option A: Branch out</th><th>Option B: Pre-created workspace</th></tr></thead>
+      <tbody>
+        <tr><td><strong>How</strong></td><td>In the source control pane, <em>Branch out to another workspace</em>. Fabric creates the branch from the connected branch, creates the workspace, connects them and populates it.</td><td>Create the branch in GitHub, create or reuse a workspace, connect the workspace to the new branch, and sync.</td></tr>
+        <tr><td><strong>Needs</strong></td><td>Permission to create workspaces, available capacity, and the branch-out rights listed on the <a href="sync-and-items.html#branch-ops">sync page</a>.</td><td>A workspace admin to create and connect it. Contributors can reconnect an existing workspace only when the per-workspace branch-switching setting is enabled.</td></tr>
+        <tr><td><strong>Best when</strong></td><td>Developers can create workspaces themselves.</td><td>Workspace creation is restricted to an admin team: have them keep a small pool of empty, pre-connected workspaces and branch out into an existing one.</td></tr>
+        <tr><td><strong>Watch out</strong></td><td>Branching out into an <em>existing</em> workspace deletes items there that are not in Git. Commit anything worth keeping first.</td><td>An existing workspace must be empty or disposable for the same reason.</td></tr>
+      </tbody>
+    </table>
+    <p>Branch-out starts from what is committed on the source branch. Uncommitted work in the source workspace is not carried over, and neither are workspace settings, access assignments or data. The new workspace is a clean sandbox.</p>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>Branch-out gained several options that are marked preview on Microsoft Learn: selecting only some items (dependencies must be included), a branch workspace admin profile for who owns the new workspace, branching out with a deployment plan, and an API to record the relationship when you automate branch-out. Check <a href="https://learn.microsoft.com/fabric/cicd/git-integration/branched-workspace">Development process using branch workspace</a> for their present status before you build a process on them.</p></div>
+
+    <h2 id="feature-loop">The feature loop</h2>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 880 330" role="img" aria-label="Seven steps across three lanes: the developer branches out, a feature branch is created in GitHub, the developer commits in Fabric, opens a pull request, reviewers review and approve, the pull request is merged into main, and the DEV workspace is updated and the feature workspace cleaned up">
+        <defs>
+          <marker id="fig-bw-2-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="lane" x="10" y="36" width="860" height="76" rx="10"/>
+        <text class="t-h" x="24" y="70">Fabric</text>
+        <text class="t-s" x="24" y="88">workspaces</text>
+        <rect class="lane" x="10" y="138" width="860" height="76" rx="10"/>
+        <text class="t-h" x="24" y="172">GitHub</text>
+        <text class="t-s" x="24" y="190">repository</text>
+        <rect class="lane" x="10" y="240" width="860" height="76" rx="10"/>
+        <text class="t-h" x="24" y="274">People</text>
+        <text class="t-s" x="24" y="292">reviewers</text>
+        <rect class="box purple" x="143" y="48" width="114" height="52" rx="8"/>
+        <text class="t-b" x="200" y="70" text-anchor="middle">1 Branch out</text>
+        <text class="t-s" x="200" y="87" text-anchor="middle">from DEV</text>
+        <rect class="box gray" x="143" y="150" width="114" height="52" rx="8"/>
+        <text class="t-b" x="200" y="172" text-anchor="middle">2 Branch made</text>
+        <text class="t-s" x="200" y="189" text-anchor="middle">from main</text>
+        <rect class="box purple" x="265" y="48" width="114" height="52" rx="8"/>
+        <text class="t-b" x="322" y="70" text-anchor="middle">3 Develop</text>
+        <text class="t-s" x="322" y="87" text-anchor="middle">small commits</text>
+        <rect class="box orange" x="387" y="150" width="114" height="52" rx="8"/>
+        <text class="t-b" x="444" y="172" text-anchor="middle">4 Open PR</text>
+        <text class="t-s" x="444" y="189" text-anchor="middle">feature to main</text>
+        <rect class="box orange" x="509" y="252" width="114" height="52" rx="8"/>
+        <text class="t-b" x="566" y="274" text-anchor="middle">5 Review</text>
+        <text class="t-s" x="566" y="291" text-anchor="middle">checks, approve</text>
+        <rect class="box green" x="631" y="150" width="114" height="52" rx="8"/>
+        <text class="t-b" x="688" y="172" text-anchor="middle">6 Merge</text>
+        <text class="t-s" x="688" y="189" text-anchor="middle">main updated</text>
+        <rect class="box blue" x="753" y="48" width="114" height="52" rx="8"/>
+        <text class="t-b" x="810" y="70" text-anchor="middle">7 Update DEV</text>
+        <text class="t-s" x="810" y="87" text-anchor="middle">then clean up</text>
+        <path class="ln" d="M200 100V148" marker-end="url(#fig-bw-2-a)"/>
+        <path class="ln" d="M257 176H322V102" marker-end="url(#fig-bw-2-a)"/>
+        <path class="ln" d="M379 74H444V148" marker-end="url(#fig-bw-2-a)"/>
+        <path class="ln" d="M501 176H566V250" marker-end="url(#fig-bw-2-a)"/>
+        <path class="ln" d="M623 278H688V204" marker-end="url(#fig-bw-2-a)"/>
+        <path class="ln" d="M745 176H810V102" marker-end="url(#fig-bw-2-a)"/>
+      </svg>
+      <figcaption><b>One loop per piece of work.</b> If reviewers request changes, the loop returns to step 3: commit more to the same branch and the open pull request updates itself.</figcaption>
+    </figure>
+    <ol class="steps">
+      <li><strong>Start from a current DEV workspace.</strong><p>Before branching out, make sure the DEV workspace shows no pending updates. A feature that starts from an old commit begins life with conflicts.</p></li>
+      <li><strong>Branch out.</strong><p>Name the branch with the pattern above and the workspace with the qualifier. Wait for the sync to finish; it can take a few minutes for large workspaces.</p></li>
+      <li><strong>Develop in the feature workspace.</strong><p>Change items in the Fabric UI as usual. Commit small, logical groups of items with a message that says why, not only what. Several small commits review better than one large one.</p></li>
+      <li><strong>Test against isolated data.</strong><p>See <a href="#data-not-copied">Data is not copied</a>. A feature workspace that still points at shared DEV data is not isolated.</p></li>
+      <li><strong>Open a pull request into <code>main</code>.</strong><p>Describe the change and how it was tested. Details are in the <a href="#pull-request">pull-request section</a>.</p></li>
+      <li><strong>Respond to review in the same branch.</strong><p>Commit fixes from the feature workspace. Do not open a second pull request for the same work.</p></li>
+      <li><strong>Merge, then update DEV and clean up.</strong><p>See <a href="#after-merge">after the merge</a>.</p></li>
+    </ol>
+
+    <h2 id="pull-request">The pull-request process</h2>
+    <p>The pull request is where the repository's rules become visible. It is the one place where the author, the reviewers, the automated checks and the ruleset all meet.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 880 250" role="img" aria-label="Five gates a pull request passes in order: open, status checks, code owner review, approvals and conversations, merge; each gate has a red dashed box describing what blocks the merge there">
+        <defs>
+          <marker id="fig-bw-3-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box blue" x="20" y="40" width="140" height="64" rx="10"/>
+        <text class="t-b" x="90" y="68" text-anchor="middle">Open PR</text>
+        <text class="t-s" x="90" y="86" text-anchor="middle">feature into main</text>
+        <rect class="box teal" x="195" y="40" width="140" height="64" rx="10"/>
+        <text class="t-b" x="265" y="68" text-anchor="middle">Status checks</text>
+        <text class="t-s" x="265" y="86" text-anchor="middle">CI, scans, lint</text>
+        <rect class="box purple" x="370" y="40" width="140" height="64" rx="10"/>
+        <text class="t-b" x="440" y="68" text-anchor="middle">Code owners</text>
+        <text class="t-s" x="440" y="86" text-anchor="middle">per item folder</text>
+        <rect class="box orange" x="545" y="40" width="140" height="64" rx="10"/>
+        <text class="t-b" x="615" y="68" text-anchor="middle">Approvals</text>
+        <text class="t-s" x="615" y="86" text-anchor="middle">count and threads</text>
+        <rect class="box green" x="720" y="40" width="140" height="64" rx="10"/>
+        <text class="t-b" x="790" y="68" text-anchor="middle">Merge</text>
+        <text class="t-s" x="790" y="86" text-anchor="middle">squash by default</text>
+        <path class="ln" d="M162 72H193" marker-end="url(#fig-bw-3-a)"/>
+        <path class="ln" d="M337 72H368" marker-end="url(#fig-bw-3-a)"/>
+        <path class="ln" d="M512 72H543" marker-end="url(#fig-bw-3-a)"/>
+        <path class="ln" d="M687 72H718" marker-end="url(#fig-bw-3-a)"/>
+        <path class="ln dash red" d="M90 106V146"/>
+        <path class="ln dash red" d="M265 106V146"/>
+        <path class="ln dash red" d="M440 106V146"/>
+        <path class="ln dash red" d="M615 106V146"/>
+        <path class="ln dash red" d="M790 106V146"/>
+        <rect class="box red dashed" x="20" y="148" width="140" height="64" rx="10"/>
+        <text class="t-s" x="90" y="172" text-anchor="middle">Blocked by</text>
+        <text class="t-s" x="90" y="190" text-anchor="middle">conflicts with main</text>
+        <rect class="box red dashed" x="195" y="148" width="140" height="64" rx="10"/>
+        <text class="t-s" x="265" y="172" text-anchor="middle">Blocked by a</text>
+        <text class="t-s" x="265" y="190" text-anchor="middle">failed or missing check</text>
+        <rect class="box red dashed" x="370" y="148" width="140" height="64" rx="10"/>
+        <text class="t-s" x="440" y="172" text-anchor="middle">Blocked until an</text>
+        <text class="t-s" x="440" y="190" text-anchor="middle">owner has approved</text>
+        <rect class="box red dashed" x="545" y="148" width="140" height="64" rx="10"/>
+        <text class="t-s" x="615" y="172" text-anchor="middle">Blocked by too few</text>
+        <text class="t-s" x="615" y="190" text-anchor="middle">or open threads</text>
+        <rect class="box red dashed" x="720" y="148" width="140" height="64" rx="10"/>
+        <text class="t-s" x="790" y="172" text-anchor="middle">Direct pushes to</text>
+        <text class="t-s" x="790" y="190" text-anchor="middle">main are rejected</text>
+      </svg>
+      <figcaption><b>Gates in order.</b> The ruleset on <code>main</code> enforces the red conditions; reviewers and automation supply the evidence for each. Code owner review is covered in the <a href="../17-pr-notifications-codeowners/index.html">CODEOWNERS playbook</a>.</figcaption>
+    </figure>
+    <h3 id="open-pr">Opening the pull request</h3>
+    <ol>
+      <li>In the repository, open <strong>Pull requests</strong> and choose <strong>New pull request</strong>, or use the <strong>Compare &amp; pull request</strong> prompt that appears after a push.</li>
+      <li>Set the base to <code>main</code> and the compare branch to your feature branch.</li>
+      <li>Write a title that states the outcome, and fill in the description (template below).</li>
+      <li>Check the <strong>Files changed</strong> tab yourself first. A surprise in your own diff, such as a deleted folder or a changed <code>logicalId</code>, is cheaper to catch now.</li>
+      <li>Choose <strong>Create pull request</strong>. Use a draft pull request if you want early feedback before it is ready to merge.</li>
+    </ol>
+    <pre><code>## What and why
+Add churn-score notebook and wire it into the gold load pipeline.
+
+## Items changed
+- NB_SALES_GLD_ChurnScore (new)
+- PL_SALES_GLD_LoadAll (modified: new activity)
+
+## How it was tested
+Ran PL_SALES_GLD_LoadAll in the feature workspace against seeded test data.
+Row counts match the expected-results sheet.
+
+## Deployment notes
+No new connections. New variable library value: ChurnThreshold.
+Work item: 1234</code></pre>
+    <h3 id="review-focus">What reviewers look for in a Fabric diff</h3>
+    <p>Item definitions are text, so they can be reviewed, but the formatter produces noise. Knowing where the signal is makes reviews short.</p>
+    <table>
+      <thead><tr><th>Look at</th><th>Why</th></tr></thead>
+      <tbody>
+        <tr><td>Folders added or removed</td><td>Deleting an item folder deletes the item in DEV at the next update. For a lakehouse, that includes its data.</td></tr>
+        <tr><td><code>.platform</code> changes</td><td>A changed <code>logicalId</code> on an existing item breaks dependency binding. A changed display name renames the item and its folder.</td></tr>
+        <tr><td>Hard-coded IDs</td><td>Workspace, lakehouse, warehouse and connection GUIDs in pipelines and notebooks bind the item to one environment. They belong in variables or parameters.</td></tr>
+        <tr><td>Secrets and tokens</td><td>Credentials pasted into a notebook cell or a parameter file stay in history after they are deleted.</td></tr>
+        <tr><td>Semantic model definitions</td><td>Read the measure, relationship and partition changes. Large reorderings are the formatter, not the author.</td></tr>
+        <tr><td>Files outside item folders</td><td>Workflow, parameter and ownership files change how the pipeline and the review itself behave. Treat them as security-relevant.</td></tr>
+      </tbody>
+    </table>
+    <h3 id="merge-method">Merging</h3>
+    <table>
+      <thead><tr><th>Method</th><th>Result on <code>main</code></th><th>Fit</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Squash</strong></td><td>One commit per pull request, with a message you write.</td><td>Default for feature branches. Keeps history readable and makes a revert a single step.</td></tr>
+        <tr><td><strong>Merge commit</strong></td><td>All branch commits plus a merge commit.</td><td>When individual commits carry meaning and you want them preserved.</td></tr>
+        <tr><td><strong>Rebase</strong></td><td>Branch commits replayed onto <code>main</code>, no merge commit.</td><td>Linear history, but the commit IDs change, which confuses anyone still on the branch.</td></tr>
+      </tbody>
+    </table>
+    <p>Restrict the allowed methods in the ruleset so everyone merges the same way. The pull-request section of the ruleset page shows where.</p>
+
+    <h2 id="after-merge">After the merge</h2>
+    <ol class="steps">
+      <li><strong>Update the DEV workspace.</strong><p>Open Source control on the DEV workspace. It shows <em>Update required</em>. Review the <strong>Updates</strong> list, choose <strong>Update all</strong>, and confirm every item returns to <em>Synced</em>. Update is whole-branch, so the list also shows other people's merged work.</p></li>
+      <li><strong>Promote.</strong><p>DEV now matches <code>main</code>. Promotion to TST and PRD is the job of deployment pipelines or automation, covered in the <a href="../07-deployment/index.html">deployment playbook</a> and verified with its <a href="../14-deployment-checklist/index.html">checklist</a>.</p></li>
+      <li><strong>Delete the feature workspace.</strong><p>Its job is over, and every leftover workspace is capacity and clutter. Disconnect or delete it <em>before</em> deleting the branch.</p></li>
+      <li><strong>Delete the feature branch.</strong><p>Use <strong>Delete branch</strong> on the merged pull request. A workspace that is still connected to a deleted branch can no longer commit or update.</p></li>
+      <li><strong>Start the next change from a new branch.</strong><p>Never reuse a merged branch. After a squash merge, its history no longer matches <code>main</code>, and further commits on it produce conflicts.</p></li>
+    </ol>
+    <p>The same cleanup applies to the safety-net clone workspaces created during the first connection (see <a href="connect-safely.html#backup-clone">the backup clone</a>): delete them once source control is stable and the baseline is proven.</p>
+    <h3 id="stay-current">Keeping a long-running branch current</h3>
+    <p>Short branches rarely need this. If <code>main</code> moves while your pull request is open, GitHub shows the branch as out of date. Use <strong>Update branch</strong> on the pull request to merge <code>main</code> into the feature branch, then run <strong>Update all</strong> in the feature workspace to receive the result. If two people changed the same item, resolve it as described on the <a href="sync-and-items.html#conflicts">conflict section</a>; prefer small, frequent pull requests over heroic merges of notebooks and pipelines.</p>
+
+    <h2 id="data-not-copied">Data is not copied</h2>
+    <div class="callout important"><p class="callout-title">Branch-out copies definitions, never data</p><p>A new feature workspace has item definitions, and lakehouses and warehouses in it are empty. A notebook that is bound to a specific lakehouse or workspace by ID keeps pointing at the original, so a test run in the "isolated" feature workspace can read, and write, shared DEV data.</p></div>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 880 320" role="img" aria-label="Left: after branch-out the notebook in the feature workspace still points at the real DEV lakehouse. Right: parameterised notebook reads a variable library and uses a feature-only lakehouse seeded with sample data">
+        <defs>
+          <marker id="fig-bw-4-r" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar red" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-bw-4-g" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="zone red" x="20" y="24" width="400" height="282" rx="14"/>
+        <text class="t-h" x="38" y="48">Default after branch-out</text>
+        <rect class="box purple" x="40" y="70" width="170" height="170" rx="10"/>
+        <text class="t-b" x="125" y="92" text-anchor="middle">DEV_SALES_BRZ_F1234</text>
+        <rect class="box plain" x="54" y="106" width="142" height="46" rx="8"/>
+        <text class="t-b" x="125" y="126" text-anchor="middle">NB_SALES_BRZ_Load</text>
+        <text class="t-s" x="125" y="142" text-anchor="middle">default lakehouse</text>
+        <rect class="box gray dashed" x="54" y="168" width="142" height="56" rx="8"/>
+        <text class="t-b" x="125" y="192" text-anchor="middle">LH_SALES_BRZ</text>
+        <text class="t-s" x="125" y="208" text-anchor="middle">empty copy, unused</text>
+        <rect class="box blue" x="250" y="70" width="150" height="170" rx="10"/>
+        <text class="t-b" x="325" y="92" text-anchor="middle">DEV_SALES_BRZ</text>
+        <rect class="box teal" x="262" y="106" width="126" height="64" rx="8"/>
+        <text class="t-b" x="325" y="134" text-anchor="middle">LH_SALES_BRZ</text>
+        <text class="t-s" x="325" y="152" text-anchor="middle">real DEV data</text>
+        <path class="ln red thick" d="M198 128H230V138H260" marker-end="url(#fig-bw-4-r)"/>
+        <text class="t-s c-red" x="220" y="268" text-anchor="middle">The notebook still points at the DEV lakehouse,</text>
+        <text class="t-s c-red" x="220" y="286" text-anchor="middle">so a test run can overwrite shared data.</text>
+        <rect class="zone green" x="460" y="24" width="400" height="282" rx="14"/>
+        <text class="t-h" x="478" y="48">Isolated by design</text>
+        <rect class="box purple" x="480" y="70" width="170" height="170" rx="10"/>
+        <text class="t-b" x="565" y="92" text-anchor="middle">DEV_SALES_BRZ_F1234</text>
+        <rect class="box plain" x="494" y="106" width="142" height="46" rx="8"/>
+        <text class="t-b" x="565" y="126" text-anchor="middle">NB_SALES_BRZ_Load</text>
+        <text class="t-s" x="565" y="142" text-anchor="middle">parameter-driven</text>
+        <rect class="box green" x="494" y="170" width="142" height="56" rx="8"/>
+        <text class="t-b" x="565" y="194" text-anchor="middle">LH_SALES_BRZ</text>
+        <text class="t-s" x="565" y="210" text-anchor="middle">feature-only data</text>
+        <path class="ln green thick" d="M565 154V168" marker-end="url(#fig-bw-4-g)"/>
+        <rect class="box teal" x="690" y="100" width="150" height="56" rx="10"/>
+        <text class="t-b" x="765" y="124" text-anchor="middle">Variable library</text>
+        <text class="t-s" x="765" y="142" text-anchor="middle">feature values</text>
+        <path class="ln green" d="M688 128H638" marker-end="url(#fig-bw-4-g)"/>
+        <rect class="box orange" x="690" y="170" width="150" height="56" rx="10"/>
+        <text class="t-b" x="765" y="194" text-anchor="middle">Seed job</text>
+        <text class="t-s" x="765" y="210" text-anchor="middle">sample data</text>
+        <path class="ln green" d="M688 198H638" marker-end="url(#fig-bw-4-g)"/>
+        <text class="t-s c-green" x="660" y="268" text-anchor="middle">Point the item at the feature workspace,</text>
+        <text class="t-s c-green" x="660" y="286" text-anchor="middle">then fill it with a safe, small data set.</text>
+      </svg>
+      <figcaption><b>Isolation is something you build.</b> Definitions branch automatically; data and bindings do not. Without parameters and seeding, the feature workspace is only an isolated copy of the code.</figcaption>
+    </figure>
+    <p>Two practices make a feature workspace honest:</p>
+    <ol>
+      <li><strong>Make every item environment-aware.</strong> No hard-coded workspace names, lakehouse IDs or connection strings. Read them from environment configuration; <a href="../09-variable-libraries/index.html">variable libraries</a> are the Fabric mechanism for this. A feature workspace then resolves to its own values.</li>
+      <li><strong>Seed the data.</strong> A script or pipeline, triggered when the feature workspace is created, loads a small, anonymised and representative data set. Test data must not contain real personal or confidential data.</li>
+    </ol>
+    <p>Also remember that the new branch does not carry over workspace-level settings and access. Reapply anything your organisation requires on the feature workspace, such as roles and sensitivity labels.</p>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p><ul>
+      <li>Environments are workspaces, not branches. <code>main</code> feeds DEV, and promotion carries it onward.</li>
+      <li>DEV follows <code>main</code> and is update-only; all editing happens in feature workspaces connected to feature branches.</li>
+      <li>Name branches <code>prefix/work-item-short-description</code> and use the work item as the workspace qualifier.</li>
+      <li>One branch, one pull request, one merge. Delete the feature workspace before the branch, and never reuse a merged branch.</li>
+      <li>Review Fabric diffs for deleted folders, changed <code>logicalId</code> values, hard-coded IDs and secrets.</li>
+      <li>Branch-out copies definitions only. Parameterise the bindings and seed test data, or the sandbox is not a sandbox.</li>
+    </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/fabric/cicd/git-integration/branched-workspace">Development process using branch workspace</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/cicd/git-integration/manage-branches">Manage branches in Fabric workspaces</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/cicd/git-integration/git-integration-process">Basic concepts in Git integration</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/cicd/best-practices-cicd">Best practices for lifecycle management in Fabric</a></li>
+        <li><a href="https://docs.github.com/get-started/using-github/github-flow">GitHub flow</a></li>
+        <li><a href="https://docs.github.com/repositories/configuring-branches-and-merges-in-your-repository/configuring-pull-request-merges/about-merge-methods-on-github">About merge methods on GitHub</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

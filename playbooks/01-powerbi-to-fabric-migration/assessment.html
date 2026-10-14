@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Assessment and rationalization · Power BI to Fabric</title>
+<meta name="description" content="Inventory a Power BI estate with the scanner and activity APIs, respect activity-log retention limits, classify assets with a decision tree, and produce a signed-off report rationalization matrix.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="01-powerbi-to-fabric-migration" data-page="assessment.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 01 · Power BI to Fabric</p>
+      <h1>Legacy assessment and rationalization</h1>
+      <p class="lede">Before anything is rebuilt, know what exists, who uses it and what it costs to keep. This page shows how to automate the inventory, work around the short retention of activity data, decide per asset with an explicit tree, and capture the result in a matrix that business and IT sign.</p>
+      <ul class="chips"><li><b>Phase</b> I · Foundation</li><li><b>Audience</b> program managers, BI leads, business owners, Fabric admins</li><li><b>Output</b> signed-off rationalization matrix and migration backlog</li></ul>
+    </header>
+
+    <h2 id="why">Why this step is mandatory</h2>
+    <p>The most common migration mistake is to migrate every asset. It carries forward years of duplicated reports, abandoned models and logic no one can explain, and it makes the project several times larger than it needs to be. A data-driven rationalization is the cheapest scope reduction available, and it also gives the sponsor an auditable answer to "why did you retire my report?"</p>
+    <p>Treat the inventory as a small data product in its own right: collected automatically, refreshed during the project, and used again at decommissioning to prove that nothing was left behind.</p>
+
+    <h2 id="inventory">Step 1: Build the inventory automatically</h2>
+    <p>No single source tells you everything. Combine four, each with its own strengths and limits.</p>
+    <table>
+      <thead><tr><th>Source</th><th>Gives you</th><th>Limits to plan for</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Scanner (metadata scanning) API</strong></td><td>Workspaces, reports, semantic models, dataflows, dashboards; lineage; data sources; optionally table, column, measure and expression detail and item users.</td><td>Up to 100 workspaces per request; a scan is requested, polled, then read; results are available for a limited time; requires admin API access, optionally with service principals and two admin-API tenant settings for detailed metadata.</td></tr>
+        <tr><td><strong>Activity events API</strong></td><td>Who did what: views, shares, exports, refreshes, app installs.</td><td>About 28 days of history; one UTC day per request; paged with continuation tokens; a rate limit of 200 requests per hour; requires a Fabric administrator.</td></tr>
+        <tr><td><strong>Purview audit log</strong></td><td>Fabric and Power BI activities with longer retention.</td><td>Retention depends on your audit license and policies; the default for Fabric and Power BI records is 180 days. Extraction is a separate process from the activity events API.</td></tr>
+        <tr><td><strong>Capacity Metrics app</strong></td><td>CU consumption per item on the P capacity: which refreshes and queries are expensive.</td><td>Limited history; export what you need. It describes cost, not business value.</td></tr>
+      </tbody>
+    </table>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 300" role="img" aria-label="Four sources feed raw files into an inventory lakehouse; a notebook joins, scores and classifies them; the result is the rationalization matrix, which stakeholder workshops validate and sign off">
+        <defs>
+          <marker id="fig-asm-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-asm-1-p" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar purple" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box gray" x="10" y="20" width="240" height="52" rx="8"/>
+        <text class="t-b" x="130" y="42" text-anchor="middle">Scanner API</text><text class="t-s" x="130" y="60" text-anchor="middle">items, lineage, data sources</text>
+        <rect class="box gray" x="10" y="88" width="240" height="52" rx="8"/>
+        <text class="t-b" x="130" y="110" text-anchor="middle">Activity events API</text><text class="t-s" x="130" y="128" text-anchor="middle">views; keeps only 28 days</text>
+        <rect class="box gray" x="10" y="156" width="240" height="52" rx="8"/>
+        <text class="t-b" x="130" y="178" text-anchor="middle">Purview audit log</text><text class="t-s" x="130" y="196" text-anchor="middle">longer history, license-dependent</text>
+        <rect class="box gray" x="10" y="224" width="240" height="52" rx="8"/>
+        <text class="t-b" x="130" y="246" text-anchor="middle">Capacity Metrics app</text><text class="t-s" x="130" y="264" text-anchor="middle">CU consumption per item</text>
+        <path class="ln" d="M250 46H290"/>
+        <path class="ln" d="M250 114H290"/>
+        <path class="ln" d="M250 182H290"/>
+        <path class="ln" d="M250 250H290"/>
+        <path class="ln" d="M290 46V250"/>
+        <path class="ln" d="M290 148H328" marker-end="url(#fig-asm-1-a)"/>
+        <rect class="box bronze" x="330" y="98" width="150" height="100" rx="10"/>
+        <text class="t-b" x="405" y="140" text-anchor="middle">Inventory lakehouse</text>
+        <text class="t-s" x="405" y="160" text-anchor="middle">raw JSON and CSV</text>
+        <rect class="box blue" x="540" y="98" width="130" height="100" rx="10"/>
+        <text class="t-b" x="605" y="132" text-anchor="middle">Notebook</text>
+        <text class="t-s" x="605" y="152" text-anchor="middle">join, score,</text>
+        <text class="t-s" x="605" y="168" text-anchor="middle">classify</text>
+        <rect class="box accent" x="730" y="98" width="160" height="100" rx="10"/>
+        <text class="t-h t-w" x="810" y="136" text-anchor="middle">Rationalization</text>
+        <text class="t-h t-w" x="810" y="154" text-anchor="middle">matrix</text>
+        <text class="t-s t-w" x="810" y="174" text-anchor="middle">signed off</text>
+        <path class="ln" d="M480 148H538" marker-end="url(#fig-asm-1-a)"/>
+        <path class="ln" d="M670 148H728" marker-end="url(#fig-asm-1-a)"/>
+        <text class="t-s" x="509" y="140" text-anchor="middle">read</text>
+        <text class="t-s" x="699" y="140" text-anchor="middle">write</text>
+        <rect class="box purple" x="730" y="228" width="160" height="48" rx="10"/>
+        <text class="t-b" x="810" y="249" text-anchor="middle">Stakeholder</text><text class="t-b" x="810" y="265" text-anchor="middle">workshops</text>
+        <path class="ln purple" d="M810 228V200" marker-end="url(#fig-asm-1-p)"/>
+        <text class="t-s" x="818" y="218">validate</text>
+      </svg>
+      <figcaption><b>Inventory pipeline.</b> Land raw payloads first and transform later, so a change in an API response never forces you to re-collect history you can no longer retrieve.</figcaption>
+    </figure>
+
+    <h3 id="retention">The retention trap</h3>
+    <p>A common plan is to review report views over 90 to 120 days. The activity events API cannot supply that: it keeps roughly four weeks, and the built-in usage and adoption reports in the admin monitoring workspace reflect a rolling 30-day window. A periodic report (a quarterly pack, a year-end report) can look unused for the whole window and still be critical.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 272" role="img" aria-label="Bar chart of history needed versus history available: the activity events API holds 28 days, the default Purview audit retention is 180 days, a quarter of history is about 90 days, and your own daily export reaches 90 days after about 13 weeks">
+        <text class="t-s" x="210" y="20">Days of history, drawn to scale</text>
+        <text class="t-b" x="10" y="58">Activity events API</text>
+        <rect class="box orange" x="210" y="40" width="98" height="26" rx="6"/><text class="t-s" x="259" y="57" text-anchor="middle">28 days</text>
+        <text class="t-b" x="10" y="108">Purview audit, default</text>
+        <rect class="box blue" x="210" y="90" width="630" height="26" rx="6"/><text class="t-s" x="525" y="107" text-anchor="middle">180 days; longer only with Audit Premium retention policies</text>
+        <text class="t-b" x="10" y="158">History you need</text>
+        <rect class="box purple" x="210" y="140" width="315" height="26" rx="6"/><text class="t-s" x="367" y="157" text-anchor="middle">at least one full business cycle (about 90 days)</text>
+        <text class="t-b" x="10" y="208">Your own daily export</text>
+        <rect class="box green dashed" x="210" y="190" width="315" height="26" rx="6"/><text class="t-s" x="367" y="207" text-anchor="middle">starts in week 1; reaches 90 days in about 13 weeks</text>
+        <path class="ln thin" d="M210 232H840"/>
+        <text class="t-s" x="210" y="252" text-anchor="middle">0</text>
+        <text class="t-s" x="308" y="252" text-anchor="middle">28</text>
+        <text class="t-s" x="525" y="252" text-anchor="middle">90</text>
+        <text class="t-s" x="840" y="252" text-anchor="middle">180 days</text>
+      </svg>
+      <figcaption><b>Start the export on day one.</b> The only way to build a 90-day window from the activity API is to begin collecting now. If the project cannot wait, use the audit log and confirm its retention for your license.</figcaption>
+    </figure>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>Retention, rate limits and the tenant settings that gate detailed metadata change over time. Confirm them in <a href="https://learn.microsoft.com/power-bi/guidance/admin-activity-log">Access the Power BI activity log</a>, <a href="https://learn.microsoft.com/purview/audit-log-retention-policies">Manage audit log retention policies</a>, <a href="https://learn.microsoft.com/fabric/admin/feature-usage-adoption">Feature usage and adoption report</a> and <a href="https://learn.microsoft.com/fabric/admin/metadata-scanning-setup">Set up metadata scanning</a>.</p></div>
+
+    <h3 id="inventory-scripts">Collection scripts</h3>
+    <div class="tabs">
+      <div class="tab" data-title="Daily activity export">
+<pre data-title="PowerShell · schedule daily, as a Fabric administrator or permitted service principal"><code class="language-powershell">Connect-PowerBIServiceAccount
+
+$outDir = '.\pbi-activity'
+New-Item -ItemType Directory -Force -Path $outDir | Out-Null
+
+# Yesterday, as a full UTC day. The API accepts one UTC day per request.
+$day   = [datetime]::UtcNow.Date.AddDays(-1)
+$label = $day.ToString('yyyy-MM-dd')
+
+$events = Get-PowerBIActivityEvent `
+    -StartDateTime ($label + 'T00:00:00.000') `
+    -EndDateTime   ($label + 'T23:59:59.999')
+
+# Keep the raw JSON; transform later (ELT).
+$events | Out-File (Join-Path $outDir "activity-$label.json")</code></pre>
+      </div>
+      <div class="tab" data-title="Workspace scan">
+<pre data-title="PowerShell · scanner API, up to 100 workspaces per call"><code class="language-powershell">$ids  = @('<workspace-id-1>', '<workspace-id-2>')
+$body = @{ workspaces = $ids } | ConvertTo-Json
+
+$scan = Invoke-PowerBIRestMethod -Method Post -Body $body `
+    -Url 'admin/workspaces/getInfo?lineage=True&amp;datasourceDetails=True&amp;datasetSchema=True&amp;datasetExpressions=True&amp;getArtifactUsers=True' |
+    ConvertFrom-Json
+
+do {
+    Start-Sleep -Seconds 30
+    $status = Invoke-PowerBIRestMethod -Method Get -Url "admin/workspaces/scanStatus/$($scan.id)" |
+        ConvertFrom-Json
+} while ($status.status -in 'NotStarted', 'Running')
+
+if ($status.status -eq 'Succeeded') {
+    Invoke-PowerBIRestMethod -Method Get -Url "admin/workspaces/scanResult/$($scan.id)" |
+        Out-File ".\scan-$($scan.id).json"
+}</code></pre>
+      </div>
+      <div class="tab" data-title="Usage rollup">
+<pre data-title="PySpark · notebook, after the daily files are landed in the lakehouse Files area"><code class="language-python">from pyspark.sql import functions as F
+
+# One JSON array per day, written by the export script.
+events = spark.read.option("multiLine", True).json("Files/pbi_activity/*.json")
+
+report_usage = (
+    events
+    .filter(F.col("Activity") == "ViewReport")
+    .groupBy("WorkspaceId", "WorkSpaceName", "ReportId", "ReportName", "DatasetId")
+    .agg(
+        F.count("*").alias("views"),
+        F.countDistinct("UserId").alias("distinct_users"),
+        F.max("CreationTime").alias("last_viewed"),
+    )
+)
+
+report_usage.write.mode("overwrite").saveAsTable("inv_report_usage")</code></pre>
+      </div>
+    </div>
+    <p>For an exact-date inventory snapshot, store the scan results as dated partitions in your lake. The scanner returns current state, so only your own history shows what changed.</p>
+
+    <h2 id="analysis">Step 2: Usage and performance analysis</h2>
+    <p>Views are the headline signal, but not the only one. Combine them with what the scan and capacity data tell you.</p>
+    <table>
+      <thead><tr><th>Signal</th><th>What it tells you</th><th>Blind spot</th></tr></thead>
+      <tbody>
+        <tr><td>Views and distinct viewers in the window</td><td>Real demand. Many views from one person is a different story than many viewers.</td><td>Misses seasonal reports and consumers who use apps, subscriptions, embedded views or Analyze in Excel.</td></tr>
+        <tr><td>Last viewed, last modified, last refreshed</td><td>Dormant assets and abandoned owners.</td><td>A scheduled refresh keeps running on unused models and can hide their abandonment.</td></tr>
+        <tr><td>Semantic-model consumers</td><td>Which models serve several reports, Excel workbooks or other models; the real unit of migration.</td><td>Dependencies through live connections to other models and external XMLA clients.</td></tr>
+        <tr><td>CU consumption per item</td><td>Expensive refreshes and queries; candidates for modernization.</td><td>Cost is not value.</td></tr>
+        <tr><td>Refresh health and gateway dependence</td><td>Fragile or on-premises-bound assets that drive effort.</td><td>Only covers scheduled refresh.</td></tr>
+        <tr><td>Complexity indicators</td><td>Data sources, M steps, measures, calculated tables, security roles, composite models, custom visuals.</td><td>Needs the model scan or the reverse-engineering tools to measure.</td></tr>
+        <tr><td>Owner and sensitivity</td><td>Whether anyone can answer questions about it; which controls apply.</td><td>Owners often left; confirm through workshops.</td></tr>
+      </tbody>
+    </table>
+    <p>Classify with these signals as parameters, not hard-coded rules: set the usage thresholds with the business, and apply them with a notebook so you can rerun when the window grows.</p>
+    <table>
+      <thead><tr><th>Class</th><th>Typical rule (tune with owners)</th><th>Default action</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Critical</strong></td><td>High views and distinct viewers, or flagged by an owner as operational, executive or regulatory.</td><td>Prioritize for rebuild or modernize; assign P1.</td></tr>
+        <tr><td><strong>Redundant</strong></td><td>Multiple assets with the same purpose, sources or measure definitions.</td><td>Consolidate into a survivor.</td></tr>
+        <tr><td><strong>Unused or obsolete</strong></td><td>Zero or negligible views across a full cycle and no owner objection.</td><td>Retire after confirmation.</td></tr>
+        <tr><td><strong>Dormant but protected</strong></td><td>Low views, but periodic, regulatory or archival.</td><td>Reassign as is; place on an exception register.</td></tr>
+        <tr><td><strong>Shadow</strong></td><td>Assets in personal workspaces or unmanaged sources with real usage.</td><td>Bring into a governed workspace or retire.</td></tr>
+      </tbody>
+    </table>
+    <div class="callout tip"><p class="callout-title">Include personal workspaces</p><p>Personal workspaces can be assigned to a capacity like any other workspace, and the inventory should include them. They are where the shadow assets live, and where a surprising number of executive reports are published from.</p></div>
+
+    <h2 id="decision-tree">Step 3: Decide with an explicit tree</h2>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 412" role="img" aria-label="Rationalization decision tree: if unused retire; if duplicated consolidate into a survivor; if logic is sound and the source stable reassign; if not, rebuild when high value, otherwise defer and log the debt">
+        <defs>
+          <marker id="fig-asm-2-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box purple" x="20" y="14" width="290" height="54" rx="27"/>
+        <text class="t-b" x="165" y="46" text-anchor="middle">Used in the window, or flagged critical?</text>
+        <rect class="box purple" x="20" y="94" width="290" height="54" rx="27"/>
+        <text class="t-b" x="165" y="126" text-anchor="middle">Does another asset already serve it?</text>
+        <rect class="box purple" x="20" y="174" width="290" height="54" rx="27"/>
+        <text class="t-b" x="165" y="206" text-anchor="middle">Logic sound and source stable?</text>
+        <rect class="box purple" x="20" y="254" width="290" height="54" rx="27"/>
+        <text class="t-b" x="165" y="286" text-anchor="middle">High value (priority P1 or P2)?</text>
+        <path class="ln" d="M165 68V92" marker-end="url(#fig-asm-2-a)"/>
+        <path class="ln" d="M165 148V172" marker-end="url(#fig-asm-2-a)"/>
+        <path class="ln" d="M165 228V252" marker-end="url(#fig-asm-2-a)"/>
+        <path class="ln" d="M165 308V332" marker-end="url(#fig-asm-2-a)"/>
+        <text class="t-s c-green" x="173" y="84">yes</text>
+        <text class="t-s c-red" x="173" y="164">no</text>
+        <text class="t-s c-red" x="173" y="244">no</text>
+        <text class="t-s c-red" x="173" y="324">no</text>
+        <rect class="box gray" x="400" y="14" width="230" height="54" rx="10"/>
+        <text class="t-b" x="515" y="38" text-anchor="middle">Retire</text><text class="t-s" x="515" y="56" text-anchor="middle">after the owner confirms</text>
+        <rect class="box orange" x="400" y="94" width="230" height="54" rx="10"/>
+        <text class="t-b" x="515" y="118" text-anchor="middle">Consolidate</text><text class="t-s" x="515" y="136" text-anchor="middle">merge, then re-enter at the third gate</text>
+        <rect class="box blue" x="400" y="174" width="230" height="54" rx="10"/>
+        <text class="t-b" x="515" y="198" text-anchor="middle">Reassign as is</text><text class="t-s" x="515" y="216" text-anchor="middle">rebind or modernize if useful</text>
+        <rect class="box green" x="400" y="254" width="230" height="54" rx="10"/>
+        <text class="t-b" x="515" y="278" text-anchor="middle">Rebuild</text><text class="t-s" x="515" y="296" text-anchor="middle">use priority to sequence</text>
+        <rect class="box gray dashed" x="20" y="334" width="290" height="54" rx="10"/>
+        <text class="t-b" x="165" y="358" text-anchor="middle">Defer and log the debt</text><text class="t-s" x="165" y="376" text-anchor="middle">revisit at the next review</text>
+        <path class="ln" d="M310 41H398" marker-end="url(#fig-asm-2-a)"/>
+        <path class="ln" d="M310 121H398" marker-end="url(#fig-asm-2-a)"/>
+        <path class="ln" d="M310 201H398" marker-end="url(#fig-asm-2-a)"/>
+        <path class="ln" d="M310 281H398" marker-end="url(#fig-asm-2-a)"/>
+        <text class="t-s c-red" x="354" y="32" text-anchor="middle">no</text>
+        <text class="t-s c-green" x="354" y="112" text-anchor="middle">yes</text>
+        <text class="t-s c-green" x="354" y="192" text-anchor="middle">yes</text>
+        <text class="t-s c-green" x="354" y="272" text-anchor="middle">yes</text>
+        <rect class="box" x="670" y="110" width="220" height="116" rx="10"/>
+        <text class="t-s" x="780" y="138" text-anchor="middle">Record every outcome and the</text>
+        <text class="t-s" x="780" y="154" text-anchor="middle">reason in the matrix.</text>
+        <text class="t-s" x="780" y="178" text-anchor="middle">Only the survivor of a</text>
+        <text class="t-s" x="780" y="194" text-anchor="middle">consolidation reaches the</text>
+        <text class="t-s" x="780" y="210" text-anchor="middle">third and fourth gates.</text>
+      </svg>
+      <figcaption><b>Four gates, five outcomes.</b> This tree expands the per-asset decision from the <a href="strategy-licensing.html#migration-paths">strategy page</a>: it adds the consolidation step and the deferral that keeps low-value, messy assets from consuming the rebuild budget.</figcaption>
+    </figure>
+
+    <h2 id="stakeholders">Step 4: Validate with stakeholders</h2>
+    <p>Usage data is a strong argument, not the final one. For each business area hold a short working session with the report owners and a few heavy consumers.</p>
+    <ul>
+      <li><strong>Agenda.</strong> Review the proposed outcome for each asset; surface low-use assets that are critical; agree the owner for every survivor; agree the decommissioning window and how users will be told.</li>
+      <li><strong>Outputs.</strong> Corrected decisions, an exception register of protected dormant assets, named business and technical owners, and acceptance criteria for rebuilds (the metrics that must reconcile).</li>
+      <li><strong>Rules.</strong> Nobody is surprised: a retirement is announced before it happens, with a path to object. An owner who cannot be found is a finding in itself.</li>
+    </ul>
+
+    <h2 id="matrix">Step 5: The Report Inventory and Rationalization Matrix</h2>
+    <p>The matrix is the single source of truth for scope. Business and IT leadership sign it, and later changes go through a change log. The rows below are fictional examples; owner and date cells are placeholders.</p>
+    <table>
+      <thead><tr><th>Report</th><th>Workspace</th><th>Business area</th><th>Business owner</th><th>Technical owner</th><th>Last accessed</th><th>Views in window</th><th>Data sources</th><th>Complexity</th><th>Decision</th><th>Priority</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td>Quarterly Sales Summary</td><td>Sales Analytics</td><td>Sales</td><td>Owner A</td><td>Developer B</td><td>&lt;date&gt;</td><td>15,230</td><td>CRM, spreadsheet</td><td>High</td><td>Rebuild</td><td>P1</td><td>Executive review; logic undocumented</td></tr>
+        <tr><td>Regional Sales v1</td><td>Sales Analytics</td><td>Sales</td><td>Owner A</td><td>Developer B</td><td>&lt;date&gt;</td><td>1,200</td><td>CRM</td><td>Medium</td><td>Consolidate</td><td>P1</td><td>Merge with v2 and v3 into one report</td></tr>
+        <tr><td>Old Campaign ROI</td><td>Marketing</td><td>Marketing</td><td>Owner C</td><td>Developer D</td><td>&lt;date&gt;</td><td>0</td><td>Marketing automation</td><td>Low</td><td>Retire</td><td>P3</td><td>Obsolete campaign; owner confirmed</td></tr>
+        <tr><td>Daily Ops Tracker</td><td>Operations</td><td>Operations</td><td>Owner E</td><td>Developer F</td><td>&lt;date&gt;</td><td>850</td><td>Azure SQL</td><td>Medium</td><td>Rebuild</td><td>P2</td><td>Rebuild on the consumption warehouse</td></tr>
+        <tr><td>Finance Close Pack</td><td>Finance</td><td>Finance</td><td>Owner G</td><td>Developer H</td><td>&lt;date&gt;</td><td>120</td><td>ERP extract</td><td>Medium</td><td>Reassign</td><td>P2</td><td>Low use but periodic and regulatory; exception register</td></tr>
+      </tbody>
+    </table>
+
+    <h3 id="matrix-definitions">Column and value definitions</h3>
+    <table>
+      <thead><tr><th>Field</th><th>Definition and source</th></tr></thead>
+      <tbody>
+        <tr><td>Report, workspace</td><td>From the scanner API. Use item IDs as the key; names change.</td></tr>
+        <tr><td>Business area, owners</td><td>From workshops and the domain list. Name a person or group, never a team alias that nobody monitors.</td></tr>
+        <tr><td>Last accessed, views in window</td><td>From your accumulated activity export or the audit log. State the window length in the sheet header.</td></tr>
+        <tr><td>Data sources</td><td>From scanner data-source details. Flag gateway-bound and on-premises sources.</td></tr>
+        <tr><td>Complexity</td><td>Low, Medium or High from a documented rubric: number of sources, M steps, measures, security roles, calculated tables, composite models, custom visuals, and paginated companions.</td></tr>
+        <tr><td>Decision</td><td>Reassign, Rebind, Modernize, Rebuild, Consolidate or Retire. Defer is allowed once, with a revisit trigger.</td></tr>
+        <tr><td>Priority</td><td>P1: operationally or financially critical, or executive; P2: important, scheduled; P3: low impact, opportunistic.</td></tr>
+        <tr><td>Notes</td><td>Reason for the decision, the survivor ID for a consolidation, exception-register status.</td></tr>
+      </tbody>
+    </table>
+<pre data-title="matrix.csv header (starting point for your template)"><code class="language-text">item_id,report,workspace,business_area,business_owner,technical_owner,last_accessed,views_in_window,distinct_viewers,window_days,data_sources,gateway_bound,complexity,decision,priority,survivor_id,notes</code></pre>
+    <ul class="checklist">
+      <li>Every inventoried item has a row and a decision; nothing is left blank.</li>
+      <li>Every Consolidate row names a surviving item.</li>
+      <li>Every Retire row has an owner confirmation and a decommissioning window.</li>
+      <li>The exception register lists dormant-but-protected assets with the reason.</li>
+      <li>Business and IT leadership sign the matrix; later edits go through a change log.</li>
+      <li>Dataflows Gen1, paginated reports and Excel consumers are covered; they are not only "reports".</li>
+    </ul>
+
+    <h2 id="assessment-pitfalls">Failure modes</h2>
+    <table>
+      <thead><tr><th>Symptom</th><th>Cause</th><th>Fix</th></tr></thead>
+      <tbody>
+        <tr><td>A retired report resurfaces as an escalation</td><td>Window shorter than the reporting cycle; no owner confirmation.</td><td>Extend the window or use the audit log; require owner confirmation; keep an exception register.</td></tr>
+        <tr><td>Scope grows during the build</td><td>Matrix signed without owners, or "Defer" used as a default.</td><td>Sign with owners; allow one deferral with a trigger; change-control additions.</td></tr>
+        <tr><td>Inventory counts do not match the admin portal</td><td>Personal workspaces, deleted items or unscanned workspaces excluded.</td><td>Include every workspace type; compare counts per capacity.</td></tr>
+        <tr><td>Models look unused though reports are not</td><td>Usage measured per report, consumers use the model from Excel or other models.</td><td>Analyze consumption per semantic model as well.</td></tr>
+        <tr><td>Scan returns names but no table or column detail</td><td>Detailed-metadata admin settings are off.</td><td>Enable the admin-API tenant settings and wait for them to take effect.</td></tr>
+      </tbody>
+    </table>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p>
+      <ul>
+        <li>Combine the scanner API, activity events, the audit log and capacity metrics; each fills a gap in the others.</li>
+        <li>The activity events API keeps about 28 days. Start a daily export in week 1 or lean on the audit log for a full business cycle.</li>
+        <li>Decide with an explicit tree and record the reason. Consolidate before you assess, retire only with owner confirmation.</li>
+        <li>Keep an exception register for dormant but protected assets.</li>
+        <li>The signed matrix is the scope. Changes go through a log, and the same inventory proves decommissioning later.</li>
+      </ul>
+    </div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/fabric/governance/metadata-scanning-overview">Metadata scanning overview</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/governance/metadata-scanning-run">Run metadata scanning</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/admin/metadata-scanning-setup">Set up metadata scanning in an organization</a></li>
+        <li><a href="https://learn.microsoft.com/power-bi/guidance/admin-activity-log">Access the Power BI activity log</a></li>
+        <li><a href="https://learn.microsoft.com/rest/api/power-bi/admin/get-activity-events">Admin: Get Activity Events (REST)</a></li>
+        <li><a href="https://learn.microsoft.com/rest/api/power-bi/admin/workspace-info-post-workspace-info">Admin: WorkspaceInfo PostWorkspaceInfo (REST)</a></li>
+        <li><a href="https://learn.microsoft.com/purview/audit-log-retention-policies">Manage audit log retention policies</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/admin/track-user-activities">Track user activities in Microsoft Fabric</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/admin/feature-usage-adoption">Feature usage and adoption report</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/enterprise/metrics-app">Microsoft Fabric Capacity Metrics app</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

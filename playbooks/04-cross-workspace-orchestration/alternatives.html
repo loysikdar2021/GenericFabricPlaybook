@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Alternatives and recommendations · Hub and Spoke</title>
+<meta name="description" content="An honest comparison of hub-and-spoke Invoke pipeline orchestration with notebook DAGs, Apache Airflow jobs, event-driven triggers and run conditions, followed by the recommendations, anti-patterns and a production-readiness checklist.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="04-cross-workspace-orchestration" data-page="alternatives.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 04 · Hub and spoke</p>
+      <h1>Alternatives and recommendations</h1>
+      <p class="lede">Hub and spoke is one way to orchestrate Fabric, not the only one and often not the cheapest. This page compares it honestly with notebook DAGs, Apache Airflow jobs, event-driven triggers and run conditions, gives a decision path, and closes with the recommendations, anti-patterns and checklist for a production hub.</p>
+    </header>
+
+    <h2 id="decision-table">Decision table</h2>
+    <p>Choose per problem, not per organization. The rows are not exclusive: most mature platforms use two or three of them together (see <a href="#hybrid">the hybrid pattern</a>).</p>
+    <table>
+      <thead><tr><th>Approach</th><th>Best fit</th><th>Crosses workspaces</th><th>Visual run history</th><th>Code-first</th><th>Main drawback</th></tr></thead>
+      <tbody>
+        <tr><td><strong>One pipeline, one workspace</strong></td><td>One team, one deployment unit</td><td class="maybe">Partly</td><td class="yes">Yes</td><td class="no">No</td><td>Does not give teams independent release cycles</td></tr>
+        <tr><td><strong>Hub and spoke with Invoke pipeline</strong></td><td>Several teams or layers, ordering between them, one operational view</td><td class="yes">Yes</td><td class="yes">Yes, parent and child</td><td class="no">No</td><td>Item IDs, connection identity, no documented return values</td></tr>
+        <tr><td><strong>Notebook DAG</strong> (<code>runMultiple</code>)</td><td>Many small Spark steps with dependencies, in one place</td><td class="maybe">Partly</td><td class="maybe">Per-notebook snapshots</td><td class="yes">Yes</td><td>One shared Spark session; Spark only</td></tr>
+        <tr><td><strong>Apache Airflow job</strong></td><td>Teams that already write and operate Airflow DAGs</td><td class="yes">Yes</td><td class="maybe">Airflow UI plus each item's history</td><td class="yes">Yes</td><td>A second orchestrator to learn and secure; no private networking</td></tr>
+        <tr><td><strong>Event-driven triggers</strong></td><td>Work that starts when something happens, not on a clock</td><td class="maybe">Verify</td><td class="maybe">Per triggered run</td><td class="no">No</td><td>The overall order is implicit and a missing event is silent</td></tr>
+        <tr><td><strong>Run conditions</strong> <span class="badge preview">Preview</span></td><td>A pipeline that must wait for upstream runs, data or a time window</td><td class="maybe">Verify</td><td class="yes">Yes</td><td class="no">No</td><td>Preview; semantics of re-runs and cross-workspace use need testing</td></tr>
+        <tr><td><strong>REST API or external scheduler</strong></td><td>Orchestration owned by an enterprise scheduler</td><td class="yes">Yes</td><td class="no">Yours to build</td><td class="yes">Yes</td><td>You build polling, retries and logging yourself</td></tr>
+      </tbody>
+    </table>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>"Verify" means Learn does not state the behaviour clearly enough to promise it here. Event triggers and run conditions both depend on region and workspace boundaries that change as the features mature, so test your exact topology. <a href="https://learn.microsoft.com/fabric/data-factory/pipeline-runs">Run, schedule, or use events to trigger a pipeline</a> and <a href="https://learn.microsoft.com/fabric/data-factory/pipeline-run-conditions">Run conditions in Fabric pipelines</a>.</p></div>
+
+    <h2 id="notebook-orchestration">Notebook orchestration</h2>
+    <p>Fabric notebooks can call other notebooks with <code>notebookutils.notebook.run</code> and run many of them as a dependency graph with <code>notebookutils.notebook.runMultiple</code>. When the whole job is Spark code, this removes the per-activity overhead of a pipeline and keeps the logic in one reviewable place.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 270" role="img" aria-label="A driver notebook runs a dependency graph inside one Spark session: Extract, then Clean A and Clean B in parallel, then Merge, then Publish; the call returns a dictionary of exit values and exceptions per activity, and concurrency and per-cell timeout defaults apply">
+        <defs>
+          <marker id="fig-alt-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="zone blue" x="20" y="24" width="640" height="222" rx="12"/>
+        <text class="t-h" x="36" y="46">One Spark session (the driver notebook)</text>
+        <rect class="box teal" x="50" y="104" width="100" height="48" rx="8"/>
+        <text class="t-b" x="100" y="133" text-anchor="middle">Extract</text>
+        <rect class="box teal" x="210" y="66" width="110" height="48" rx="8"/>
+        <text class="t-b" x="265" y="95" text-anchor="middle">Clean A</text>
+        <rect class="box teal" x="210" y="156" width="110" height="48" rx="8"/>
+        <text class="t-b" x="265" y="185" text-anchor="middle">Clean B</text>
+        <rect class="box teal" x="380" y="104" width="100" height="48" rx="8"/>
+        <text class="t-b" x="430" y="133" text-anchor="middle">Merge</text>
+        <rect class="box teal" x="530" y="104" width="100" height="48" rx="8"/>
+        <text class="t-b" x="580" y="133" text-anchor="middle">Publish</text>
+        <path class="ln" d="M150 128H180V90H208" marker-end="url(#fig-alt-1-a)"/>
+        <path class="ln" d="M150 128H180V180H208" marker-end="url(#fig-alt-1-a)"/>
+        <path class="ln" d="M320 90H350V128H378" marker-end="url(#fig-alt-1-a)"/>
+        <path class="ln" d="M320 180H350V128H378" marker-end="url(#fig-alt-1-a)"/>
+        <path class="ln" d="M480 128H528" marker-end="url(#fig-alt-1-a)"/>
+        <text class="t-s" x="36" y="232">Every notebook shares the same executors and memory</text>
+        <rect class="box gray" x="690" y="40" width="190" height="86" rx="8"/>
+        <text class="t-b" x="785" y="64" text-anchor="middle">Returns a dictionary</text>
+        <text class="t-s" x="785" y="84" text-anchor="middle">per activity name:</text>
+        <text class="t-s" x="785" y="102" text-anchor="middle">exitVal (a string)</text>
+        <text class="t-s" x="785" y="118" text-anchor="middle">exception (or None)</text>
+        <rect class="box orange" x="690" y="146" width="190" height="86" rx="8"/>
+        <text class="t-b" x="785" y="170" text-anchor="middle">Defaults to know</text>
+        <text class="t-s" x="785" y="190" text-anchor="middle">concurrency: 3 x cores</text>
+        <text class="t-s" x="785" y="206" text-anchor="middle">per-cell timeout: 90 s</text>
+        <text class="t-s" x="785" y="222" text-anchor="middle">whole DAG: 12 hours</text>
+        <path class="ln dash" d="M660 83H688" marker-end="url(#fig-alt-1-a)"/>
+        <path class="ln dash" d="M660 189H688" marker-end="url(#fig-alt-1-a)"/>
+      </svg>
+      <figcaption><b>A notebook DAG is parallel threads inside one Spark session.</b> It is efficient for many short Spark steps and cannot give any step its own pool, its own capacity or its own retry billing.</figcaption>
+    </figure>
+<pre data-title="Run one notebook in another workspace (PySpark)"><code class="language-python">exit_value = notebookutils.notebook.run(
+    "nb_silver_orders",                     # notebook item name
+    600,                                    # timeout_seconds (the default is 90)
+    {"batch_id": batch_id, "run_date": run_date},
+    "&lt;spoke-workspace-id&gt;",                # optional: workspace ID for a cross-workspace call
+)
+# exit_value is exactly the string the child passed to notebookutils.notebook.exit(...)
+# or an empty string when the child never called exit.</code></pre>
+<pre data-title="Run a dependency graph (PySpark)"><code class="language-python">from notebookutils.common.exceptions import RunMultipleFailedException
+
+DAG = {
+    "activities": [
+        {"name": "Customers", "path": "nb_load_customers",
+         "args": {"batch_id": batch_id}, "timeoutPerCellInSeconds": 600,
+         "retry": 1, "retryIntervalInSeconds": 30},
+        {"name": "Orders", "path": "nb_load_orders",
+         "args": {"batch_id": batch_id}, "timeoutPerCellInSeconds": 600,
+         "retry": 1, "retryIntervalInSeconds": 30},
+        {"name": "OrdersEnriched", "path": "nb_build_orders_enriched",
+         "args": {"batch_id": batch_id}, "timeoutPerCellInSeconds": 900,
+         "dependencies": ["Customers", "Orders"]},
+    ],
+    "timeoutInSeconds": 7200,   # whole DAG; the default is 12 hours
+    "concurrency": 4,           # the default is 3 x CPU cores; 0 means unlimited
+}
+
+notebookutils.notebook.validateDAG(DAG)     # duplicate names, missing dependencies, cycles
+
+try:
+    results = notebookutils.notebook.runMultiple(DAG)
+except RunMultipleFailedException as ex:
+    results = ex.result                      # partial results survive a failure
+    failed = [name for name, r in results.items() if r["exception"]]
+    raise Exception(f"Activities failed: {failed}")   # fail the notebook so a pipeline sees red</code></pre>
+    <h3 id="notebook-cons">What to know before you choose it</h3>
+    <dl class="kv">
+      <dt>Shared compute</dt><dd>Child notebooks share one Spark session. A heavy child starves the others, and the DAG cannot give a step its own pool or environment.</dd>
+      <dt>Lakehouse rule</dt><dd>A referenced notebook runs only if it uses the same lakehouse as the parent, inherits it, or defines none. A child with a different default lakehouse is blocked unless you pass <code>useRootDefaultLakehouse: True</code> in the arguments.</dd>
+      <dt>Cross-workspace calls</dt><dd>Supported by passing the workspace ID (or, in a DAG activity, name or ID), on runtime 1.2 and above. The child still runs on the caller's Spark pool, so this crosses a <em>naming</em> boundary, not a compute or capacity boundary.</dd>
+      <dt>Timeouts</dt><dd>The per-activity timeout in a DAG is per <em>cell</em> (default 90 seconds), not per notebook. Long-running cells need an explicit value.</dd>
+      <dt>Exit values</dt><dd>Always strings. Do not call <code>exit()</code> inside a <code>try/except</code> block, because it will not take effect.</dd>
+      <dt>Parameters</dt><dd>The child needs a parameter cell, marked with Mark cell as parameters. Values passed by the parent replace the defaults.</dd>
+      <dt>Not for Spark job definitions</dt><dd>The notebook utilities apply to notebooks, not to Spark job definitions.</dd>
+    </dl>
+    <p><strong>Verdict.</strong> Use a notebook DAG when the work is Spark, lives in one lakehouse, and the steps are small enough that a pipeline activity per step is overhead. Use pipelines (and hub and spoke) when steps use different engines, different capacities, different owners or different deployment cycles. A common split is a spoke pipeline whose single Notebook activity runs a <code>runMultiple</code> driver for that layer.</p>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>The <code>config</code> argument of <code>runMultiple</code> is available in Python only, not in Scala or R, and <code>validateDAG</code> raises an exception rather than returning false when a DAG is invalid. <a href="https://learn.microsoft.com/fabric/data-engineering/notebookutils/notebookutils-notebook-run">NotebookUtils notebook run and orchestration</a>.</p></div>
+
+    <h2 id="airflow">Apache Airflow job</h2>
+    <p>The Apache Airflow job item hosts managed Airflow, so a team that already writes Python DAGs can orchestrate Fabric items without running its own cluster. A Microsoft-provided operator runs Fabric items (pipelines, notebooks, Spark job definitions, copy jobs, semantic model refresh and others) in any workspace the connection's service principal can reach.</p>
+<pre data-title="Airflow DAG that runs two spoke pipelines in order (illustrative)"><code class="language-python">from datetime import datetime
+from airflow import DAG
+from apache_airflow_microsoft_fabric_plugin.operators.fabric import FabricRunItemOperator
+
+with DAG(dag_id="sales_daily", schedule="0 2 * * *",
+         start_date=datetime(2000, 1, 1), catchup=False) as dag:
+
+    bronze = FabricRunItemOperator(
+        task_id="run_bronze", fabric_conn_id="fabric_conn",
+        workspace_id="&lt;bronze-workspace-id&gt;", item_id="&lt;bronze-pipeline-id&gt;",
+        job_type="Pipeline",            # case sensitive
+        wait_for_termination=True, deferrable=True)
+
+    silver = FabricRunItemOperator(
+        task_id="run_silver", fabric_conn_id="fabric_conn",
+        workspace_id="&lt;silver-workspace-id&gt;", item_id="&lt;silver-pipeline-id&gt;",
+        job_type="Pipeline", wait_for_termination=True, deferrable=True)
+
+    bronze &gt;&gt; silver</code></pre>
+    <p>What Learn documents today:</p>
+    <ul>
+      <li>Airflow version 2.10.5 and Python 3.12; the version of an existing job cannot be changed.</li>
+      <li>Git sync, Azure Key Vault as a secrets backend, private package requirements, autoscale, high availability and deferrable operators.</li>
+      <li><strong>Private networks and virtual networks are not supported.</strong> Diagnostic logs and metrics are not available either, which the comparison with Azure Data Factory's Workflow Orchestration Manager lists explicitly.</li>
+      <li>To trigger Fabric items from a DAG: enable the tenant setting that lets service principals call Fabric public APIs, create a service principal with the Fabric item read and execute permissions that the tutorial lists, add it as Contributor on each workspace whose items the DAG runs, and enable triggers in the job's environment configuration to use deferrable operators.</li>
+    </ul>
+    <p><strong>Verdict.</strong> Airflow is a good fit when the team already owns Airflow skills, wants DAGs in code review, and orchestrates across Fabric and non-Fabric systems. It does not remove the item-ID problem: <code>workspace_id</code> and <code>item_id</code> are still literals you must resolve per environment, for example from Airflow variables. If your network posture requires private connectivity, check the Learn limitation first: it may disqualify Airflow. For a Fabric-only estate with no existing Airflow investment, it is a second orchestrator to secure and operate for little gain over the Invoke pipeline activity.</p>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>The concept article does not show a release-status label for the Apache Airflow job item. Check its current status and your region's availability before committing, and treat the operator's name and import path as subject to change. <a href="https://learn.microsoft.com/fabric/data-factory/apache-airflow-jobs-concepts">What is an Apache Airflow job?</a> and <a href="https://learn.microsoft.com/fabric/data-factory/apache-airflow-jobs-run-fabric-item-job">Run a Fabric item using Apache Airflow DAGs</a>.</p></div>
+
+    <h2 id="event-driven">Event-driven triggers</h2>
+    <p>A pipeline can start when something happens instead of on a clock. Learn lists three event families: file events (OneLake and Azure Blob Storage), job events (a Fabric item run changing state) and workspace events. The trigger is built on Eventstream and Activator: you choose Trigger on the pipeline's Home ribbon, define the event in the Set alert panel, and the result is an Activator (Reflex) item that starts the pipeline, optionally with parameter values.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 270" role="img" aria-label="Left, orchestration: a hub pipeline invokes three spokes and holds the order. Right, choreography: spoke A emits a job succeeded event that starts spoke B, whose success event starts spoke C, and no single item holds the order">
+        <defs>
+          <marker id="fig-alt-2-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-alt-2-ao" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar orange" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <text class="t-h" x="20" y="22">Orchestration: the hub owns the order</text>
+        <rect class="zone" x="20" y="32" width="430" height="226" rx="12"/>
+        <rect class="box accent" x="185" y="58" width="110" height="46" rx="8"/>
+        <text class="t-b t-w" x="240" y="86" text-anchor="middle">Hub</text>
+        <rect class="box teal" x="40" y="168" width="100" height="44" rx="8"/>
+        <text class="t-b" x="90" y="195" text-anchor="middle">Spoke A</text>
+        <rect class="box teal" x="190" y="168" width="100" height="44" rx="8"/>
+        <text class="t-b" x="240" y="195" text-anchor="middle">Spoke B</text>
+        <rect class="box teal" x="340" y="168" width="100" height="44" rx="8"/>
+        <text class="t-b" x="390" y="195" text-anchor="middle">Spoke C</text>
+        <path class="ln" d="M240 104V132H90V166" marker-end="url(#fig-alt-2-a)"/>
+        <path class="ln" d="M240 104V166" marker-end="url(#fig-alt-2-a)"/>
+        <path class="ln" d="M240 104V132H390V166" marker-end="url(#fig-alt-2-a)"/>
+        <text class="t-s" x="240" y="244" text-anchor="middle">One place shows the order and the outcome</text>
+        <text class="t-h" x="470" y="22">Choreography: events chain the spokes</text>
+        <rect class="zone orange" x="470" y="32" width="410" height="226" rx="12"/>
+        <rect class="box teal" x="500" y="52" width="110" height="40" rx="8"/>
+        <text class="t-b" x="555" y="77" text-anchor="middle">Spoke A</text>
+        <rect class="box teal" x="500" y="122" width="110" height="40" rx="8"/>
+        <text class="t-b" x="555" y="147" text-anchor="middle">Spoke B</text>
+        <rect class="box teal" x="500" y="192" width="110" height="40" rx="8"/>
+        <text class="t-b" x="555" y="217" text-anchor="middle">Spoke C</text>
+        <path class="ln orange thick" d="M555 92V120" marker-end="url(#fig-alt-2-ao)"/>
+        <path class="ln orange thick" d="M555 162V190" marker-end="url(#fig-alt-2-ao)"/>
+        <text class="t-s" x="568" y="110">job succeeded</text>
+        <text class="t-s" x="568" y="180">job succeeded</text>
+        <rect class="box gray" x="680" y="76" width="180" height="108" rx="8"/>
+        <text class="t-b" x="770" y="102" text-anchor="middle">Each hand-off</text>
+        <text class="t-s" x="770" y="122" text-anchor="middle">is an Activator rule</text>
+        <text class="t-s" x="770" y="142" text-anchor="middle">No item holds the whole</text>
+        <text class="t-s" x="770" y="158" text-anchor="middle">order, and a missing event</text>
+        <text class="t-s" x="770" y="174" text-anchor="middle">is a silent stall</text>
+      </svg>
+      <figcaption><b>Orchestration commands; choreography reacts.</b> Events are excellent for "start when the file lands". They are a poor way to express "run these five things in this order and tell me when they all finish".</figcaption>
+    </figure>
+    <table>
+      <thead><tr><th>Use events for</th><th>Avoid events for</th></tr></thead>
+      <tbody>
+        <tr><td>Starting the hub when a source file lands, instead of polling on a schedule</td><td>Expressing a multi-step order that must be reviewed and audited</td></tr>
+        <tr><td>Reacting to a job state change, for example notify or start a follow-up when a named pipeline succeeds</td><td>Gating on "all of A, B and C finished" (you would build a join by hand)</td></tr>
+        <tr><td>Decoupling teams that should not know each other's item IDs</td><td>Anything where absence of an event must raise an alarm; nothing fires when nothing happens</td></tr>
+      </tbody>
+    </table>
+    <p>Two practical details. First, storage events surface file and folder names to the pipeline as trigger parameters, for example <code>@pipeline()?.TriggerEvent?.FileName</code>; the null-safe <code>?.</code> is needed because a manual test run has no event, so those values are null. Second, a trigger is an Activator item with its own life cycle in Git and deployment, so treat triggers as deployable code and re-verify them after promotion.</p>
+    <div class="callout tip"><p class="callout-title">Combine, do not choose</p><p>The best pattern is usually "event starts the hub, the hub orders the spokes". You keep the one-screen answer to "what ran, in what order, and what failed" and still avoid fixed-time polling. Add a freshness check (the batch is not complete by the agreed time) so that a missing event is noticed; see <a href="operations.html#alerts">Alerts</a>.</p></div>
+
+    <h2 id="decision-path">A decision path</h2>
+    <p>Work down the questions and stop at the first yes. If you reach the bottom, hub and spoke is the default for cross-team, cross-workspace work.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 460" role="img" aria-label="Decision path: if everything is in one workspace with one owner use one pipeline; else if all Spark in one lakehouse use a notebook DAG; else if work starts on an event use an event trigger; else if the team wants Python DAGs and already runs Airflow use an Apache Airflow job; otherwise use hub and spoke with the Invoke pipeline activity">
+        <defs>
+          <marker id="fig-alt-3-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-alt-3-ag" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box blue" x="30" y="16" width="360" height="62" rx="10"/>
+        <text class="t-b" x="210" y="42" text-anchor="middle">One workspace, one owner?</text>
+        <text class="t-s" x="210" y="62" text-anchor="middle">no cross-team deployment boundary</text>
+        <rect class="box blue" x="30" y="110" width="360" height="62" rx="10"/>
+        <text class="t-b" x="210" y="136" text-anchor="middle">All Spark, in one lakehouse?</text>
+        <text class="t-s" x="210" y="156" text-anchor="middle">the dependencies are between notebooks</text>
+        <rect class="box blue" x="30" y="204" width="360" height="62" rx="10"/>
+        <text class="t-b" x="210" y="230" text-anchor="middle">Starts on an event, not a clock?</text>
+        <text class="t-s" x="210" y="250" text-anchor="middle">a file lands or an upstream job ends</text>
+        <rect class="box blue" x="30" y="298" width="360" height="62" rx="10"/>
+        <text class="t-b" x="210" y="324" text-anchor="middle">The team wants Python DAGs?</text>
+        <text class="t-s" x="210" y="344" text-anchor="middle">and already operates Airflow</text>
+        <rect class="box accent" x="30" y="392" width="360" height="52" rx="10"/>
+        <text class="t-b t-w" x="210" y="414" text-anchor="middle">Hub and spoke</text>
+        <text class="t-s t-w" x="210" y="432" text-anchor="middle">Invoke pipeline across workspaces</text>
+        <path class="ln" d="M210 78V108" marker-end="url(#fig-alt-3-a)"/>
+        <path class="ln" d="M210 172V202" marker-end="url(#fig-alt-3-a)"/>
+        <path class="ln" d="M210 266V296" marker-end="url(#fig-alt-3-a)"/>
+        <path class="ln" d="M210 360V390" marker-end="url(#fig-alt-3-a)"/>
+        <text class="t-s" x="222" y="97">no</text>
+        <text class="t-s" x="222" y="191">no</text>
+        <text class="t-s" x="222" y="285">no</text>
+        <text class="t-s" x="222" y="379">no</text>
+        <rect class="box green" x="520" y="16" width="360" height="62" rx="10"/>
+        <text class="t-b" x="700" y="42" text-anchor="middle">One pipeline</text>
+        <text class="t-s" x="700" y="62" text-anchor="middle">folders and activities, no Invoke needed</text>
+        <rect class="box green" x="520" y="110" width="360" height="62" rx="10"/>
+        <text class="t-b" x="700" y="136" text-anchor="middle">Notebook DAG</text>
+        <text class="t-s" x="700" y="156" text-anchor="middle">runMultiple in one Spark session</text>
+        <rect class="box green" x="520" y="204" width="360" height="62" rx="10"/>
+        <text class="t-b" x="700" y="230" text-anchor="middle">Event trigger</text>
+        <text class="t-s" x="700" y="250" text-anchor="middle">Activator starts a pipeline, ideally the hub</text>
+        <rect class="box green" x="520" y="298" width="360" height="62" rx="10"/>
+        <text class="t-b" x="700" y="324" text-anchor="middle">Apache Airflow job</text>
+        <text class="t-s" x="700" y="344" text-anchor="middle">DAG calls Fabric items by ID</text>
+        <path class="ln green" d="M390 47H518" marker-end="url(#fig-alt-3-ag)"/>
+        <path class="ln green" d="M390 141H518" marker-end="url(#fig-alt-3-ag)"/>
+        <path class="ln green" d="M390 235H518" marker-end="url(#fig-alt-3-ag)"/>
+        <path class="ln green" d="M390 329H518" marker-end="url(#fig-alt-3-ag)"/>
+        <text class="t-s c-green" x="454" y="40" text-anchor="middle">yes</text>
+        <text class="t-s c-green" x="454" y="134" text-anchor="middle">yes</text>
+        <text class="t-s c-green" x="454" y="228" text-anchor="middle">yes</text>
+        <text class="t-s c-green" x="454" y="322" text-anchor="middle">yes</text>
+      </svg>
+      <figcaption><b>Stop at the first yes.</b> The order encodes cost: the simplest tool that fits wins, and hub and spoke is what remains when teams, workspaces or capacities genuinely differ. Add the event trigger and the notebook DAG on top of the hub when they fit part of the work.</figcaption>
+    </figure>
+
+    <h2 id="hybrid">The hybrid pattern</h2>
+    <p>Real platforms combine these. Events start the day, the hub orders the layers and logs the outcome, and each spoke uses whichever engine suits its work.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 250" role="img" aria-label="A file-arrival event starts the hub pipeline, which invokes an ingest pipeline in the Bronze workspace that uses copy activities and a transform pipeline in the Silver workspace whose notebook activity runs a runMultiple DAG">
+        <defs>
+          <marker id="fig-alt-4-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-alt-4-ao" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar orange" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box orange" x="20" y="100" width="120" height="50" rx="8"/>
+        <text class="t-b" x="80" y="122" text-anchor="middle">Event trigger</text>
+        <text class="t-s" x="80" y="140" text-anchor="middle">file arrives</text>
+        <rect class="box accent" x="200" y="100" width="140" height="50" rx="8"/>
+        <text class="t-b t-w" x="270" y="122" text-anchor="middle">Hub pipeline</text>
+        <text class="t-s t-w" x="270" y="140" text-anchor="middle">order and logging</text>
+        <path class="ln orange thick" d="M140 125H198" marker-end="url(#fig-alt-4-ao)"/>
+        <text class="t-s" x="169" y="117" text-anchor="middle">starts</text>
+        <rect class="zone" x="410" y="16" width="470" height="100" rx="12"/>
+        <text class="t-s" x="426" y="36">Bronze spoke workspace</text>
+        <rect class="box teal" x="430" y="52" width="170" height="46" rx="8"/>
+        <text class="t-b" x="515" y="80" text-anchor="middle">Ingest pipeline</text>
+        <rect class="box gray" x="680" y="52" width="180" height="46" rx="8"/>
+        <text class="t-b" x="770" y="80" text-anchor="middle">Copy activities</text>
+        <path class="ln" d="M600 75H678" marker-end="url(#fig-alt-4-a)"/>
+        <rect class="zone" x="410" y="134" width="470" height="100" rx="12"/>
+        <text class="t-s" x="426" y="154">Silver spoke workspace</text>
+        <rect class="box teal" x="430" y="170" width="170" height="46" rx="8"/>
+        <text class="t-b" x="515" y="198" text-anchor="middle">Transform pipeline</text>
+        <rect class="box blue" x="680" y="170" width="180" height="46" rx="8"/>
+        <text class="t-b" x="770" y="190" text-anchor="middle">Notebook DAG</text>
+        <text class="t-s" x="770" y="206" text-anchor="middle">runMultiple, one session</text>
+        <path class="ln" d="M600 193H678" marker-end="url(#fig-alt-4-a)"/>
+        <path class="ln" d="M340 125H380V75H428" marker-end="url(#fig-alt-4-a)"/>
+        <path class="ln" d="M340 125H380V193H428" marker-end="url(#fig-alt-4-a)"/>
+        <text class="t-s" x="20" y="198">Events start, the hub orders,</text>
+        <text class="t-s" x="20" y="214">each spoke picks its own tool</text>
+      </svg>
+      <figcaption><b>Use each mechanism where it is strongest.</b> The hub never needs to know that the Silver spoke runs a notebook DAG; it sees one pipeline that succeeds or fails.</figcaption>
+    </figure>
+
+    <h2 id="recommendations">Recommendations</h2>
+    <p>The whole playbook condensed into decisions. Each line points to the page that explains it.</p>
+    <dl class="kv">
+      <dt>Design</dt><dd>Make the hub a control plane only: it orders, passes parameters, logs and alerts, and moves no data. Treat each spoke pipeline's parameters and failure behaviour as an API contract and version it. See <a href="architecture.html#contract">the contract</a>.</dd>
+      <dt>Granularity</dt><dd>Invoke at the unit a team can own and re-run independently (a layer or a domain), not at the unit of a single copy. Do not nest hubs inside hubs.</dd>
+      <dt>Activity</dt><dd>Use the new Invoke pipeline activity for cross-workspace calls and keep the legacy activity only for same-workspace helpers you have not migrated. See <a href="invoke-pipeline.html#two-activities">two activities</a>.</dd>
+      <dt>Identity</dt><dd>Use a service principal or workspace identity connection for scheduled hubs, not a person's account. Grant it Contributor on each spoke, and test the scheduled run, not only the manual one. See <a href="invoke-pipeline.html#identity">connection and identity</a>.</dd>
+      <dt>Parameters</dt><dd>Pass the parent context explicitly (<code>batchId</code>, <code>runDate</code>, <code>parentRunId</code>) and never assume the child can see it. Derive <code>batchId</code> deterministically so a re-run is idempotent. See <a href="control-flow.html#idempotency">idempotency</a>.</dd>
+      <dt>Return values</dt><dd>Do not depend on the Invoke activity returning data. Have the spoke write its outcome and metrics to the run log keyed by <code>batchId</code>, and let the hub read them. See <a href="invoke-pipeline.html#return-values">return values</a>.</dd>
+      <dt>Control flow</dt><dd>Fan out with ForEach driven by a metadata table, cap parallelism deliberately, and remember that retries multiply (activity retries times parent retries). Make failure propagate: a hub that shows green over a failed spoke is worse than no hub. See <a href="control-flow.html#foreach">ForEach</a> and <a href="control-flow.html#failure-handling">failure handling</a>.</dd>
+      <dt>Observability</dt><dd>Keep a run log for the business view, route workspace monitoring or job events for the technical view, and alert on the hub's outcome and on a missed SLA. See <a href="operations.html#monitoring-options">monitoring options</a>.</dd>
+      <dt>CI/CD</dt><dd>Never let workspace or pipeline IDs travel with a pipeline. Resolve them per stage with a variable library or at deployment time, deploy spokes before the hub, and keep schedules off until a verified run. See <a href="operations.html#object-ids">the item-ID problem</a>.</dd>
+      <dt>Alternatives</dt><dd>Use the simplest orchestrator that fits each layer, and put events in front of the hub rather than in place of it. See <a href="#decision-path">the decision path</a>.</dd>
+    </dl>
+
+    <h2 id="anti-patterns">Anti-patterns</h2>
+    <table>
+      <thead><tr><th>Anti-pattern</th><th>Why it hurts</th><th>Do this instead</th></tr></thead>
+      <tbody>
+        <tr><td>Hard-coded workspace and pipeline IDs in the hub</td><td>Promoted copies silently call the previous environment</td><td>Variable library value sets or deployment-time replacement</td></tr>
+        <tr><td>A personal account on the Invoke connection</td><td>Scheduled runs fail when the token expires or the person leaves</td><td>Service principal or workspace identity with Contributor on spokes</td></tr>
+        <tr><td>A "god hub" that holds business logic</td><td>Every change is a hub release; teams lose independence</td><td>Keep logic in spokes; the hub orders and records</td></tr>
+        <tr><td>Hub failure path that ends in a success</td><td>Operations sees green while data is stale</td><td>End failure paths with a Fail activity, or leave the failed activity as a leaf</td></tr>
+        <tr><td>Non-idempotent spokes</td><td>A re-run duplicates rows</td><td>Deterministic <code>batchId</code> and replace-or-merge writes</td></tr>
+        <tr><td>Retries at every layer</td><td>Three retries at three levels is nine attempts and nine times the cost</td><td>Retry at the lowest level that is safe; none above it</td></tr>
+        <tr><td>One-second polling waits across hundreds of children</td><td>Billable orchestration runs and capacity consumed by waiting</td><td>Wait on completion in the Invoke activity, or poll at a sensible interval</td></tr>
+        <tr><td>Notebook DAG for steps that need different engines or capacities</td><td>One shared Spark session becomes the bottleneck and the blast radius</td><td>Spoke pipelines per engine or capacity</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="checklist">Production-readiness checklist</h2>
+    <ul class="checklist">
+      <li>The hub moves no data and holds no business logic; spokes' parameters and outcomes are documented as a contract.</li>
+      <li>The Invoke connection uses a service principal or workspace identity, is named per environment, and has Contributor on every spoke.</li>
+      <li>The tenant setting that lets service principals call Fabric public APIs is enabled and scoped to a security group.</li>
+      <li>The scheduled run, not only a manual run, has been tested end to end in the target environment.</li>
+      <li>Every Invoke activity waits on completion, and a deliberate spoke failure turns the hub red.</li>
+      <li><code>batchId</code> is deterministic and every spoke write is safe to repeat.</li>
+      <li>Retries and timeouts are set at one level, with the multiplication worked out.</li>
+      <li>A run log records start, success and failure per stage and batch, including the error text.</li>
+      <li>Alerts exist for hub failure and for a missed completion time, and go to a monitored channel.</li>
+      <li>Workspace and pipeline IDs resolve per stage from a variable library or deployment rules; none is hard-coded.</li>
+      <li>Spokes deploy before the hub, connections and role assignments are scripted, and schedules are disabled outside production.</li>
+      <li>Capacity consumption of the hub (waits, polling, monitoring) has been reviewed after the first month.</li>
+    </ul>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p><ul>
+      <li>Pick the simplest orchestrator that fits each layer: one pipeline, a notebook DAG, an event trigger or Airflow before hub and spoke.</li>
+      <li>A notebook DAG is threads in one Spark session: efficient, but shared compute, lakehouse rules and per-cell timeouts are real limits.</li>
+      <li>Apache Airflow adds a second platform and does not remove the item-ID problem; Learn lists private and virtual networks as unsupported for it.</li>
+      <li>Events start work well and express order badly. Put an event in front of the hub, not in place of it.</li>
+    </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/notebookutils/notebookutils-notebook-run">NotebookUtils notebook run and orchestration</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/notebook-utilities">NotebookUtils (former MSSparkUtils) for Fabric</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/apache-airflow-jobs-concepts">What is an Apache Airflow job?</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/apache-airflow-jobs-run-fabric-item-job">Run a Fabric item using Apache Airflow DAGs</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/pipeline-runs">Run, schedule, or use events to trigger a pipeline</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/pipeline-run-conditions">Run conditions in Fabric pipelines (preview)</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/real-time-hub/explore-fabric-job-events">Explore Job events in Fabric Real-Time hub</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/pipeline-rest-api-capabilities">REST API capabilities for pipelines in Fabric Data Factory</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

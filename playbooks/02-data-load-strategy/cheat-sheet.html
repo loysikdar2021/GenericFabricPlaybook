@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Decision matrix cheat sheet · Data Load Strategy</title>
+<meta name="description" content="One-page reference for data load decisions: default pattern, tool and guardrail per medallion layer, picks by source capability and table type, rules of thumb, operations checks and a design checklist.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="02-data-load-strategy" data-page="cheat-sheet.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 02 · Data Load Strategy</p>
+      <h1>Decision matrix cheat sheet</h1>
+      <p class="lede">The whole framework on one page. Start from the defaults by layer, adjust for the source and the table, then run the checklist before you ship. The reasoning behind every row is on the earlier pages.</p>
+    </header>
+
+    <h2 id="defaults">Defaults by layer</h2>
+    <p>The optimal strategy is a hybrid, chosen table by table and layer by layer. A small, static reference table does not deserve an incremental pipeline; a fact table with billions of rows cannot be fully reloaded. These are the defaults to start from.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 338" role="img" aria-label="Default load pattern, tool and guardrail for each layer: landing keeps immutable batch files, Bronze appends everything, Silver merges with dedupe and guards, and Gold recomputes slices without overwriting large Direct Lake tables">
+        <rect class="box plain" x="20" y="14" width="110" height="34" rx="6"/>
+        <text class="t-b" x="75" y="36" text-anchor="middle">Layer</text>
+        <rect class="box plain" x="138" y="14" width="250" height="34" rx="6"/>
+        <text class="t-b" x="263" y="36" text-anchor="middle">Default load pattern</text>
+        <rect class="box plain" x="396" y="14" width="210" height="34" rx="6"/>
+        <text class="t-b" x="501" y="36" text-anchor="middle">Default tool</text>
+        <rect class="box plain" x="614" y="14" width="266" height="34" rx="6"/>
+        <text class="t-b" x="747" y="36" text-anchor="middle">Guardrail</text>
+
+        <rect class="box gray" x="20" y="56" width="110" height="60" rx="8"/>
+        <text class="t-b" x="75" y="90" text-anchor="middle">Landing</text>
+        <rect class="box gray" x="138" y="56" width="250" height="60" rx="8"/>
+        <text class="t-s" x="263" y="82" text-anchor="middle">Files per batch in batch_id folders</text>
+        <text class="t-s" x="263" y="99" text-anchor="middle">never overwritten or deleted</text>
+        <rect class="box gray" x="396" y="56" width="210" height="60" rx="8"/>
+        <text class="t-s" x="501" y="82" text-anchor="middle">Copy activity or Copy job</text>
+        <text class="t-s" x="501" y="99" text-anchor="middle">Spark if no connector</text>
+        <rect class="box gray" x="614" y="56" width="266" height="60" rx="8"/>
+        <text class="t-s" x="747" y="82" text-anchor="middle">Batch and load type in the path;</text>
+        <text class="t-s" x="747" y="99" text-anchor="middle">keep until Bronze is confirmed</text>
+
+        <rect class="box bronze" x="20" y="124" width="110" height="60" rx="8"/>
+        <text class="t-b" x="75" y="158" text-anchor="middle">Bronze</text>
+        <rect class="box bronze" x="138" y="124" width="250" height="60" rx="8"/>
+        <text class="t-s" x="263" y="150" text-anchor="middle">Append everything, full or incremental</text>
+        <text class="t-s" x="263" y="167" text-anchor="middle">with batch id, load type, ingest time</text>
+        <rect class="box bronze" x="396" y="124" width="210" height="60" rx="8"/>
+        <text class="t-s" x="501" y="150" text-anchor="middle">Spark notebook</text>
+        <text class="t-s" x="501" y="167" text-anchor="middle">Copy activity Append if simple</text>
+        <rect class="box bronze" x="614" y="124" width="266" height="60" rx="8"/>
+        <text class="t-s" x="747" y="150" text-anchor="middle">Idempotency guard on batch id;</text>
+        <text class="t-s" x="747" y="167" text-anchor="middle">no updates, no deletes</text>
+
+        <rect class="box silver" x="20" y="192" width="110" height="60" rx="8"/>
+        <text class="t-b" x="75" y="226" text-anchor="middle">Silver</text>
+        <rect class="box silver" x="138" y="192" width="250" height="60" rx="8"/>
+        <text class="t-s" x="263" y="218" text-anchor="middle">Small tables: full replace</text>
+        <text class="t-s" x="263" y="235" text-anchor="middle">Large: MERGE with dedupe and guards</text>
+        <rect class="box silver" x="396" y="192" width="210" height="60" rx="8"/>
+        <text class="t-s" x="501" y="218" text-anchor="middle">Spark notebook</text>
+        <text class="t-s" x="501" y="235" text-anchor="middle">MLV for stateless SQL</text>
+        <rect class="box silver" x="614" y="192" width="266" height="60" rx="8"/>
+        <text class="t-s" x="747" y="218" text-anchor="middle">Version guard on updates; deletes</text>
+        <text class="t-s" x="747" y="235" text-anchor="middle">only from CDC or verified snapshots</text>
+
+        <rect class="box gold" x="20" y="260" width="110" height="60" rx="8"/>
+        <text class="t-b" x="75" y="294" text-anchor="middle">Gold</text>
+        <rect class="box gold" x="138" y="260" width="250" height="60" rx="8"/>
+        <text class="t-s" x="263" y="286" text-anchor="middle">Small or complex: full recalculation</text>
+        <text class="t-s" x="263" y="303" text-anchor="middle">Large and additive: recompute slices</text>
+        <rect class="box gold" x="396" y="260" width="210" height="60" rx="8"/>
+        <text class="t-s" x="501" y="286" text-anchor="middle">Spark, MLV or Warehouse T-SQL</text>
+        <text class="t-s" x="501" y="303" text-anchor="middle">Dataflow Gen2 if simple</text>
+        <rect class="box gold" x="614" y="260" width="266" height="60" rx="8"/>
+        <text class="t-s" x="747" y="286" text-anchor="middle">No full overwrite of large Direct</text>
+        <text class="t-s" x="747" y="303" text-anchor="middle">Lake tables; ratios as DAX measures</text>
+      </svg>
+      <figcaption><b>The defaults on one grid.</b> Each row restates a layer's rule: keep the raw record immutable, upsert with guards, recompute the smallest correct slice.</figcaption>
+    </figure>
+
+    <h3 id="matrix">The decision matrix</h3>
+    <table>
+      <thead><tr><th>Layer</th><th>Data characteristics</th><th>Source capability</th><th>Latency</th><th>History</th><th>Primary strategy</th><th>Fallback</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Bronze</strong></td><td>Any volume or velocity</td><td>Any (CDC, watermark, none)</td><td>Low (batch)</td><td>High: full history</td><td><strong>Incremental append.</strong> Append every full or incremental batch to keep a complete, auditable record.</td><td>None: append-only is the core principle</td></tr>
+        <tr><td><strong>Silver</strong></td><td>Small volume, low velocity</td><td>Any</td><td>Low (batch)</td><td>Low to medium</td><td><strong>Full load (replace).</strong> Simple, reliable and efficient for small tables.</td><td>Incremental upsert (<code>MERGE</code>)</td></tr>
+        <tr><td><strong>Silver</strong></td><td>Large volume, high velocity</td><td>CDC available</td><td>High (near real time)</td><td>High (SCD Type 2)</td><td><strong>Incremental upsert (<code>MERGE</code>).</strong> Apply the CDC stream, including deletes.</td><td>Upsert with periodic full resync</td></tr>
+        <tr><td><strong>Silver</strong></td><td>Large volume, high velocity</td><td>Watermark only, no deletes</td><td>Medium (batch)</td><td>High (SCD Type 2)</td><td><strong>Hybrid incremental.</strong> Frequent watermark <code>MERGE</code> for inserts and updates, plus a less frequent full comparison to catch deletes.</td><td>Full load, if performance allows</td></tr>
+        <tr><td><strong>Gold</strong></td><td>Small aggregates, complex logic</td><td>Not applicable (source is Silver)</td><td>Low (batch)</td><td>Not applicable</td><td><strong>Full recalculation.</strong> Simple and exact for complex, non-additive measures.</td><td>Incremental aggregation, if feasible</td></tr>
+        <tr><td><strong>Gold</strong></td><td>Large aggregates, simple additive logic</td><td>Not applicable (source is Silver)</td><td>High (near real time)</td><td>Not applicable</td><td><strong>Incremental aggregation.</strong> Recompute the affected slice; fast, cost-effective and fresher.</td><td>Full recalculation</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="by-source">Pick by what the source exposes</h2>
+    <table>
+      <thead><tr><th>Source gives you</th><th>Bronze</th><th>Silver</th><th>Watch for</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Log-based CDC or mirroring</strong></td><td>Append every change event with its operation and sequence</td><td><code>MERGE</code> applying inserts, updates and deletes in order</td><td>Out-of-order events: dedupe by key, keep the latest sequence. Mirroring is a current-state replica, not history.</td></tr>
+        <tr><td><strong>Reliable modified-timestamp or batch id, deletes flagged</strong></td><td>Append new and changed rows</td><td><code>MERGE</code> with a soft-delete flag column</td><td>Late arrivals: overlap the window and rely on dedupe</td></tr>
+        <tr><td><strong>Watermark, hard deletes not visible</strong></td><td>Append new and changed rows</td><td>Frequent <code>MERGE</code>, plus a periodic full key comparison to find deletions</td><td>Never delete from a partial extract</td></tr>
+        <tr><td><strong>Full snapshots only</strong></td><td>Append each snapshot with its batch id</td><td>Diff against current Silver, or replace if small</td><td>Guard against a truncated snapshot before any delete</td></tr>
+        <tr><td><strong>Files dropped by an upstream system</strong></td><td>Land files per batch, then load with file metadata</td><td>Treat the file as a batch; <code>MERGE</code> if keys repeat across files</td><td>Duplicate file delivery: guard by batch and file name</td></tr>
+        <tr><td><strong>Event streams</strong></td><td>Eventstreams or Structured Streaming into Delta</td><td>Streaming or micro-batch <code>MERGE</code></td><td>Many small files: compact often</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="by-table">Pick by table type</h2>
+    <table>
+      <thead><tr><th>Table</th><th>Pattern</th><th>Why</th></tr></thead>
+      <tbody>
+        <tr><td>Small reference or lookup (countries, status codes)</td><td>Full replace</td><td>Cheaper than maintaining incremental logic; always correct</td></tr>
+        <tr><td>Large append-only fact (events, transactions never edited)</td><td>Incremental append in Bronze, append in Silver</td><td>No updates to reconcile; friendliest pattern for Direct Lake</td></tr>
+        <tr><td>Large fact with late changes (orders that are amended)</td><td><code>MERGE</code> on the business key with a version guard</td><td>Idempotent, handles reordering and reruns</td></tr>
+        <tr><td>Dimension with history</td><td>SCD Type 2 with a row hash</td><td>Preserves point-in-time answers; use CDC or a trusted modified column</td></tr>
+        <tr><td>Additive aggregate (revenue, units)</td><td>Recompute the affected date slice and <code>replaceWhere</code></td><td>Correct and rerun-safe; delta merge only when volumes force it</td></tr>
+        <tr><td>Non-additive aggregate (distinct counts, ranks, ratios)</td><td>Recompute the whole affected period, or compute in the model</td><td>These cannot be summed across slices</td></tr>
+        <tr><td>Table that must be refreshed atomically with others</td><td>Load to staging, validate, then swap or merge in one step</td><td>Prevents consumers seeing a half-loaded state</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="rules">Rules of thumb</h2>
+    <p>Treat the figures below as starting points. Only the Direct Lake and Delta defaults are documented platform values; the load thresholds are practitioner guidance to calibrate against your own capacity and SLAs.</p>
+    <dl class="kv">
+      <dt>Stay on full load while</dt><dd>The table is under roughly 20 to 30 GB or 50 million rows, runs end to end in roughly 10 to 15 minutes, and has no history to protect. Reassess as it grows.</dd>
+      <dt>Watermark overlap</dt><dd>Re-read a small window behind the stored watermark and let <code>MERGE</code> dedupe, to catch late-arriving rows. Advance the watermark only after the write succeeds.</dd>
+      <dt>Resync cadence</dt><dd>Run a full key comparison for incrementally loaded tables on a schedule that matches how much drift the business tolerates, often weekly or monthly.</dd>
+      <dt>Change data feed retention</dt><dd>Readers can only see changes while the log and data files exist. A <code>VACUUM</code> with the default seven-day retention bounds how far a consumer can fall behind.</dd>
+      <dt>Direct Lake row groups</dt><dd>Roughly 1 to 16 million rows per row group, with limited variation, and a file count inside the SKU guardrails.</dd>
+      <dt>Partitioning</dt><dd>Avoid by default. Where a low-cardinality column (fewer than about 100 to 200 values) limits rewrite scope, it can help; see the <a href="../08-delta-partitioning/index.html">partitioning playbook</a>.</dd>
+    </dl>
+
+    <h2 id="operations">Operations cheat sheet</h2>
+    <table>
+      <thead><tr><th>Check</th><th>When</th><th>How</th><th>Alert on</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Source to Bronze reconciliation</strong></td><td>Every run</td><td>Compare extracted row count with rows appended for the batch</td><td>Any mismatch, or a batch with zero rows when rows are expected</td></tr>
+        <tr><td><strong>Watermark lag</strong></td><td>Every run</td><td>Compare stored watermark with the latest source change time</td><td>Lag exceeding the SLA</td></tr>
+        <tr><td><strong>Duplicate business keys in Silver</strong></td><td>Every run</td><td>Group by key, count above one</td><td>Any row returned</td></tr>
+        <tr><td><strong>MERGE outcome</strong></td><td>Every run</td><td>Read <code>operationMetrics</code> from the table history</td><td>Sudden swings in inserted, updated or deleted counts</td></tr>
+        <tr><td><strong>Delete sanity</strong></td><td>Runs that delete</td><td>Compare deleted share with a threshold</td><td>More than the expected share of the table deleted</td></tr>
+        <tr><td><strong>Silver to Gold reconciliation</strong></td><td>Daily</td><td>Compare additive totals by period</td><td>Totals that drift beyond tolerance</td></tr>
+        <tr><td><strong>File health</strong></td><td>Weekly</td><td><code>DESCRIBE DETAIL</code>: file count and average file size</td><td>Growing file counts, small average files, Direct Lake guardrail proximity</td></tr>
+        <tr><td><strong>Maintenance</strong></td><td>Scheduled</td><td><code>OPTIMIZE</code> and <code>VACUUM</code> by table class</td><td>Retention shorter than the longest consumer gap</td></tr>
+        <tr><td><strong>Full resync</strong></td><td>Scheduled</td><td>Compare keys or full snapshot against the source</td><td>Orphaned or missing keys</td></tr>
+      </tbody>
+    </table>
+<pre data-title="SQL · duplicate business keys in Silver (expect zero rows)"><code class="language-sql">SELECT order_id, COUNT(*) AS versions
+FROM   silver.orders
+GROUP  BY order_id
+HAVING COUNT(*) &gt; 1;</code></pre>
+<pre data-title="PySpark · what the last MERGE actually did"><code class="language-python">from delta.tables import DeltaTable
+
+(DeltaTable.forName(spark, "silver.orders").history(20)
+   .where("operation = 'MERGE'")
+   .selectExpr("version", "timestamp",
+               "operationMetrics['numTargetRowsInserted'] AS inserted",
+               "operationMetrics['numTargetRowsUpdated']  AS updated",
+               "operationMetrics['numTargetRowsDeleted']  AS deleted")
+   .show(truncate=False))</code></pre>
+
+    <h2 id="checklist">Design checklist for each table</h2>
+    <ul class="checklist">
+      <li>The table is classified as full or incremental against explicit thresholds, and the decision is written down.</li>
+      <li>The change signal is identified (CDC, watermark column, snapshots) and its blind spots, especially deletes, are documented.</li>
+      <li>Bronze appends with batch id, load type, source file and ingest time, and a rerun of the same batch changes nothing.</li>
+      <li>Silver deduplicates the source before <code>MERGE</code>, guards updates with a version column, and uses a unique business key.</li>
+      <li>Delete handling matches the signal: CDC deletes, a soft-delete flag, or a guarded snapshot comparison.</li>
+      <li>The watermark or processed version is stored durably and advanced only after a successful write.</li>
+      <li>Gold measures are classified additive or not; ratios live in DAX measures over additive columns.</li>
+      <li>Large Gold tables are updated by append or slice replacement, not by full overwrite, and V-Order is enabled where Direct Lake reads them.</li>
+      <li>Each Delta table has exactly one owning tool, and the tool matches the team's skills and the volume.</li>
+      <li>Reconciliation checks, file-health monitoring and a scheduled full resync exist, with owners and alerts.</li>
+    </ul>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p><ul>
+      <li>Decide per table and per layer: full load for small and simple, incremental for large and busy, and a hybrid wherever the source cannot see deletes.</li>
+      <li>Bronze appends everything, Silver upserts with guards, and Gold recomputes the smallest correct slice.</li>
+      <li>The change signal the source exposes, not preference, selects the mechanism.</li>
+      <li>Every incremental table needs a periodic reconciliation, because incremental logic hides drift.</li>
+      <li>Check the result of each write pattern for consumers, especially Direct Lake, instead of assuming it is harmless.</li>
+    </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/decision-guide-data-movement">Data movement decision guide</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/fundamentals/decision-guide-pipeline-dataflow-spark">Fabric decision guide: copy activity, Copy job, dataflow, Eventstream or Spark</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/fundamentals/table-maintenance-optimization">Cross-workload table maintenance and optimization</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/fundamentals/direct-lake-understand-storage">Understand Direct Lake query performance</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/delta-lake-vacuum">Delta Lake table VACUUM</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

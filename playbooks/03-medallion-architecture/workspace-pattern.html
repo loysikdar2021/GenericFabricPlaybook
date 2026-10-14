@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Workspace pattern and naming · Medallion Architecture</title>
+<meta name="description" content="The seven-workspace pattern for one domain, what lives in each, naming conventions for workspaces, items, schemas and pipelines, abbreviation tables, environments, capacity and shortcut rules.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="03-medallion-architecture" data-page="workspace-pattern.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 03 · Architecture</p>
+      <h1>Workspace pattern and naming</h1>
+      <p class="lede">Strict isolation only stays manageable if every workspace and item name can be generated and parsed. This page fixes the workspace pattern, the naming grammar, the abbreviation tables and the rules for environments, capacity and shortcut edges.</p>
+      <ul class="chips"><li><b>Audience</b> platform engineers, architects</li><li><b>Focus</b> structure and standards</li><li><b>Pages</b> 3 of 10</li></ul>
+    </header>
+    <h2 id="workspace-pattern">The workspace pattern</h2>
+    <p>For one domain in one environment the pattern has seven workspaces. Three are data engineering layers (Bronze, Silver, Gold), three are Consumption workspaces split by purpose, and one is Delivery. Sources sit outside and feed Bronze. A separate orchestration hub (<code>&lt;ENV&gt;_ORCH_HUB</code>) sits above all domains and is covered in <a href="../04-cross-workspace-orchestration/index.html">Cross-Workspace Orchestration</a>.</p>
+<figure class="diagram">
+<svg class="dg" viewBox="0 0 900 350" role="img" aria-label="Workspace pattern for one domain and one environment: sources feed the Bronze workspace, then Silver and Gold, then three Consumption workspaces for warehouse, semantic model and AI/ML lakehouse, then a Delivery workspace">
+<defs>
+<marker id="fig-ws-1-a-teal" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar teal" d="M0 0L10 5L0 10z"/></marker>
+<marker id="fig-ws-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+</defs>
+<rect class="box gray" x="12" y="60" width="92" height="40" rx="10"/>
+<text class="t-b" x="58" y="84" text-anchor="middle">Databases</text>
+<rect class="box gray" x="12" y="137" width="92" height="40" rx="10"/>
+<text class="t-b" x="58" y="161" text-anchor="middle">Files</text>
+<rect class="box gray" x="12" y="214" width="92" height="40" rx="10"/>
+<text class="t-b" x="58" y="238" text-anchor="middle">SaaS apps</text>
+<rect class="box bronze" x="130" y="130" width="116" height="54" rx="10"/>
+<text class="t-b" x="188" y="152.5" text-anchor="middle">DEV_SALES_BRZ</text>
+<text class="t-s" x="188" y="169.5" text-anchor="middle">raw</text>
+<rect class="box silver" x="272" y="130" width="116" height="54" rx="10"/>
+<text class="t-b" x="330" y="152.5" text-anchor="middle">DEV_SALES_SLV</text>
+<text class="t-s" x="330" y="169.5" text-anchor="middle">conformed</text>
+<rect class="box gold" x="414" y="130" width="116" height="54" rx="10"/>
+<text class="t-b" x="472" y="152.5" text-anchor="middle">DEV_SALES_GLD</text>
+<text class="t-s" x="472" y="169.5" text-anchor="middle">business-ready</text>
+<rect class="box blue" x="562" y="40" width="160" height="54" rx="10"/>
+<text class="t-b" x="642" y="62.5" text-anchor="middle">DEV_SALES_CNSM_SM</text>
+<text class="t-s" x="642" y="79.5" text-anchor="middle">semantic model</text>
+<rect class="box blue" x="562" y="130" width="160" height="54" rx="10"/>
+<text class="t-b" x="642" y="152.5" text-anchor="middle">DEV_SALES_CNSM_WH</text>
+<text class="t-s" x="642" y="169.5" text-anchor="middle">warehouse</text>
+<rect class="box blue" x="562" y="220" width="160" height="54" rx="10"/>
+<text class="t-b" x="642" y="242.5" text-anchor="middle">DEV_SALES_CNSM_LH</text>
+<text class="t-s" x="642" y="259.5" text-anchor="middle">AI/ML lakehouse</text>
+<rect class="box purple" x="756" y="40" width="116" height="54" rx="10"/>
+<text class="t-b" x="814" y="62.5" text-anchor="middle">DEV_SALES_DLV</text>
+<text class="t-s" x="814" y="79.5" text-anchor="middle">reports, apps</text>
+<path class="ln teal" d="M104 80H118V157H130" marker-end="url(#fig-ws-1-a-teal)"/>
+<path class="ln teal" d="M104 157H130" marker-end="url(#fig-ws-1-a-teal)"/>
+<path class="ln teal" d="M104 234H118V157H130" marker-end="url(#fig-ws-1-a-teal)"/>
+<path class="ln" d="M246 157H272" marker-end="url(#fig-ws-1-a)"/>
+<path class="ln" d="M388 157H414" marker-end="url(#fig-ws-1-a)"/>
+<path class="ln" d="M530 157H562" marker-end="url(#fig-ws-1-a)"/>
+<path class="ln" d="M530 157H546V247H562" marker-end="url(#fig-ws-1-a)"/>
+<path class="ln" d="M642 130V94" marker-end="url(#fig-ws-1-a)"/>
+<path class="ln" d="M722 67H756" marker-end="url(#fig-ws-1-a)"/>
+<path class="ln gray" d="M12 298V308H530V298"/>
+<text class="t-h" x="271" y="330" text-anchor="middle">Data engineering</text>
+<path class="ln gray" d="M562 298V308H722V298"/>
+<text class="t-h" x="642" y="330" text-anchor="middle">Data consumption</text>
+<path class="ln gray" d="M756 298V308H872V298"/>
+<text class="t-h" x="814" y="330" text-anchor="middle">Info delivery</text>
+</svg>
+<figcaption><b>The workspace pattern for one domain.</b> One domain in one environment: seven workspaces. Consumption is split by qualifier so the warehouse, the semantic model and the AI/ML lakehouse can each have their own owners and roles. Arrows show the direction of data flow.</figcaption>
+</figure>
+    <table>
+      <thead><tr><th>Workspace</th><th>Layer</th><th>Typical items</th><th>Who writes</th></tr></thead>
+      <tbody>
+        <tr><td><code>DEV_SALES_BRZ</code></td><td>Bronze</td><td>Lakehouse, ingestion pipelines, Dataflows Gen2, Copy jobs</td><td>Ingestion engineers</td></tr>
+        <tr><td><code>DEV_SALES_SLV</code></td><td>Silver</td><td>Lakehouse with Bronze shortcuts, notebooks, Environment, variable library</td><td>Data engineers</td></tr>
+        <tr><td><code>DEV_SALES_GLD</code></td><td>Gold</td><td>Lakehouse with Silver shortcuts, notebooks, reconciliation checks</td><td>Data engineers, analytics engineers</td></tr>
+        <tr><td><code>DEV_SALES_CNSM_WH</code></td><td>Consumption</td><td>Warehouse; its lakehouse of Gold shortcuts is the load source</td><td>Warehouse developers</td></tr>
+        <tr><td><code>DEV_SALES_CNSM_SM</code></td><td>Consumption</td><td>Semantic models</td><td>BI modelers</td></tr>
+        <tr><td><code>DEV_SALES_CNSM_LH</code></td><td>Consumption</td><td>Lakehouse of Gold shortcuts, notebooks and experiments for AI and ML</td><td>Data scientists</td></tr>
+        <tr><td><code>DEV_SALES_DLV</code></td><td>Delivery</td><td>Reports, dashboards, workspace app</td><td>Report authors</td></tr>
+      </tbody>
+    </table>
+    <p>Seven workspaces per domain per environment, plus the hub, is the count to script and budget for.</p>
+    <div class="callout note"><p class="callout-title">One Consumption workspace is also valid</p><p>The three <code>CNSM_</code> qualifiers exist because warehouse developers, BI modelers and data scientists often have different owners and different security needs. A small team can use one <code>DEV_SALES_CNSM</code> workspace and drop the qualifier. Decide per domain, and keep the rule that Delivery never shares a workspace with Consumption.</p></div>
+
+    <h2 id="workspace-contents">What lives inside a layer workspace</h2>
+    <p>Every layer workspace follows the same internal shape: one primary store, the compute items that write only into that store, and the supporting items that standardize them. Keeping the shape identical makes new layers and new domains copy-paste work.</p>
+<figure class="diagram">
+<svg class="dg" viewBox="0 0 900 330" role="img" aria-label="Items inside the Silver workspace: one lakehouse with an owned schema and a shortcut schema, notebooks that write it, an Environment item, a variable library and a pipeline; the Gold workspace reads it through its own shortcut schema">
+<defs>
+<marker id="fig-ws-2-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+<marker id="fig-ws-2-a-blue" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar blue" d="M0 0L10 5L0 10z"/></marker>
+<marker id="fig-ws-2-a-teal" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar teal" d="M0 0L10 5L0 10z"/></marker>
+</defs>
+<rect class="zone" x="10" y="20" width="190" height="290" rx="12"/>
+<text class="t-h" x="24" y="39">DEV_SALES_BRZ</text>
+<rect class="zone" x="250" y="20" width="400" height="290" rx="12"/>
+<text class="t-h" x="264" y="39">DEV_SALES_SLV</text>
+<rect class="zone" x="700" y="20" width="190" height="290" rx="12"/>
+<text class="t-h" x="714" y="39">DEV_SALES_GLD</text>
+<rect class="box bronze" x="26" y="120" width="158" height="60" rx="10"/>
+<text class="t-h" x="105" y="145.5" text-anchor="middle">LH_SALES_BRZ</text>
+<text class="t-s" x="105" y="162.5" text-anchor="middle">source-shaped tables</text>
+<rect class="box silver" x="270" y="52" width="360" height="100" rx="10"/>
+<text class="t-h" x="450" y="89" text-anchor="middle">LH_SALES_SLV</text>
+<text class="t-s" x="450" y="106" text-anchor="middle">schema dbo: owned Delta tables</text>
+<text class="t-s" x="450" y="123" text-anchor="middle">schema brz: shortcuts to Bronze</text>
+<rect class="box gold" x="716" y="120" width="158" height="60" rx="10"/>
+<text class="t-h" x="795" y="145.5" text-anchor="middle">LH_SALES_GLD</text>
+<text class="t-s" x="795" y="162.5" text-anchor="middle">schema slv: shortcuts</text>
+<rect class="box blue" x="270" y="176" width="172" height="48" rx="10"/>
+<text class="t-b" x="356" y="204" text-anchor="middle">NB_SALES_SLV_Orders</text>
+<rect class="box teal" x="458" y="176" width="172" height="48" rx="10"/>
+<text class="t-b" x="544" y="204" text-anchor="middle">PL_SALES_SLV_Load</text>
+<rect class="box plain" x="270" y="240" width="172" height="48" rx="10"/>
+<text class="t-b" x="356" y="268" text-anchor="middle">ENV_SALES_SLV_Spark</text>
+<rect class="box plain" x="458" y="240" width="172" height="48" rx="10"/>
+<text class="t-b" x="544" y="268" text-anchor="middle">VL_SALES_SLV_Config</text>
+<path class="ln" d="M184 150H217V94H270" marker-end="url(#fig-ws-2-a)"/>
+<path class="ln" d="M630 94H665V150H716" marker-end="url(#fig-ws-2-a)"/>
+<path class="ln blue" d="M356 176V152" marker-end="url(#fig-ws-2-a-blue)"/>
+<path class="ln teal" d="M458 200H442" marker-end="url(#fig-ws-2-a-teal)"/>
+</svg>
+<figcaption><b>What lives inside a layer workspace.</b> The Silver lakehouse holds two kinds of tables: owned tables in the default schema and read-only shortcuts to Bronze in a separate schema. Compute items sit beside it and write only into it. Gold then reads Silver the same way.</figcaption>
+</figure>
+    <table>
+      <thead><tr><th>Item</th><th>Purpose</th><th>Rule</th></tr></thead>
+      <tbody>
+        <tr><td>Lakehouse (<code>LH_</code>)</td><td>Primary store of the layer; schema-enabled so owned tables and shortcuts are separated</td><td>Owned tables in <code>dbo</code>; one schema per upstream layer for shortcuts (<code>brz</code> in Silver, <code>slv</code> in Gold)</td></tr>
+        <tr><td>Notebooks (<code>NB_</code>)</td><td>Transformations, merges, quality checks</td><td>Write only to the workspace's own store; read upstream through shortcuts</td></tr>
+        <tr><td>Pipelines (<code>PL_</code>)</td><td>Run the notebooks of this layer, or ingest in Bronze</td><td>Parameterized and callable from the hub; see <a href="../10-control-table-pipelines/index.html">Control-Table Pipelines</a></td></tr>
+        <tr><td>Environment (<code>ENV_</code>)</td><td>Libraries and Spark properties shared by the layer's notebooks</td><td>One per layer; set as the workspace default. See <a href="environment.html">Environment item</a></td></tr>
+        <tr><td>Variable library (<code>VL_</code>)</td><td>Values that differ by environment: shortcut targets, capacity-related names, feature switches</td><td>See <a href="../09-variable-libraries/index.html">Variable Libraries</a></td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="who-works-where">Who works where</h2>
+    <p>Assign roles to security groups, never to individuals, and give each persona the least access that lets them work. Reading an upstream layer is not the same as writing it: the engineer who builds Silver needs read access to Bronze data, not a Contributor role in the Bronze workspace.</p>
+    <table>
+      <thead><tr><th>Persona</th><th>Upstream layer</th><th>Own layer</th><th>Other layers</th></tr></thead>
+      <tbody>
+        <tr><td>Ingestion engineer</td><td>Source systems</td><td>Bronze: Contributor</td><td>None</td></tr>
+        <tr><td>Silver engineer</td><td>Bronze: read at the data level (ReadAll item permission or a OneLake security role)</td><td>Silver: Contributor</td><td>None</td></tr>
+        <tr><td>Gold engineer</td><td>Silver: read at the data level</td><td>Gold: Contributor</td><td>None</td></tr>
+        <tr><td>Warehouse developer</td><td>Gold: read at the data level</td><td>Consumption warehouse: Contributor</td><td>None</td></tr>
+        <tr><td>BI modeler</td><td>Warehouse or Gold: read for the model's data connection</td><td>Consumption semantic-model workspace: Contributor</td><td>None</td></tr>
+        <tr><td>Report author</td><td>Semantic model: Build permission</td><td>Delivery: Contributor</td><td>None</td></tr>
+        <tr><td>Data scientist</td><td>Gold: read through shortcuts</td><td>Consumption lakehouse: Contributor</td><td>None</td></tr>
+        <tr><td>Business user</td><td>None</td><td>None</td><td>Delivery: app audience or report permission, no workspace role</td></tr>
+        <tr><td>Production run identity</td><td>Read at every shortcut target it uses</td><td>Contributor in the layer it writes</td><td>None</td></tr>
+      </tbody>
+    </table>
+    <div class="callout warning"><p class="callout-title">Test with the production identity</p><p>A notebook that works when you run it can fail when a pipeline or schedule runs it, because the identity differs and workspace roles do not extend across a shortcut. Grant the production identity access at each shortcut target and test the scheduled run, not only the interactive one.</p></div>
+
+    <h2 id="naming-conventions">Naming conventions</h2>
+    <p>Names carry meaning in three places: workspaces, items and the objects inside lakehouses. Each has a grammar, so a name can be built by a script and parsed back into its parts.</p>
+    <h3 id="workspace-names">Workspace names</h3>
+    <p>Pattern: <code>&lt;ENV&gt;_&lt;DOMAIN&gt;_&lt;LAYER&gt;[_&lt;Qualifier&gt;]</code></p>
+    <table>
+      <thead><tr><th>Part</th><th>Values</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td><code>&lt;ENV&gt;</code></td><td><code>DEV</code>, <code>TST</code>, <code>PRD</code></td><td>Environment type</td></tr>
+        <tr><td><code>&lt;DOMAIN&gt;</code></td><td>2 to 5 capital letters, for example <code>SALES</code>, <code>FIN</code>, <code>HR</code></td><td>Matches the Fabric domain the workspace is assigned to</td></tr>
+        <tr><td><code>&lt;LAYER&gt;</code></td><td><code>BRZ</code>, <code>SLV</code>, <code>GLD</code>, <code>CNSM</code>, <code>DLV</code></td><td>Medallion layer</td></tr>
+        <tr><td><code>[_&lt;Qualifier&gt;]</code></td><td>Optional, for example <code>WH</code>, <code>SM</code>, <code>LH</code></td><td>Splits a layer into several workspaces by purpose</td></tr>
+      </tbody>
+    </table>
+    <p>Examples: <code>PRD_FIN_GLD</code>, <code>DEV_SALES_BRZ</code>, <code>TST_HR_CNSM_SM</code>. The orchestration hub is <code>&lt;ENV&gt;_ORCH_HUB</code>, for example <code>DEV_ORCH_HUB</code>.</p>
+    <h3 id="item-names">Item names</h3>
+    <p>Pattern: <code>&lt;ARTIFACT&gt;_&lt;DOMAIN&gt;_&lt;LAYER&gt;_&lt;Function&gt;</code></p>
+    <table>
+      <thead><tr><th>Part</th><th>Values</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td><code>&lt;ARTIFACT&gt;</code></td><td>Item type abbreviation from the table below</td><td>Capital letters</td></tr>
+        <tr><td><code>&lt;DOMAIN&gt;</code>, <code>&lt;LAYER&gt;</code></td><td>Same values as the workspace</td><td>Repeated on purpose so an item is identifiable outside its workspace, in logs and search results</td></tr>
+        <tr><td><code>&lt;Function&gt;</code></td><td>PascalCase purpose, for example <code>LoadCustomers</code>, <code>CostAnalysis</code></td><td>Describes what the item does, not how</td></tr>
+      </tbody>
+    </table>
+    <p>Examples: <code>NB_SALES_SLV_LoadCustomers</code>, <code>WH_FIN_CNSM_Ledger</code>, <code>SM_SALES_CNSM_Orders</code>, <code>RPT_SALES_DLV_Revenue</code>.</p>
+    <dl class="kv">
+      <dt>No environment in item names</dt><dd>The workspace already says DEV, TST or PRD. Keeping item names identical across environments is what lets deployment pipelines pair an item in one stage with its counterpart in the next.</dd>
+      <dt>Primary store exception</dt><dd>A layer's single primary lakehouse, warehouse or semantic model may omit the function: <code>LH_SALES_SLV</code>. Add a function once a workspace holds more than one item of that type.</dd>
+      <dt>Characters</dt><dd>Letters, digits and underscores only. No spaces, no hyphens. Names then work unquoted in Spark SQL, T-SQL, URLs and scripts; a workspace name with spaces or special characters needs quoting in a four-part name.</dd>
+    </dl>
+    <div class="callout note"><p class="callout-title">Two meanings of ENV</p><p><code>&lt;ENV&gt;</code> in angle brackets is the environment type, <code>DEV</code>, <code>TST</code> or <code>PRD</code>. <code>ENV_</code> as an item prefix is the abbreviation for a Fabric Environment item. The brackets and the position in the name keep them apart.</p></div>
+    <h3 id="schema-and-table-names">Schema and table names</h3>
+    <table>
+      <thead><tr><th>Object</th><th>Convention</th><th>Example</th></tr></thead>
+      <tbody>
+        <tr><td>Owned tables</td><td>Default schema <code>dbo</code>; lowercase snake_case entity names</td><td><code>dbo.customers</code>, <code>dbo.order_lines</code></td></tr>
+        <tr><td>Shortcut schema</td><td>One schema per upstream layer, named with the layer abbreviation in lowercase</td><td><code>brz</code> in Silver, <code>slv</code> in Gold</td></tr>
+        <tr><td>Shortcut name</td><td>Same as the upstream table, so lineage reads by name</td><td><code>brz.customers</code></td></tr>
+        <tr><td>Gold tables</td><td><code>dim_</code> and <code>fact_</code> prefixes with a singular entity for dimensions</td><td><code>dim_customer</code>, <code>fact_order_lines</code></td></tr>
+        <tr><td>Columns</td><td>Lowercase snake_case; the same name for the same business key in every layer</td><td><code>customer_id</code>, <code>order_date</code></td></tr>
+      </tbody>
+    </table>
+    <p>Lowercase matters more than it looks. The Warehouse default collation is case-sensitive, so a column written as <code>CustomerId</code> in one layer and <code>customerid</code> in another produces failures that Spark, which is case-insensitive by default, never shows.</p>
+    <h3 id="other-names">Other names</h3>
+    <table>
+      <thead><tr><th>Object</th><th>Pattern</th><th>Example</th></tr></thead>
+      <tbody>
+        <tr><td>Deployment pipeline</td><td><code>DPLY_&lt;DOMAIN&gt;_&lt;LAYER&gt;</code></td><td><code>DPLY_SALES_SLV</code></td></tr>
+        <tr><td>Orchestration hub workspace</td><td><code>&lt;ENV&gt;_ORCH_HUB</code></td><td><code>PRD_ORCH_HUB</code></td></tr>
+        <tr><td>Security group</td><td><code>&lt;DOMAIN&gt;-&lt;LAYER&gt;-&lt;role&gt;</code> in your directory's convention</td><td><code>SALES-SLV-contributors</code></td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="abbreviations">Abbreviation tables</h2>
+    <h3 id="layer-abbreviations">Layers and environments</h3>
+    <table>
+      <thead><tr><th>Layer</th><th>Abbreviation</th><th>Environment</th><th>Abbreviation</th></tr></thead>
+      <tbody>
+        <tr><td>Bronze</td><td><code>BRZ</code></td><td>Development</td><td><code>DEV</code></td></tr>
+        <tr><td>Silver</td><td><code>SLV</code></td><td>Test</td><td><code>TST</code></td></tr>
+        <tr><td>Gold</td><td><code>GLD</code></td><td>Production</td><td><code>PRD</code></td></tr>
+        <tr><td>Consumption</td><td><code>CNSM</code></td><td></td><td></td></tr>
+        <tr><td>Delivery</td><td><code>DLV</code></td><td></td><td></td></tr>
+      </tbody>
+    </table>
+    <h3 id="item-abbreviations">Item types</h3>
+    <table>
+      <thead><tr><th>Item type</th><th>Abbreviation</th><th>Note</th></tr></thead>
+      <tbody>
+        <tr><td>Lakehouse</td><td><code>LH</code></td><td></td></tr>
+        <tr><td>Warehouse</td><td><code>WH</code></td><td></td></tr>
+        <tr><td>Notebook</td><td><code>NB</code></td><td></td></tr>
+        <tr><td>Data pipeline</td><td><code>PL</code></td><td></td></tr>
+        <tr><td>Dataflow Gen2</td><td><code>DFL</code></td><td></td></tr>
+        <tr><td>Spark job definition</td><td><code>SJ</code></td><td></td></tr>
+        <tr><td>Eventstream</td><td><code>ES</code></td><td></td></tr>
+        <tr><td>Semantic model</td><td><code>SM</code></td><td>Replaces the older <code>DS</code> for "dataset"</td></tr>
+        <tr><td>Report</td><td><code>RPT</code></td><td></td></tr>
+        <tr><td>Dashboard</td><td><code>DSH</code></td><td></td></tr>
+        <tr><td>Machine learning model</td><td><code>MDL</code></td><td></td></tr>
+        <tr><td>Machine learning experiment</td><td><code>EXP</code></td><td></td></tr>
+        <tr><td>Activator</td><td><code>RFL</code></td><td>Kept from the original abbreviation</td></tr>
+        <tr><td>Database (SQL or KQL)</td><td><code>DB</code></td><td>Put the engine in the function part</td></tr>
+        <tr><td>KQL queryset</td><td><code>QS</code></td><td></td></tr>
+        <tr><td>Environment</td><td><code>ENV</code></td><td>Extension to the original table</td></tr>
+        <tr><td>Variable library</td><td><code>VL</code></td><td>Extension to the original table</td></tr>
+      </tbody>
+    </table>
+    <p>The original abbreviation table also listed a datamart abbreviation and a row for industry-specific templates, and it listed the notebook row twice. Datamart is omitted because new medallion builds use warehouses and semantic models for the same job; if you still operate datamarts, choose your own abbreviation and add it here. Industry templates are not an item type and were dropped.</p>
+    <h3 id="qualifier-abbreviations">Qualifiers</h3>
+    <table>
+      <thead><tr><th>Qualifier</th><th>Used with</th><th>Meaning</th></tr></thead>
+      <tbody>
+        <tr><td><code>WH</code></td><td><code>CNSM</code></td><td>Warehouse workspace</td></tr>
+        <tr><td><code>SM</code></td><td><code>CNSM</code></td><td>Semantic model workspace</td></tr>
+        <tr><td><code>LH</code></td><td><code>CNSM</code></td><td>Lakehouse workspace for AI and ML</td></tr>
+        <tr><td><code>ORCH_HUB</code></td><td>No layer</td><td>Orchestration hub</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="shortcut-rules">Shortcut edge rules</h2>
+    <p>Naming fixes what things are called. A short set of rules fixes which things may point at which, so the shortcut graph stays a straight line from Bronze to Consumption.</p>
+<figure class="diagram">
+<svg class="dg" viewBox="0 0 900 296" role="img" aria-label="Allowed shortcut edges run one hop from each layer to the layer directly upstream; shortcuts that skip a layer or point upward are to be avoided">
+<defs>
+<marker id="fig-ws-4-a-green" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+<marker id="fig-ws-4-a-red" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar red" d="M0 0L10 5L0 10z"/></marker>
+</defs>
+<rect class="zone green" x="10" y="12" width="430" height="272" rx="12"/>
+<text class="t-h" x="24" y="31">Allowed: one hop, downstream</text>
+<rect class="box bronze" x="26" y="70" width="84" height="44" rx="10"/>
+<text class="t-b" x="68" y="96" text-anchor="middle">BRZ</text>
+<rect class="box silver" x="130" y="70" width="84" height="44" rx="10"/>
+<text class="t-b" x="172" y="96" text-anchor="middle">SLV</text>
+<rect class="box gold" x="234" y="70" width="84" height="44" rx="10"/>
+<text class="t-b" x="276" y="96" text-anchor="middle">GLD</text>
+<rect class="box blue" x="338" y="70" width="84" height="44" rx="10"/>
+<text class="t-b" x="380" y="96" text-anchor="middle">CNSM</text>
+<path class="ln green" d="M110 92H130" marker-end="url(#fig-ws-4-a-green)"/>
+<path class="ln green" d="M214 92H234" marker-end="url(#fig-ws-4-a-green)"/>
+<path class="ln green" d="M318 92H338" marker-end="url(#fig-ws-4-a-green)"/>
+<text class="t-s" x="30" y="166">The shortcut lives in the downstream layer.</text>
+<text class="t-s" x="30" y="196">It points at the layer directly upstream.</text>
+<text class="t-s" x="30" y="226">Consumers read through it and never write.</text>
+<text class="t-s" x="30" y="256">Lineage stays a straight line you can draw.</text>
+<rect class="zone red" x="460" y="12" width="430" height="272" rx="12"/>
+<text class="t-h" x="474" y="31">Avoid</text>
+<rect class="box bronze" x="476" y="56" width="76" height="44" rx="10"/>
+<text class="t-b" x="514" y="82" text-anchor="middle">BRZ</text>
+<rect class="box gold" x="596" y="56" width="76" height="44" rx="10"/>
+<text class="t-b" x="634" y="82" text-anchor="middle">GLD</text>
+<path class="ln red dash" d="M552 78H596" marker-end="url(#fig-ws-4-a-red)"/>
+<text class="t-b" x="692" y="76">Skips Silver:</text>
+<text class="t-s" x="692" y="94">cleansing is bypassed</text>
+<rect class="box gold" x="476" y="140" width="76" height="44" rx="10"/>
+<text class="t-b" x="514" y="166" text-anchor="middle">GLD</text>
+<rect class="box silver" x="596" y="140" width="76" height="44" rx="10"/>
+<text class="t-b" x="634" y="166" text-anchor="middle">SLV</text>
+<path class="ln red dash" d="M552 162H596" marker-end="url(#fig-ws-4-a-red)"/>
+<text class="t-b" x="692" y="160">Points upward:</text>
+<text class="t-s" x="692" y="178">output re-enters its own input</text>
+<rect class="box silver" x="476" y="224" width="76" height="44" rx="10"/>
+<text class="t-b" x="514" y="250" text-anchor="middle">SLV</text>
+<rect class="box blue" x="596" y="224" width="76" height="44" rx="10"/>
+<text class="t-b" x="634" y="250" text-anchor="middle">CNSM</text>
+<path class="ln red dash" d="M552 246H596" marker-end="url(#fig-ws-4-a-red)"/>
+<text class="t-b" x="692" y="244">Skips Gold:</text>
+<text class="t-s" x="692" y="262">business rules are bypassed</text>
+</svg>
+<figcaption><b>Which shortcut edges are allowed.</b> Arrows show the direction of data flow. A shortcut object always lives in the downstream workspace. Keep every edge one hop long and downstream, so lineage reads as a straight line.</figcaption>
+</figure>
+    <table>
+      <thead><tr><th>Rule</th><th>Reason</th></tr></thead>
+      <tbody>
+        <tr><td>A shortcut lives in the downstream workspace and points to the layer directly upstream</td><td>The owner of the downstream layer chooses what to read, and the upstream owner controls what can be read by granting access</td></tr>
+        <tr><td>No layer skipping</td><td>A Gold item that reads Bronze bypasses cleansing and makes Silver optional</td></tr>
+        <tr><td>No upward shortcuts</td><td>Output that flows back into its own input produces circular lineage</td></tr>
+        <tr><td>Shortcuts are read-only in practice</td><td>Writing through a shortcut changes another layer's data and breaks the ownership model; keep write access out of the grant</td></tr>
+        <tr><td>Name the shortcut after its target table</td><td>Lineage can then be traced by name in code, logs and catalog tools</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="environments">Environments</h2>
+    <p>Each layer repeats in three environments. The names differ only in the first token; what differs is below.</p>
+    <table>
+      <thead><tr><th>Aspect</th><th>DEV</th><th>TST</th><th>PRD</th></tr></thead>
+      <tbody>
+        <tr><td>Source control</td><td>Workspace connected to a Git branch; developers work here</td><td>Not connected; content arrives by deployment pipeline</td><td>Not connected; content arrives by deployment pipeline</td></tr>
+        <tr><td>Data</td><td>Synthetic or masked samples</td><td>Representative subset, masked where sensitive</td><td>Production data</td></tr>
+        <tr><td>Human access</td><td>Engineers as Contributors</td><td>Engineers and testers, mostly read</td><td>Few humans; service identities run the loads</td></tr>
+        <tr><td>Schedules</td><td>Off or manual</td><td>On the test cadence</td><td>On the production cadence</td></tr>
+        <tr><td>Capacity</td><td>Smallest that works</td><td>Large enough to test at realistic volume</td><td>Sized for the real workload</td></tr>
+        <tr><td>Shortcut targets</td><td>DEV upstream workspace</td><td>TST upstream workspace</td><td>PRD upstream workspace</td></tr>
+      </tbody>
+    </table>
+    <div class="callout caution"><p class="callout-title">Never point a lower environment at a higher one</p><p>A shortcut or notebook in TST that reads PRD data defeats the purpose of the environment split and exposes production data to test-level access. Each environment's shortcuts must target the same environment's upstream workspace; see the promotion section for how to remap them.</p></div>
+
+    <h2 id="capacity">Capacity placement</h2>
+    <p>Every workspace is assigned to a capacity, and capacities are the unit of compute, billing and throttling. Separate layer workspaces let you choose where each kind of work runs. A common recommendation is dedicated capacity for the key layer workspaces and a minimal one for the hub, because the hub only runs light orchestration.</p>
+<figure class="diagram">
+<svg class="dg" viewBox="0 0 900 236" role="img" aria-label="One possible capacity split: engineering workspaces on one capacity, serving workspaces on a second, and the orchestration hub on a small third">
+<rect class="zone blue" x="10" y="14" width="406" height="150" rx="12"/>
+<text class="t-h" x="24" y="33">Engineering capacity</text>
+<rect class="box bronze" x="26" y="54" width="118" height="44" rx="10"/>
+<text class="t-b" x="85" y="80" text-anchor="middle">DEV_SALES_BRZ</text>
+<rect class="box silver" x="154" y="54" width="118" height="44" rx="10"/>
+<text class="t-b" x="213" y="80" text-anchor="middle">DEV_SALES_SLV</text>
+<rect class="box gold" x="282" y="54" width="118" height="44" rx="10"/>
+<text class="t-b" x="341" y="80" text-anchor="middle">DEV_SALES_GLD</text>
+<text class="t-s" x="26" y="128">Scheduled Spark and pipeline load windows</text>
+<text class="t-s" x="26" y="148">Sized for peak batch volume</text>
+<rect class="zone purple" x="428" y="14" width="306" height="150" rx="12"/>
+<text class="t-h" x="442" y="33">Serving capacity</text>
+<rect class="box blue" x="444" y="54" width="146" height="44" rx="10"/>
+<text class="t-b" x="517" y="80" text-anchor="middle">DEV_SALES_CNSM_*</text>
+<rect class="box purple" x="600" y="54" width="118" height="44" rx="10"/>
+<text class="t-b" x="659" y="80" text-anchor="middle">DEV_SALES_DLV</text>
+<text class="t-s" x="444" y="128">Interactive queries and refresh</text>
+<text class="t-s" x="444" y="148">Sized for business-hours demand</text>
+<rect class="zone teal" x="746" y="14" width="144" height="150" rx="12"/>
+<text class="t-h" x="760" y="33">Small capacity</text>
+<rect class="box teal" x="762" y="54" width="112" height="44" rx="10"/>
+<text class="t-b" x="818" y="80" text-anchor="middle">DEV_ORCH_HUB</text>
+<text class="t-s" x="762" y="128">Light control flow</text>
+<rect class="box plain" x="10" y="184" width="880" height="44" rx="10"/>
+<text class="t-s" x="450" y="201.5" text-anchor="middle">Each capacity is also a billing and throttling boundary</text>
+<text class="t-s" x="450" y="218.5" text-anchor="middle">split workloads so heavy Silver processing cannot starve Gold reports</text>
+</svg>
+<figcaption><b>Capacity follows workload shape.</b> A workspace is assigned to one capacity, so the layer split lets you place Spark-heavy work, interactive queries and light orchestration on separate capacities. This is one possible split; size and count depend on your workload and budget.</figcaption>
+</figure>
+    <table>
+      <thead><tr><th>Workload</th><th>Shape</th><th>Placement guidance</th></tr></thead>
+      <tbody>
+        <tr><td>Bronze, Silver, Gold loads</td><td>Bursty Spark and pipeline work in scheduled windows</td><td>One capacity sized for the peak batch window; it is mostly idle during business hours</td></tr>
+        <tr><td>Warehouse, models, reports</td><td>Interactive queries and scheduled refresh during business hours</td><td>A separate capacity so a heavy load cannot slow reports</td></tr>
+        <tr><td>AI and ML lakehouse</td><td>Exploratory, sometimes large Spark sessions</td><td>Where experiments will not collide with business-hours reporting; often with the engineering capacity</td></tr>
+        <tr><td>Orchestration hub</td><td>Light control flow</td><td>A small capacity or shared with another low-demand workspace</td></tr>
+        <tr><td>DEV and TST</td><td>Intermittent</td><td>Smaller capacities, separate from PRD</td></tr>
+      </tbody>
+    </table>
+    <p>Size by measurement. Monitor capacity utilization through a representative period before settling on a split, and keep production on capacities that development work cannot touch.</p>
+
+    <h2 id="promotion-summary">Promotion in one page</h2>
+    <p>Each layer workspace is promoted on its own through a deployment pipeline. The full treatment is in <a href="../07-deployment/index.html">Deployment Pipelines and Promotion</a>, with Git setup in <a href="../05-github-integration/index.html">GitHub Integration</a> and the release steps in <a href="../14-deployment-checklist/index.html">Deployment Checklist</a>. The summary below is the part that matters for the medallion design.</p>
+<figure class="diagram">
+<svg class="dg" viewBox="0 0 900 372" role="img" aria-label="One deployment pipeline per layer promotes that layer's workspace from development to test to production, and Git is connected to the development workspace only">
+<defs>
+<marker id="fig-ws-3-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+<marker id="fig-ws-3-a-teal" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar teal" d="M0 0L10 5L0 10z"/></marker>
+</defs>
+<rect class="zone" x="170" y="12" width="716" height="78" rx="12"/>
+<text class="t-h" x="184" y="31">DPLY_SALES_BRZ</text>
+<rect class="box gray" x="14" y="42" width="130" height="36" rx="10"/>
+<text class="t-b" x="79" y="64" text-anchor="middle">Git branch</text>
+<rect class="box bronze" x="190" y="42" width="170" height="36" rx="10"/>
+<text class="t-b" x="275" y="64" text-anchor="middle">DEV_SALES_BRZ</text>
+<rect class="box bronze" x="430" y="42" width="170" height="36" rx="10"/>
+<text class="t-b" x="515" y="64" text-anchor="middle">TST_SALES_BRZ</text>
+<rect class="box bronze" x="670" y="42" width="170" height="36" rx="10"/>
+<text class="t-b" x="755" y="64" text-anchor="middle">PRD_SALES_BRZ</text>
+<path class="ln" d="M144 60H190" marker-end="url(#fig-ws-3-a)"/>
+<path class="ln teal" d="M360 60H430" marker-end="url(#fig-ws-3-a-teal)"/>
+<rect class="pill-bg" x="370.2" y="51.5" width="49.6" height="16"/>
+<text class="t-s" x="395" y="64" text-anchor="middle">deploy</text>
+<path class="ln teal" d="M600 60H670" marker-end="url(#fig-ws-3-a-teal)"/>
+<rect class="pill-bg" x="610.2" y="51.5" width="49.6" height="16"/>
+<text class="t-s" x="635" y="64" text-anchor="middle">deploy</text>
+<rect class="zone" x="170" y="102" width="716" height="78" rx="12"/>
+<text class="t-h" x="184" y="121">DPLY_SALES_SLV</text>
+<rect class="box gray" x="14" y="132" width="130" height="36" rx="10"/>
+<text class="t-b" x="79" y="154" text-anchor="middle">Git branch</text>
+<rect class="box silver" x="190" y="132" width="170" height="36" rx="10"/>
+<text class="t-b" x="275" y="154" text-anchor="middle">DEV_SALES_SLV</text>
+<rect class="box silver" x="430" y="132" width="170" height="36" rx="10"/>
+<text class="t-b" x="515" y="154" text-anchor="middle">TST_SALES_SLV</text>
+<rect class="box silver" x="670" y="132" width="170" height="36" rx="10"/>
+<text class="t-b" x="755" y="154" text-anchor="middle">PRD_SALES_SLV</text>
+<path class="ln" d="M144 150H190" marker-end="url(#fig-ws-3-a)"/>
+<path class="ln teal" d="M360 150H430" marker-end="url(#fig-ws-3-a-teal)"/>
+<rect class="pill-bg" x="370.2" y="141.5" width="49.6" height="16"/>
+<text class="t-s" x="395" y="154" text-anchor="middle">deploy</text>
+<path class="ln teal" d="M600 150H670" marker-end="url(#fig-ws-3-a-teal)"/>
+<rect class="pill-bg" x="610.2" y="141.5" width="49.6" height="16"/>
+<text class="t-s" x="635" y="154" text-anchor="middle">deploy</text>
+<rect class="zone" x="170" y="192" width="716" height="78" rx="12"/>
+<text class="t-h" x="184" y="211">DPLY_SALES_GLD</text>
+<rect class="box gray" x="14" y="222" width="130" height="36" rx="10"/>
+<text class="t-b" x="79" y="244" text-anchor="middle">Git branch</text>
+<rect class="box gold" x="190" y="222" width="170" height="36" rx="10"/>
+<text class="t-b" x="275" y="244" text-anchor="middle">DEV_SALES_GLD</text>
+<rect class="box gold" x="430" y="222" width="170" height="36" rx="10"/>
+<text class="t-b" x="515" y="244" text-anchor="middle">TST_SALES_GLD</text>
+<rect class="box gold" x="670" y="222" width="170" height="36" rx="10"/>
+<text class="t-b" x="755" y="244" text-anchor="middle">PRD_SALES_GLD</text>
+<path class="ln" d="M144 240H190" marker-end="url(#fig-ws-3-a)"/>
+<path class="ln teal" d="M360 240H430" marker-end="url(#fig-ws-3-a-teal)"/>
+<rect class="pill-bg" x="370.2" y="231.5" width="49.6" height="16"/>
+<text class="t-s" x="395" y="244" text-anchor="middle">deploy</text>
+<path class="ln teal" d="M600 240H670" marker-end="url(#fig-ws-3-a-teal)"/>
+<rect class="pill-bg" x="610.2" y="231.5" width="49.6" height="16"/>
+<text class="t-s" x="635" y="244" text-anchor="middle">deploy</text>
+<rect class="zone" x="170" y="282" width="716" height="78" rx="12"/>
+<text class="t-h" x="184" y="301">DPLY_SALES_CNSM</text>
+<rect class="box gray" x="14" y="312" width="130" height="36" rx="10"/>
+<text class="t-b" x="79" y="334" text-anchor="middle">Git branch</text>
+<rect class="box blue" x="190" y="312" width="170" height="36" rx="10"/>
+<text class="t-b" x="275" y="334" text-anchor="middle">DEV_SALES_CNSM</text>
+<rect class="box blue" x="430" y="312" width="170" height="36" rx="10"/>
+<text class="t-b" x="515" y="334" text-anchor="middle">TST_SALES_CNSM</text>
+<rect class="box blue" x="670" y="312" width="170" height="36" rx="10"/>
+<text class="t-b" x="755" y="334" text-anchor="middle">PRD_SALES_CNSM</text>
+<path class="ln" d="M144 330H190" marker-end="url(#fig-ws-3-a)"/>
+<path class="ln teal" d="M360 330H430" marker-end="url(#fig-ws-3-a-teal)"/>
+<rect class="pill-bg" x="370.2" y="321.5" width="49.6" height="16"/>
+<text class="t-s" x="395" y="334" text-anchor="middle">deploy</text>
+<path class="ln teal" d="M600 330H670" marker-end="url(#fig-ws-3-a-teal)"/>
+<rect class="pill-bg" x="610.2" y="321.5" width="49.6" height="16"/>
+<text class="t-s" x="635" y="334" text-anchor="middle">deploy</text>
+</svg>
+<figcaption><b>Promotion is per layer.</b> Each layer has its own deployment pipeline named DPLY_<DOMAIN>_<LAYER>, so a Silver change is promoted without touching Gold. Git connects to the development workspace, and deployment pipelines carry content onward. Delivery follows the same pattern.</figcaption>
+</figure>
+    <ol class="steps">
+      <li><strong>Develop in DEV.</strong> The DEV workspace is connected to a Git branch. A pull request is the review gate.</li>
+      <li><strong>Merge and sync.</strong> After merge, the change reaches the DEV workspace through Git integration, directly or from an automated build.</li>
+      <li><strong>Promote to TST.</strong> The layer's deployment pipeline copies the workspace content to the test stage, where automated and manual checks run.</li>
+      <li><strong>Release to PRD.</strong> After approval, the same pipeline copies the validated content to production.</li>
+    </ol>
+    <p>Deployment pipelines can be driven by the Fabric REST API from a build tool such as GitHub Actions, which adds automated tests and approval gates around the same steps.</p>
+    <table>
+      <thead><tr><th>Behavior</th><th>Consequence for the medallion</th></tr></thead>
+      <tbody>
+        <tr><td>Deployment copies item definitions, not data</td><td>A first deployment of a lakehouse creates an empty lakehouse with the same name in the target. Run the loads in the new stage to populate it.</td></tr>
+        <tr><td>The number of stages and their names are fixed when the pipeline is created; content deploys between adjacent stages, in either direction</td><td>The source describes promotion as strictly one way from DEV to TST to PRD; the product allows deployment in either direction between adjacent stages, so enforce the one-way rule with process and permissions, not by assuming the tool prevents it.</td></tr>
+        <tr><td>Deploying needs a pipeline admin who is at least a Contributor in both workspaces</td><td>Pipeline permissions and workspace roles are managed separately; plan the grants per layer.</td></tr>
+        <tr><td>A single deployment can include at most 300 items, and workspaces must be on a Fabric capacity</td><td>Large layers may need selective deployment; keep layer workspaces focused.</td></tr>
+        <tr><td>A deployment overwrites the shortcut definitions in the target lakehouse</td><td>Review changes before every deployment; shortcuts that point to a different upstream workspace in each stage need remapping.</td></tr>
+        <tr><td>Notebooks and Spark job definitions are remapped to the lakehouse in the target stage</td><td>Reference lakehouses by item, not by hard-coded workspace names, so remapping works.</td></tr>
+      </tbody>
+    </table>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>Per the lakehouse deployment documentation, shortcut definitions are carried across stages: external targets keep the same target in every stage, and OneLake shortcuts within the same workspace are remapped automatically. Cross-workspace OneLake shortcuts, which this design uses between layers, are not described as remapped automatically; the documented options are variables in the shortcut definition through a variable library (itself a preview feature) or updating the shortcut after deployment, in the portal or through the OneLake APIs. Confirm the current behavior in <a href="https://learn.microsoft.com/fabric/data-engineering/lakehouse-git-deployment-pipelines">Lakehouse git integration and deployment pipelines</a> before you rely on it, and rehearse a full DEV to TST deployment with shortcuts in place.</p></div>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p>
+      <ul>
+        <li>One domain in one environment is seven workspaces plus a shared hub; script their creation from the naming grammar.</li>
+        <li>Workspace names follow <code>&lt;ENV&gt;_&lt;DOMAIN&gt;_&lt;LAYER&gt;[_&lt;Qualifier&gt;]</code>; item names follow <code>&lt;ARTIFACT&gt;_&lt;DOMAIN&gt;_&lt;LAYER&gt;_&lt;Function&gt;</code> and omit the environment.</li>
+        <li>Shortcut edges run one hop downstream. No skipping, no upward edges.</li>
+        <li>Give each persona access to its own layer and read access to the layer before it, never a role in a layer it does not own.</li>
+        <li>Promote each layer through its own deployment pipeline. Content copies, data does not, and cross-workspace shortcuts need remapping per stage.</li>
+      </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/fabric/fundamentals/workspaces">Workspaces in Microsoft Fabric</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/fundamentals/roles-workspaces">Roles in workspaces in Microsoft Fabric</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/governance/domains">Domains in Microsoft Fabric</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/lakehouse-schemas">Lakehouse schemas</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/cicd/deployment-pipelines/understand-the-deployment-process">The deployment pipelines process</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/lakehouse-git-deployment-pipelines">Lakehouse git integration and deployment pipelines</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/cicd/variable-library/variable-library-overview">What is a variable library?</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/cicd/git-integration/intro-to-git-integration">Introduction to Git integration</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

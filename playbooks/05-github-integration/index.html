@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Overview and ALM map · GitHub Integration</title>
+<meta name="description" content="How to connect Microsoft Fabric workspaces to GitHub, run GitHub Flow with feature workspaces, harden the repository and automate deployment. Start here for the model and the page map.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="05-github-integration" data-page="index.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+
+    <header class="page-header">
+      <p class="eyebrow">Playbook 05 · GitHub Integration</p>
+      <h1>GitHub Integration and Branching</h1>
+      <p class="lede">A Fabric workspace is a shared runtime, and nothing in it is versioned until you connect it to Git. This playbook shows how to connect workspaces to GitHub without losing work, branch the way GitHub Flow intends, lock the repository down with rulesets, and give automation its own identity instead of borrowing a developer's.</p>
+      <ul class="chips"><li><b>Audience</b> platform leads, DevOps and data engineers, workspace admins</li><li><b>Level</b> Intermediate</li><li><b>Reading time</b> 110 min</li></ul>
+    </header>
+
+    <h2 id="what-it-solves">What this playbook solves</h2>
+    <p>Fabric Git integration works at workspace level: you connect a workspace to one branch and one folder of a repository, and Fabric keeps item definitions (notebooks as <code>.py</code>, semantic models as TMDL, pipelines as JSON, and so on) in sync with that folder. That gives you history, review and rollback for analytics assets. It does not, on its own, give you a safe way of working. Teams that stop at "we connected the workspace" typically hit the same problems within a few weeks:</p>
+    <ul>
+      <li><strong>Silent data loss.</strong> The first sync after connecting, or an <em>Update</em> against an empty folder, overwrites the workspace with whatever Git holds. A Git branch can always be restored; a workspace cannot.</li>
+      <li><strong>Everyone edits the same workspace.</strong> The workspace is a shared runtime environment. Without feature workspaces, one developer's save is every developer's change.</li>
+      <li><strong>Review without teeth.</strong> Pull requests that nobody is required to approve, or that can be bypassed by anyone with write access, are a convention and not a control.</li>
+      <li><strong>Borrowed identities.</strong> A deployment that runs as a developer's token breaks when they leave, and has far more reach than the deployment needs.</li>
+    </ul>
+    <p>The playbook is deliberately opinionated about the default path: GitHub Flow, one repository per data product, one workspace per folder, fine-grained tokens for people, and a service principal with OIDC for automation. It also tells you where the platform's own documentation says otherwise, so you can choose a different path knowingly.</p>
+
+    <h2 id="model">The model in one picture</h2>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 880 330" role="img" aria-label="Changes flow from an isolated feature workspace to a feature branch, through a gated pull request into main, then into the DEV workspaces and on through TST to PRD">
+        <defs>
+          <marker id="fig-idx-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-idx-1-t" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar teal" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-idx-1-p" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar purple" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <text class="t-h" x="14" y="28">1 · Develop in isolation</text>
+        <rect class="lane" x="10" y="36" width="860" height="76" rx="10"/>
+        <rect class="box blue" x="24" y="46" width="136" height="56" rx="8"/>
+        <text class="t-b" x="92" y="70" text-anchor="middle">Feature workspace</text>
+        <text class="t-s" x="92" y="88" text-anchor="middle">DEV_SALES_BRZ_T1234</text>
+        <rect class="box gray" x="200" y="46" width="136" height="56" rx="8"/>
+        <text class="t-b" x="268" y="70" text-anchor="middle">Feature branch</text>
+        <text class="t-s" x="268" y="88" text-anchor="middle">feature/sales-1234</text>
+        <path class="ln" d="M162 74H198" marker-end="url(#fig-idx-1-a)"/>
+        <text class="t-s" x="180" y="66" text-anchor="middle">commit</text>
+        <text class="t-s" x="376" y="70">Isolated copy of the items; data is not copied.</text>
+        <text class="t-s" x="376" y="88">Branch-out creates the branch and the workspace.</text>
+
+        <text class="t-h" x="14" y="130">2 · Review and merge in GitHub</text>
+        <rect class="lane" x="10" y="138" width="860" height="76" rx="10"/>
+        <rect class="box purple" x="200" y="148" width="136" height="56" rx="8"/>
+        <text class="t-b" x="268" y="172" text-anchor="middle">Pull request gate</text>
+        <text class="t-s" x="268" y="190" text-anchor="middle">approvals · checks</text>
+        <rect class="box accent" x="376" y="148" width="136" height="56" rx="8"/>
+        <text class="t-h t-w" x="444" y="172" text-anchor="middle">main</text>
+        <text class="t-s t-w" x="444" y="190" text-anchor="middle">source of truth</text>
+        <path class="ln purple" d="M268 104V146" marker-end="url(#fig-idx-1-p)"/>
+        <text class="t-s" x="276" y="130">open PR</text>
+        <path class="ln purple" d="M338 176H374" marker-end="url(#fig-idx-1-p)"/>
+        <text class="t-s" x="356" y="168" text-anchor="middle">merge</text>
+        <text class="t-s" x="552" y="172">Ruleset: pull request required,</text>
+        <text class="t-s" x="552" y="190">approvals, status checks, no force push.</text>
+
+        <text class="t-h" x="14" y="232">3 · Promote through Fabric</text>
+        <rect class="lane" x="10" y="240" width="860" height="76" rx="10"/>
+        <rect class="box blue" x="376" y="250" width="136" height="56" rx="8"/>
+        <text class="t-b" x="444" y="274" text-anchor="middle">DEV workspaces</text>
+        <text class="t-s" x="444" y="292" text-anchor="middle">connected to main</text>
+        <rect class="box blue" x="552" y="250" width="136" height="56" rx="8"/>
+        <text class="t-b" x="620" y="274" text-anchor="middle">TST workspaces</text>
+        <text class="t-s" x="620" y="292" text-anchor="middle">validation</text>
+        <rect class="box blue" x="728" y="250" width="136" height="56" rx="8"/>
+        <text class="t-b" x="796" y="274" text-anchor="middle">PRD workspaces</text>
+        <text class="t-s" x="796" y="292" text-anchor="middle">consumers</text>
+        <path class="ln" d="M444 206V248" marker-end="url(#fig-idx-1-a)"/>
+        <text class="t-s" x="452" y="232">update</text>
+        <path class="ln teal" d="M514 278H550" marker-end="url(#fig-idx-1-t)"/>
+        <text class="t-s" x="532" y="270" text-anchor="middle">deploy</text>
+        <path class="ln teal" d="M690 278H726" marker-end="url(#fig-idx-1-t)"/>
+        <text class="t-s" x="708" y="270" text-anchor="middle">deploy</text>
+        <text class="t-s" x="24" y="272">Deployment pipelines or fabric-cicd,</text>
+        <text class="t-s" x="24" y="290">run by a service principal.</text>
+      </svg>
+      <figcaption><b>One change, three stages.</b> Developers work in a branched workspace, GitHub decides what reaches <code>main</code>, and only <code>main</code> feeds the DEV workspaces that deployment promotes onward. Nothing is edited directly in TST or PRD.</figcaption>
+    </figure>
+
+    <h2 id="principles">Operating principles</h2>
+    <p>Every later page is an application of one of these.</p>
+    <ol class="steps">
+      <li><strong>Git is recoverable; a workspace is not.</strong><p>Whenever a direction has to be chosen, choose the one that overwrites the workspace only after the workspace content is safely in Git or in a backup workspace.</p></li>
+      <li><strong>One workspace, one branch, one folder.</strong><p>A workspace connects to a single branch and a single folder. Keep that mapping boring and documented.</p></li>
+      <li><strong><code>main</code> is the only branch that feeds shared workspaces.</strong><p>Developers never commit to <code>main</code> from a shared workspace. Changes arrive by pull request and enter the DEV workspaces through <em>Update</em>.</p></li>
+      <li><strong>People and automation use different identities.</strong><p>Developers use their own fine-grained token for the Git connection. Pipelines use a service principal, authenticated by OIDC where possible, with secrets scoped to environments.</p></li>
+      <li><strong>Enforce with rulesets, not with etiquette.</strong><p>Required reviews, code-owner approval and status checks belong in a ruleset that applies to <code>main</code>, with a short, audited bypass list.</p></li>
+      <li><strong>Treat the supported-item list as a moving target.</strong><p>Check it before you design, and again before every release plan that depends on an item type.</p></li>
+    </ol>
+
+    <h2 id="when">When to use it, and when not to</h2>
+    <div class="pros-cons">
+      <div class="pros"><h4>A good fit when</h4><ul>
+        <li>More than one person edits Fabric items and you need review and history.</li>
+        <li>You promote content through DEV, TST and PRD and want the definition of "what is deployed" to be a commit.</li>
+        <li>Your organization already runs GitHub (including GitHub Enterprise Cloud) for code.</li>
+        <li>You want a single place to review notebooks, pipelines, models and reports as text.</li>
+      </ul></div>
+      <div class="cons"><h4>Think twice when</h4><ul>
+        <li>Your GitHub is self-hosted (GitHub Enterprise Server) or sits behind an IP allow list; Fabric Git integration supports cloud GitHub only.</li>
+        <li>You are in a sovereign cloud; Git integration is not supported there.</li>
+        <li>Your estate is mostly items that are not yet supported, so most of the workspace would stay outside Git.</li>
+        <li>You already standardized on Azure DevOps. The Fabric side is nearly identical, but the credential model differs (see the foundations page).</li>
+      </ul></div>
+    </div>
+
+    <h2 id="prerequisites">Prerequisites at a glance</h2>
+    <ul class="checklist">
+      <li>A Fabric capacity and workspaces assigned to it, with a named workspace admin per workspace.</li>
+      <li>A Fabric admin who can enable the Git integration tenant settings (the GitHub-specific one is off by default).</li>
+      <li>A GitHub organization and repository (or a plan to create them), with a GitHub plan that supports rulesets and environments on private repositories.</li>
+      <li>A decision on who creates workspaces and repositories. If only a central admin team can, the branch-out workflow needs a process (see the branching page).</li>
+      <li>A Microsoft Entra service principal for automation, and a Fabric admin willing to allow it.</li>
+    </ul>
+    <p>The foundations page turns this list into exact settings, permissions and token scopes.</p>
+
+    <h2 id="page-map">How the pages fit together</h2>
+    <div class="cards">
+      <a class="card blue" href="foundations.html"><span class="card-num">02</span><h3>Prerequisites and authentication</h3><p>Tenant settings, permissions matrix, token types, GitHub Enterprise Cloud and the two-tier identity model.</p><div class="card-meta"><span>Reference</span><span>12 min</span></div></a>
+      <a class="card blue" href="repository-design.html"><span class="card-num">03</span><h3>Repository and workspace layout</h3><p>Item folders, one repository versus many, the recommended layout and the limits that shape it.</p><div class="card-meta"><span>Design</span><span>12 min</span></div></a>
+      <a class="card orange" href="connect-safely.html"><span class="card-num">04</span><h3>Connecting safely</h3><p>Preflight, the first-sync decision, step-by-step connection and the folder-change hazard.</p><div class="card-meta"><span>Procedure</span><span>14 min</span></div></a>
+      <a class="card teal" href="sync-and-items.html"><span class="card-num">05</span><h3>Sync model and supported items</h3><p>Commit, update, undo, conflicts, branch operations, quirks, and how to read the supported-item list.</p><div class="card-meta"><span>Concepts</span><span>16 min</span></div></a>
+      <a class="card green" href="branching-workflow.html"><span class="card-num">06</span><h3>GitHub Flow for Fabric</h3><p>Feature branches, branch-out workspaces, data isolation, the pull request process and cleanup.</p><div class="card-meta"><span>Workflow</span><span>16 min</span></div></a>
+      <a class="card purple" href="security-hardening.html"><span class="card-num">07</span><h3>Access model and hardening</h3><p>Teams and roles, Entra ID, rulesets, the recommended main ruleset and optional scanning.</p><div class="card-meta"><span>Security</span><span>16 min</span></div></a>
+      <a class="card purple" href="service-principals-automation.html"><span class="card-num">08</span><h3>Service principals and Actions</h3><p>Service principal setup, secret scopes, environments, OIDC and deployment workflows.</p><div class="card-meta"><span>Automation</span><span>18 min</span></div></a>
+      <a class="card red" href="operations-rollback.html"><span class="card-num">09</span><h3>Operations, rollback and checklist</h3><p>The unified view, auditing, troubleshooting, git revert versus reset, and the readiness checklist.</p><div class="card-meta"><span>Operations</span><span>14 min</span></div></a>
+    </div>
+
+    <h2 id="related">How this fits with the other playbooks</h2>
+    <table>
+      <thead><tr><th>Playbook</th><th>Relationship</th></tr></thead>
+      <tbody>
+        <tr><td><a href="../07-deployment/index.html">07 · Deployment Pipelines and Promotion</a></td><td>Takes over where <code>main</code> ends: promotion from DEV to TST and PRD, deployment rules and approvals.</td></tr>
+        <tr><td><a href="../09-variable-libraries/index.html">09 · Variable Libraries</a></td><td>The recommended way to make items environment-aware, which is also what makes feature workspaces safe.</td></tr>
+        <tr><td><a href="../14-deployment-checklist/index.html">14 · Deployment Checklist</a></td><td>The release-day checklist that assumes the repository and branching model set up here.</td></tr>
+        <tr><td><a href="../17-pr-notifications-codeowners/index.html">17 · Pull-Request Notifications with CODEOWNERS</a></td><td>Routes pull requests to the right reviewers by folder, and enforces code-owner approval through the ruleset described here.</td></tr>
+        <tr><td><a href="../03-medallion-architecture/index.html">03 · Medallion Architecture</a></td><td>Defines the workspace-per-layer pattern that this playbook maps to repository folders.</td></tr>
+      </tbody>
+    </table>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p><ul>
+      <li>Connect the workspace that has content to an empty folder, commit a baseline at once, and never press <em>Update</em> against an empty branch or folder.</li>
+      <li>Feed shared workspaces only from <code>main</code>; do all development in branched workspaces that are deleted after the merge.</li>
+      <li>Use a ruleset for <code>main</code>, a service principal with OIDC for automation, and environment-scoped secrets for anything that cannot be secret-less.</li>
+      <li>Confirm tenant setting names, token types and the supported-item list on Microsoft Learn before you rely on them.</li>
+    </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/fabric/cicd/git-integration/intro-to-git-integration">What is Microsoft Fabric Git integration?</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/cicd/git-integration/git-get-started">Get started with Git integration</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/cicd/git-integration/manage-branches">Development process in Microsoft Fabric</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/cicd/manage-deployment">CI/CD workflow options in Fabric</a></li>
+        <li><a href="https://docs.github.com/get-started/using-github/github-flow">GitHub Flow</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

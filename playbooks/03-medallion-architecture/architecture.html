@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Layers and strict isolation · Medallion Architecture</title>
+<meta name="description" content="The five medallion layers on Fabric, why each gets its own workspace, what isolation costs, a decision table against fewer workspaces and schemas, and the security controls that apply.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="03-medallion-architecture" data-page="architecture.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 03 · Architecture</p>
+      <h1>Layers and strict isolation</h1>
+      <p class="lede">A medallion layer becomes enforceable when it is a workspace. This page defines the five layers, makes the case for isolating them, states the cost honestly, compares the alternatives in a decision table and maps the security controls onto the design.</p>
+      <ul class="chips"><li><b>Audience</b> architects, security teams</li><li><b>Focus</b> design decisions</li><li><b>Pages</b> 2 of 10</li></ul>
+    </header>
+    <h2 id="medallion-on-fabric">The medallion pattern on Fabric</h2>
+    <p>A medallion architecture organizes data into layers of increasing quality. On Fabric each layer is usually a <strong>lakehouse</strong>: Delta tables stored in OneLake, readable by Spark, the SQL analytics endpoint and Power BI. Microsoft's medallion guidance recommends a separate lakehouse for each layer, and recommends placing each lakehouse in its own workspace for better control and governance at the layer level, while noting that you can create all of them in one workspace. Data moves between layers by transformation: notebooks, pipelines, Dataflows Gen2 or materialized lake views, with shortcuts exposing one layer's tables inside the next.</p>
+    <p>This playbook goes one step further than the three classic layers. A medallion stops at Gold, but business users never read Gold directly. They read a semantic model over a warehouse or lakehouse, in a report. Treating those last two steps as layers of their own, <strong>Consumption</strong> and <strong>Delivery</strong>, gives them the same isolation as the data layers and gives BI teams a workspace where they are in charge.</p>
+
+    <h2 id="strict-isolation">Strict isolation</h2>
+    <p><strong>Strict isolation</strong> means one Fabric workspace per layer: Bronze, Silver, Gold, Consumption and Delivery, repeated for each domain and each environment. It works because the workspace is the unit to which Fabric attaches the controls that matter for governance.</p>
+    <table>
+      <thead><tr><th>Control</th><th>Scoped to the workspace by</th><th>What it means for a layer</th></tr></thead>
+      <tbody>
+        <tr><td>Access roles</td><td>Admin, Member, Contributor and Viewer assignments</td><td>Ingestion engineers can be Contributors in Bronze and have no role in Gold; BI developers are Contributors in Consumption and Delivery and have no role below</td></tr>
+        <tr><td>Capacity</td><td>Each workspace is assigned to a capacity</td><td>Heavy Silver processing can sit on a different capacity from Gold queries, so one cannot starve the other</td></tr>
+        <tr><td>Source control</td><td>A workspace connects to one repository branch</td><td>Each layer has its own history, reviewers and release cadence</td></tr>
+        <tr><td>Promotion</td><td>A deployment pipeline stage is a workspace</td><td>A Silver change is promoted and rolled back without touching Gold</td></tr>
+        <tr><td>Spark defaults</td><td>Workspace Spark settings and default Environment</td><td>Layer-specific runtime, pool and library choices without per-notebook overrides</td></tr>
+        <tr><td>Governance scope</td><td>Workspace-level assignment to domains and classification scans</td><td>Raw, curated and published data have different owners, labels and retention</td></tr>
+      </tbody>
+    </table>
+<figure class="diagram">
+<svg class="dg" viewBox="0 0 900 300" role="img" aria-label="Each layer has a contract: what it reads, what it writes and the one rule it must follow">
+<defs>
+<marker id="fig-arch-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+</defs>
+<rect class="box bronze" x="22" y="18" width="152" height="44" rx="10"/>
+<text class="t-h" x="98" y="44" text-anchor="middle">Bronze</text>
+<rect class="box" x="22" y="82" width="152" height="56" rx="10"/>
+<text class="t-s" x="98" y="105.5" text-anchor="middle">reads</text>
+<text class="t-b" x="98" y="122.5" text-anchor="middle">external sources</text>
+<rect class="box" x="22" y="152" width="152" height="56" rx="10"/>
+<text class="t-s" x="98" y="175.5" text-anchor="middle">writes</text>
+<text class="t-b" x="98" y="192.5" text-anchor="middle">raw Delta, append</text>
+<rect class="box orange" x="22" y="222" width="152" height="56" rx="10"/>
+<text class="t-s" x="98" y="245.5" text-anchor="middle">rule</text>
+<text class="t-b" x="98" y="262.5" text-anchor="middle">no business logic</text>
+<rect class="box silver" x="198" y="18" width="152" height="44" rx="10"/>
+<text class="t-h" x="274" y="44" text-anchor="middle">Silver</text>
+<rect class="box" x="198" y="82" width="152" height="56" rx="10"/>
+<text class="t-s" x="274" y="105.5" text-anchor="middle">reads</text>
+<text class="t-b" x="274" y="122.5" text-anchor="middle">Bronze shortcuts</text>
+<rect class="box" x="198" y="152" width="152" height="56" rx="10"/>
+<text class="t-s" x="274" y="175.5" text-anchor="middle">writes</text>
+<text class="t-b" x="274" y="192.5" text-anchor="middle">conformed Delta</text>
+<rect class="box" x="198" y="222" width="152" height="56" rx="10"/>
+<text class="t-s" x="274" y="245.5" text-anchor="middle">rule</text>
+<text class="t-b" x="274" y="262.5" text-anchor="middle">dedupe, type, check</text>
+<rect class="box gold" x="374" y="18" width="152" height="44" rx="10"/>
+<text class="t-h" x="450" y="44" text-anchor="middle">Gold</text>
+<rect class="box" x="374" y="82" width="152" height="56" rx="10"/>
+<text class="t-s" x="450" y="105.5" text-anchor="middle">reads</text>
+<text class="t-b" x="450" y="122.5" text-anchor="middle">Silver shortcuts</text>
+<rect class="box" x="374" y="152" width="152" height="56" rx="10"/>
+<text class="t-s" x="450" y="175.5" text-anchor="middle">writes</text>
+<text class="t-b" x="450" y="192.5" text-anchor="middle">facts and dimensions</text>
+<rect class="box orange" x="374" y="222" width="152" height="56" rx="10"/>
+<text class="t-s" x="450" y="245.5" text-anchor="middle">rule</text>
+<text class="t-b" x="450" y="262.5" text-anchor="middle">business logic here</text>
+<rect class="box blue" x="550" y="18" width="152" height="44" rx="10"/>
+<text class="t-h" x="626" y="44" text-anchor="middle">Consumption</text>
+<rect class="box" x="550" y="82" width="152" height="56" rx="10"/>
+<text class="t-s" x="626" y="105.5" text-anchor="middle">reads</text>
+<text class="t-b" x="626" y="122.5" text-anchor="middle">Gold shortcuts</text>
+<rect class="box" x="550" y="152" width="152" height="56" rx="10"/>
+<text class="t-s" x="626" y="175.5" text-anchor="middle">writes</text>
+<text class="t-b" x="626" y="192.5" text-anchor="middle">warehouse, models</text>
+<rect class="box" x="550" y="222" width="152" height="56" rx="10"/>
+<text class="t-s" x="626" y="245.5" text-anchor="middle">rule</text>
+<text class="t-b" x="626" y="262.5" text-anchor="middle">serve only</text>
+<rect class="box purple" x="726" y="18" width="152" height="44" rx="10"/>
+<text class="t-h" x="802" y="44" text-anchor="middle">Delivery</text>
+<rect class="box" x="726" y="82" width="152" height="56" rx="10"/>
+<text class="t-s" x="802" y="105.5" text-anchor="middle">reads</text>
+<text class="t-b" x="802" y="122.5" text-anchor="middle">semantic models</text>
+<rect class="box" x="726" y="152" width="152" height="56" rx="10"/>
+<text class="t-s" x="802" y="175.5" text-anchor="middle">writes</text>
+<text class="t-b" x="802" y="192.5" text-anchor="middle">reports and apps</text>
+<rect class="box" x="726" y="222" width="152" height="56" rx="10"/>
+<text class="t-s" x="802" y="245.5" text-anchor="middle">rule</text>
+<text class="t-b" x="802" y="262.5" text-anchor="middle">no data storage</text>
+<path class="ln" d="M174 40H198" marker-end="url(#fig-arch-1-a)"/>
+<path class="ln" d="M350 40H374" marker-end="url(#fig-arch-1-a)"/>
+<path class="ln" d="M526 40H550" marker-end="url(#fig-arch-1-a)"/>
+<path class="ln" d="M702 40H726" marker-end="url(#fig-arch-1-a)"/>
+</svg>
+<figcaption><b>The layer contract.</b> Read the columns left to right. A layer reads only what the previous layer exposes, writes only into itself, and has one rule that keeps its job narrow.</figcaption>
+</figure>
+
+    <h2 id="layers">The five layers</h2>
+    <p>Each subsection states the layer's purpose, what it contains, how it is written and read, and the most common mistake. The <a href="workspace-pattern.html#workspace-pattern">workspace pattern page</a> lists the items to create in each.</p>
+
+    <h3 id="bronze-layer">Bronze layer: raw data</h3>
+    <dl class="kv">
+      <dt>Purpose</dt><dd>Hold data as it arrived from the source, so any downstream layer can be rebuilt from it.</dd>
+      <dt>Contents</dt><dd>Source-shaped Delta tables (optionally raw files in the Files section). Only minimal technical changes: schema alignment, type casting where the source type is ambiguous, ingestion metadata such as a load timestamp.</dd>
+      <dt>Written by</dt><dd>Ingestion pipelines, Dataflows Gen2, Copy jobs and notebooks. Append-heavy; keep the history.</dd>
+      <dt>Read by</dt><dd>Silver notebooks, through shortcuts. A small group of engineers and stewards. Analysts and BI developers should have no role here.</dd>
+      <dt>Typical tools</dt><dd>Data pipelines, Dataflows Gen2, Spark notebooks, Copy job, mirroring where the source supports it.</dd>
+      <dt>Most common mistake</dt><dd>Cleaning data on the way in. Once Bronze is cleaned, you can no longer replay a fix from the original.</dd>
+    </dl>
+
+    <h3 id="silver-layer">Silver layer: cleansed and enriched data</h3>
+    <dl class="kv">
+      <dt>Purpose</dt><dd>One validated, deduplicated, conformed version of each entity: correct types, standardized codes, soft-deleted rows handled, keys unique.</dd>
+      <dt>Contents</dt><dd>Delta tables at source grain, one per entity (<code>customers</code>, <code>orders</code>, <code>order_lines</code>). Shortcuts to Bronze live in a separate schema so owned and borrowed tables never mix.</dd>
+      <dt>Written by</dt><dd>Silver notebooks: full reloads for small tables, incremental MERGE for large ones.</dd>
+      <dt>Read by</dt><dd>Gold notebooks and data scientists, through shortcuts or direct reads.</dd>
+      <dt>Typical tools</dt><dd>Spark SQL and PySpark notebooks orchestrated by pipelines; the <a href="bronze-to-silver.html">Bronze to Silver</a> and <a href="incremental-merge.html">incremental loads</a> pages.</dd>
+      <dt>Most common mistake</dt><dd>Putting business logic (revenue rules, KPI definitions) here. Silver should be reusable by any consumer; business meaning belongs in Gold.</dd>
+    </dl>
+
+    <h3 id="gold-layer">Gold layer: business-ready data</h3>
+    <dl class="kv">
+      <dt>Purpose</dt><dd>Curated, modeled data at business grain: star-schema facts and dimensions, aggregates and derived measures that downstream consumers can trust.</dd>
+      <dt>Contents</dt><dd>Delta tables shaped for consumption: surrogate or durable keys, conformed dimensions, pre-computed attributes, partition and file layout suited to Direct Lake and SQL reads.</dd>
+      <dt>Written by</dt><dd>Gold notebooks, with reconciliation against Silver.</dd>
+      <dt>Read by</dt><dd>Consumption-layer items only, through shortcuts.</dd>
+      <dt>Typical tools</dt><dd>Spark SQL, PySpark and T-SQL over the lakehouse SQL analytics endpoint; see <a href="silver-to-gold.html">Silver to Gold</a>.</dd>
+      <dt>Most common mistake</dt><dd>Letting reports or ad-hoc users read Gold directly "just this once". Every direct reader becomes a dependency on a table layout you now cannot change.</dd>
+    </dl>
+
+    <h3 id="consumption-layer">Consumption layer: serve</h3>
+    <dl class="kv">
+      <dt>Purpose</dt><dd>Present Gold data through the engine and shape each consumer needs, without changing the data's meaning.</dd>
+      <dt>Contents</dt><dd>A Fabric Warehouse for T-SQL workloads, semantic models for BI, and a lakehouse of Gold shortcuts for AI/ML. Split into several workspaces (<code>_WH</code>, <code>_SM</code>, <code>_LH</code> qualifiers) when the teams or security models differ.</dd>
+      <dt>Written by</dt><dd>Warehouse developers and BI modelers. The Warehouse is loaded from Gold shortcuts; semantic models are authored directly in their own workspace.</dd>
+      <dt>Read by</dt><dd>Delivery items, analysts using SQL, data scientists using Spark.</dd>
+      <dt>Typical tools</dt><dd>T-SQL, DAX, Power BI Desktop, Direct Lake semantic models, notebooks for ML.</dd>
+      <dt>Most common mistake</dt><dd>Duplicating transformation logic in DAX or warehouse views that should be in Gold, which creates two versions of the truth.</dd>
+    </dl>
+
+    <h3 id="delivery-layer">Delivery layer: user-facing interfaces</h3>
+    <dl class="kv">
+      <dt>Purpose</dt><dd>Give people reports, dashboards and apps, and give external systems an interface, without exposing the data layers.</dd>
+      <dt>Contents</dt><dd>Power BI reports bound to shared semantic models, dashboards and workspace apps; optionally pipelines that call REST APIs for system-to-system delivery.</dd>
+      <dt>Written by</dt><dd>Report authors.</dd>
+      <dt>Read by</dt><dd>Business users, through an app or report permission rather than a workspace role.</dd>
+      <dt>Typical tools</dt><dd>Power BI Desktop and service, Fabric REST APIs. See <a href="consumption-delivery.html">Consumption and delivery</a> and the <a href="../11-org-apps/index.html">organizational apps</a> and <a href="../12-power-bi-report-development/index.html">report development</a> playbooks.</dd>
+      <dt>Most common mistake</dt><dd>Giving business users workspace roles. A Viewer role in a workspace is broader than an app audience and it reveals items you did not mean to publish.</dd>
+    </dl>
+
+    <h2 id="why-isolate">Why isolate: the rationale</h2>
+    <p>Isolation is not tidiness; each reason below corresponds to a control you can test.</p>
+    <table>
+      <thead><tr><th>Reason</th><th>What isolation gives you</th><th>How to verify it</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Security boundary</strong></td><td>Raw data that may hold sensitive fields sits in a workspace few people can enter; downstream layers hold masked or aggregated data</td><td>Pick an analyst account; confirm it cannot see Bronze items or read Bronze tables through any engine</td></tr>
+        <tr><td><strong>Role separation</strong></td><td>Engineers, analysts and BI developers receive roles per layer, so no one has write access they do not need</td><td>Export workspace role assignments per layer and compare with the team matrix</td></tr>
+        <tr><td><strong>Blast radius</strong></td><td>A bad notebook, a mistaken delete or a wrong grant is confined to one workspace; later layers keep serving their last good load</td><td>Fail a Silver load in test and confirm Gold reports still refresh</td></tr>
+        <tr><td><strong>Controlled promotion</strong></td><td>Each layer is versioned, tested and released separately; a Bronze change does not reach Gold consumers until Silver and Gold accept it</td><td>One deployment pipeline per layer with its own approvers</td></tr>
+        <tr><td><strong>Lineage and ownership</strong></td><td>Raw, curated and published assets have distinct owners; classification and catalog scans can be scoped per layer</td><td>Each workspace has a named owner and a data steward</td></tr>
+        <tr><td><strong>Capacity isolation</strong></td><td>Heavy transformation and interactive BI can run on different capacities and be charged to different cost centers</td><td>Compare capacity utilization during the Silver load window and the business-hours report window</td></tr>
+        <tr><td><strong>Optimized consumption</strong></td><td>The Consumption layer is tuned for its readers: a warehouse for SQL, Direct Lake models for BI, a lakehouse for ML, each with its own capacity and settings</td><td>Track query duration and refresh time per consumption item</td></tr>
+      </tbody>
+    </table>
+    <p>Workspace-level separation also means <a href="#decision-table">a role in one layer never implies a role in another</a>, which is the property auditors ask about most.</p>
+<figure class="diagram">
+<svg class="dg" viewBox="0 0 900 236" role="img" aria-label="The same mistake in one shared workspace damages every layer, but in a workspace-per-layer design it is contained in one layer and downstream layers keep serving the last good data">
+<defs>
+<marker id="fig-arch-2-a-orange" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar orange" d="M0 0L10 5L0 10z"/></marker>
+</defs>
+<text class="t-h" x="14" y="22">One workspace for every layer</text>
+<rect class="zone red" x="10" y="34" width="420" height="96" rx="12"/>
+<rect class="box red" x="22" y="50" width="90" height="64" rx="10"/>
+<text class="t-h" x="67" y="77.5" text-anchor="middle">BRZ</text>
+<text class="t-s" x="67" y="94.5" text-anchor="middle">affected</text>
+<rect class="box red" x="122" y="50" width="90" height="64" rx="10"/>
+<text class="t-h" x="167" y="77.5" text-anchor="middle">SLV</text>
+<text class="t-s" x="167" y="94.5" text-anchor="middle">affected</text>
+<rect class="box red" x="222" y="50" width="90" height="64" rx="10"/>
+<text class="t-h" x="267" y="77.5" text-anchor="middle">GLD</text>
+<text class="t-s" x="267" y="94.5" text-anchor="middle">affected</text>
+<rect class="box red" x="322" y="50" width="90" height="64" rx="10"/>
+<text class="t-h" x="367" y="77.5" text-anchor="middle">RPT</text>
+<text class="t-s" x="367" y="94.5" text-anchor="middle">affected</text>
+<rect class="box orange" x="110" y="160" width="230" height="44" rx="10"/>
+<text class="t-h" x="225" y="177.5" text-anchor="middle">Admin error or runaway job</text>
+<text class="t-s" x="225" y="194.5" text-anchor="middle">one workspace, one blast radius</text>
+<path class="ln orange" d="M225 160V130" marker-end="url(#fig-arch-2-a-orange)"/>
+<text class="t-h" x="470" y="22">One workspace per layer</text>
+<rect class="zone" x="470" y="34" width="98" height="96" rx="12"/>
+<rect class="box green" x="478" y="50" width="82" height="64" rx="10"/>
+<text class="t-h" x="519" y="77.5" text-anchor="middle">BRZ</text>
+<text class="t-s" x="519" y="94.5" text-anchor="middle">intact</text>
+<rect class="zone" x="576" y="34" width="98" height="96" rx="12"/>
+<rect class="box red" x="584" y="50" width="82" height="64" rx="10"/>
+<text class="t-h" x="625" y="77.5" text-anchor="middle">SLV</text>
+<text class="t-s" x="625" y="94.5" text-anchor="middle">load failed</text>
+<rect class="zone" x="682" y="34" width="98" height="96" rx="12"/>
+<rect class="box green" x="690" y="50" width="82" height="64" rx="10"/>
+<text class="t-h" x="731" y="77.5" text-anchor="middle">GLD</text>
+<text class="t-s" x="731" y="94.5" text-anchor="middle">last good</text>
+<rect class="zone" x="788" y="34" width="98" height="96" rx="12"/>
+<rect class="box green" x="796" y="50" width="82" height="64" rx="10"/>
+<text class="t-h" x="837" y="77.5" text-anchor="middle">RPT</text>
+<text class="t-s" x="837" y="94.5" text-anchor="middle">serving</text>
+<rect class="box orange" x="520" y="160" width="230" height="44" rx="10"/>
+<text class="t-h" x="635" y="177.5" text-anchor="middle">Same event</text>
+<text class="t-s" x="635" y="194.5" text-anchor="middle">stopped at the SLV boundary</text>
+<path class="ln orange" d="M635 160V130" marker-end="url(#fig-arch-2-a-orange)"/>
+</svg>
+<figcaption><b>Blast radius.</b> Left: a bad grant, a runaway job or a mistaken delete reaches every item. Right: the same event stops at the Silver workspace boundary; Gold and the reports keep serving data from their last successful load.</figcaption>
+</figure>
+    <div class="callout note"><p class="callout-title">Regulated and sensitive data</p><p>The isolation design supports regulated-data programs (personal, financial or health data) by confining raw data and limiting who can read it. It does not by itself make a platform compliant with any specific regulation. Map your own control requirements to the controls in the <a href="#security-controls">security section</a> and have them reviewed.</p></div>
+
+    <h2 id="cost-of-isolation">What isolation costs</h2>
+    <p>The benefits above are real, and so are the costs. Plan for them or the design will be abandoned under delivery pressure.</p>
+<figure class="diagram">
+<svg class="dg" viewBox="0 0 900 292" role="img" aria-label="Three domains across five layers make fifteen workspaces per environment and forty-five across development, test and production, plus fifteen deployment pipelines">
+<rect class="zone" x="14" y="14" width="580" height="214" rx="12"/>
+<text class="t-s" x="30" y="36">One environment (DEV)</text>
+<text class="t-b" x="142" y="62" text-anchor="middle">BRZ</text>
+<text class="t-b" x="240" y="62" text-anchor="middle">SLV</text>
+<text class="t-b" x="338" y="62" text-anchor="middle">GLD</text>
+<text class="t-b" x="436" y="62" text-anchor="middle">CNSM</text>
+<text class="t-b" x="534" y="62" text-anchor="middle">DLV</text>
+<text class="t-b" x="30" y="98">SALES</text>
+<rect class="box bronze" x="100" y="74" width="84" height="38" rx="10"/>
+<text class="t-s" x="142" y="97" text-anchor="middle">SALES_BRZ</text>
+<rect class="box silver" x="198" y="74" width="84" height="38" rx="10"/>
+<text class="t-s" x="240" y="97" text-anchor="middle">SALES_SLV</text>
+<rect class="box gold" x="296" y="74" width="84" height="38" rx="10"/>
+<text class="t-s" x="338" y="97" text-anchor="middle">SALES_GLD</text>
+<rect class="box blue" x="394" y="74" width="84" height="38" rx="10"/>
+<text class="t-s" x="436" y="97" text-anchor="middle">SALES_CNSM</text>
+<rect class="box purple" x="492" y="74" width="84" height="38" rx="10"/>
+<text class="t-s" x="534" y="97" text-anchor="middle">SALES_DLV</text>
+<text class="t-b" x="30" y="148">FIN</text>
+<rect class="box bronze" x="100" y="124" width="84" height="38" rx="10"/>
+<text class="t-s" x="142" y="147" text-anchor="middle">FIN_BRZ</text>
+<rect class="box silver" x="198" y="124" width="84" height="38" rx="10"/>
+<text class="t-s" x="240" y="147" text-anchor="middle">FIN_SLV</text>
+<rect class="box gold" x="296" y="124" width="84" height="38" rx="10"/>
+<text class="t-s" x="338" y="147" text-anchor="middle">FIN_GLD</text>
+<rect class="box blue" x="394" y="124" width="84" height="38" rx="10"/>
+<text class="t-s" x="436" y="147" text-anchor="middle">FIN_CNSM</text>
+<rect class="box purple" x="492" y="124" width="84" height="38" rx="10"/>
+<text class="t-s" x="534" y="147" text-anchor="middle">FIN_DLV</text>
+<text class="t-b" x="30" y="198">HR</text>
+<rect class="box bronze" x="100" y="174" width="84" height="38" rx="10"/>
+<text class="t-s" x="142" y="197" text-anchor="middle">HR_BRZ</text>
+<rect class="box silver" x="198" y="174" width="84" height="38" rx="10"/>
+<text class="t-s" x="240" y="197" text-anchor="middle">HR_SLV</text>
+<rect class="box gold" x="296" y="174" width="84" height="38" rx="10"/>
+<text class="t-s" x="338" y="197" text-anchor="middle">HR_GLD</text>
+<rect class="box blue" x="394" y="174" width="84" height="38" rx="10"/>
+<text class="t-s" x="436" y="197" text-anchor="middle">HR_CNSM</text>
+<rect class="box purple" x="492" y="174" width="84" height="38" rx="10"/>
+<text class="t-s" x="534" y="197" text-anchor="middle">HR_DLV</text>
+<rect class="box" x="630" y="20" width="256" height="54" rx="10"/>
+<text class="t-h" x="758" y="42.5" text-anchor="middle">15 workspaces</text>
+<text class="t-s" x="758" y="59.5" text-anchor="middle">per environment</text>
+<rect class="box orange" x="630" y="90" width="256" height="54" rx="10"/>
+<text class="t-h" x="758" y="112.5" text-anchor="middle">45 workspaces</text>
+<text class="t-s" x="758" y="129.5" text-anchor="middle">across DEV, TST and PRD</text>
+<rect class="box teal" x="630" y="160" width="256" height="54" rx="10"/>
+<text class="t-h" x="758" y="182.5" text-anchor="middle">15 deployment pipelines</text>
+<text class="t-s" x="758" y="199.5" text-anchor="middle">one per domain and layer</text>
+<rect class="box gray" x="630" y="230" width="256" height="46" rx="10"/>
+<text class="t-h" x="758" y="248.5" text-anchor="middle">+ 3 hub workspaces</text>
+<text class="t-s" x="758" y="265.5" text-anchor="middle">&lt;ENV&gt;_ORCH_HUB</text>
+<rect class="box plain" x="14" y="244" width="580" height="34" rx="10"/>
+<text class="t-s" x="304" y="265" text-anchor="middle">Each workspace also needs roles, a capacity, a Git connection and an Environment item</text>
+</svg>
+<figcaption><b>What strict isolation multiplies.</b> Three domains, five layers, three environments. The count is small to reason about but large to create by hand, which is why workspace creation and role assignment should be scripted.</figcaption>
+</figure>
+    <table>
+      <thead><tr><th>Cost</th><th>What you experience</th><th>Mitigation</th></tr></thead>
+      <tbody>
+        <tr><td>Object count</td><td>Dozens of workspaces to create, name, secure and decommission</td><td>Script workspace creation and role assignment through the Fabric REST API or a CLI; keep the naming standard machine-parseable</td></tr>
+        <tr><td>Cross-workspace permissions</td><td>Every shortcut needs access at the target; every service principal needs roles in several workspaces</td><td>Use security groups per layer; document the grant matrix; test the identity that runs production notebooks, not only your own</td></tr>
+        <tr><td>Orchestration across boundaries</td><td>One logical run touches several workspaces</td><td>Use a hub workspace for orchestration; see <a href="../04-cross-workspace-orchestration/index.html">Cross-Workspace Orchestration</a></td></tr>
+        <tr><td>Promotion mechanics</td><td>One deployment pipeline and one Git connection per layer and domain</td><td>Automate through the deployment APIs; see <a href="../07-deployment/index.html">Deployment Pipelines and Promotion</a></td></tr>
+        <tr><td>Lineage view limits</td><td>The workspace lineage view shows one workspace; shortcuts to other workspaces do not appear in it</td><td>Rely on a catalog tool such as Microsoft Purview for end-to-end lineage; keep a diagram of the shortcut edges</td></tr>
+        <tr><td>Session and compute overhead</td><td>Each notebook run starts its own Spark session, and a layer split into several notebooks pays startup cost several times</td><td>Group related tables in one notebook; use the Environment and pool settings from the <a href="environment.html">Environment page</a></td></tr>
+        <tr><td>Onboarding friction</td><td>New engineers need roles in several workspaces before the first run works</td><td>Group-based access and a one-page grant checklist</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="isolation-options">The options compared</h2>
+    <p>Strict isolation sits at one end of a range. The alternatives trade isolation for simplicity, and the right choice depends on who must be kept apart, how big the team is and what regulators require.</p>
+<figure class="diagram">
+<svg class="dg" viewBox="0 0 900 360" role="img" aria-label="Four ways to organize layers: a workspace per layer, three merged workspaces, one workspace with a lakehouse per layer, and one lakehouse with a schema per layer">
+<text class="t-h" x="14" y="44">A. Workspace per layer</text>
+<text class="t-s" x="14" y="62">strict isolation</text>
+<text class="t-h" x="14" y="130">B. Merged workspaces</text>
+<text class="t-s" x="14" y="148">three workspaces</text>
+<text class="t-h" x="14" y="216">C. One workspace</text>
+<text class="t-s" x="14" y="234">lakehouse per layer</text>
+<text class="t-h" x="14" y="302">D. One lakehouse</text>
+<text class="t-s" x="14" y="320">schema per layer</text>
+<rect class="zone" x="214" y="14" width="124" height="70" rx="12"/>
+<rect class="box bronze" x="224" y="30" width="104" height="38" rx="10"/>
+<text class="t-b" x="276" y="53" text-anchor="middle">Bronze</text>
+<rect class="zone" x="352" y="14" width="124" height="70" rx="12"/>
+<rect class="box silver" x="362" y="30" width="104" height="38" rx="10"/>
+<text class="t-b" x="414" y="53" text-anchor="middle">Silver</text>
+<rect class="zone" x="490" y="14" width="124" height="70" rx="12"/>
+<rect class="box gold" x="500" y="30" width="104" height="38" rx="10"/>
+<text class="t-b" x="552" y="53" text-anchor="middle">Gold</text>
+<rect class="zone" x="628" y="14" width="124" height="70" rx="12"/>
+<rect class="box blue" x="638" y="30" width="104" height="38" rx="10"/>
+<text class="t-b" x="690" y="53" text-anchor="middle">Consumption</text>
+<rect class="zone" x="766" y="14" width="124" height="70" rx="12"/>
+<rect class="box purple" x="776" y="30" width="104" height="38" rx="10"/>
+<text class="t-b" x="828" y="53" text-anchor="middle">Delivery</text>
+<rect class="zone" x="214" y="100" width="124" height="70" rx="12"/>
+<rect class="box bronze" x="224" y="116" width="104" height="38" rx="10"/>
+<text class="t-b" x="276" y="139" text-anchor="middle">Bronze</text>
+<rect class="zone" x="352" y="100" width="262" height="70" rx="12"/>
+<rect class="box silver" x="362" y="116" width="112" height="38" rx="10"/>
+<text class="t-b" x="418" y="139" text-anchor="middle">Silver</text>
+<rect class="box gold" x="492" y="116" width="112" height="38" rx="10"/>
+<text class="t-b" x="548" y="139" text-anchor="middle">Gold</text>
+<rect class="zone" x="628" y="100" width="262" height="70" rx="12"/>
+<rect class="box blue" x="638" y="116" width="112" height="38" rx="10"/>
+<text class="t-b" x="694" y="139" text-anchor="middle">Consumption</text>
+<rect class="box purple" x="768" y="116" width="112" height="38" rx="10"/>
+<text class="t-b" x="824" y="139" text-anchor="middle">Delivery</text>
+<rect class="zone" x="214" y="186" width="676" height="70" rx="12"/>
+<rect class="box bronze" x="228" y="202" width="152" height="38" rx="10"/>
+<text class="t-b" x="304" y="225" text-anchor="middle">LH Bronze</text>
+<rect class="box silver" x="394" y="202" width="152" height="38" rx="10"/>
+<text class="t-b" x="470" y="225" text-anchor="middle">LH Silver</text>
+<rect class="box gold" x="560" y="202" width="152" height="38" rx="10"/>
+<text class="t-b" x="636" y="225" text-anchor="middle">LH Gold</text>
+<rect class="box blue" x="726" y="202" width="152" height="38" rx="10"/>
+<text class="t-b" x="802" y="225" text-anchor="middle">WH and models</text>
+<rect class="zone" x="214" y="272" width="676" height="70" rx="12"/>
+<text class="t-h" x="230" y="312">LH_SALES</text>
+<rect class="box bronze" x="344" y="288" width="160" height="38" rx="10"/>
+<text class="t-b" x="424" y="311" text-anchor="middle">schema brz</text>
+<rect class="box silver" x="522" y="288" width="160" height="38" rx="10"/>
+<text class="t-b" x="602" y="311" text-anchor="middle">schema slv</text>
+<rect class="box gold" x="700" y="288" width="160" height="38" rx="10"/>
+<text class="t-b" x="780" y="311" text-anchor="middle">schema gld</text>
+</svg>
+<figcaption><b>Where the isolation boundary sits.</b> Dashed lines are workspace boundaries, the only boundary that carries its own roles, capacity, Git connection and deployment stage. The schema option has no boundary between layers at all.</figcaption>
+</figure>
+    <dl class="kv">
+      <dt>A. Workspace per layer</dt><dd>Strict isolation as described here. Maximum separation, maximum objects.</dd>
+      <dt>B. Merged workspaces</dt><dd>Three workspaces: raw data alone, curated data (Silver and Gold) together, and consumption with delivery. A common compromise when the same engineers own Silver and Gold and the consumption team is separate.</dd>
+      <dt>C. One workspace, lakehouse per layer</dt><dd>The simplest option that still gives each layer a distinct lakehouse and shortcuts or direct reads between them. Roles apply to the whole workspace, so any engineer who can write Silver can also read Bronze and write Gold.</dd>
+      <dt>D. One lakehouse, schema per layer</dt><dd>Schema-enabled lakehouses let you group tables under <code>brz</code>, <code>slv</code> and <code>gld</code> schemas. It is good for discovery and for four-part queries, and OneLake security roles can scope access by schema. There is no workspace-level boundary, so the blast radius, capacity, deployment and Git history are shared.</dd>
+    </dl>
+
+    <h2 id="decision-table">Decision table</h2>
+    <p>Use the matrix to choose. Green cells are strengths, orange are partial, red are weaknesses.</p>
+    <table>
+      <thead><tr><th>Criterion</th><th>A. Workspace per layer</th><th>B. Merged workspaces</th><th>C. One workspace, lakehouse per layer</th><th>D. One lakehouse, schemas</th></tr></thead>
+      <tbody>
+        <tr><td>Hard separation of duties between ingestion, transformation and BI</td><td class="yes">Strong</td><td class="maybe">Partial</td><td class="no">Weak</td><td class="no">Weak</td></tr>
+        <tr><td>Raw data hidden from most engineers and all analysts</td><td class="yes">Strong</td><td class="yes">Strong for Bronze</td><td class="maybe">Needs OneLake security roles</td><td class="maybe">Needs OneLake security roles</td></tr>
+        <tr><td>Blast radius of an admin error or runaway job</td><td class="yes">Contained per layer</td><td class="maybe">Contained per group</td><td class="no">Whole workspace</td><td class="no">Whole workspace</td></tr>
+        <tr><td>Independent promotion and rollback per layer</td><td class="yes">Yes</td><td class="maybe">Per group</td><td class="no">No</td><td class="no">No</td></tr>
+        <tr><td>Separate capacity or cost center per layer</td><td class="yes">Yes</td><td class="maybe">Per group</td><td class="no">No</td><td class="no">No</td></tr>
+        <tr><td>Setup and operations effort</td><td class="no">High</td><td class="maybe">Medium</td><td class="yes">Low</td><td class="yes">Lowest</td></tr>
+        <tr><td>Fits a small team or a single-domain pilot</td><td class="no">Overkill</td><td class="maybe">Possible</td><td class="yes">Good fit</td><td class="yes">Good fit</td></tr>
+        <tr><td>Cross-layer joins and ad-hoc exploration</td><td class="maybe">Through shortcuts or four-part names</td><td class="maybe">Mixed</td><td class="yes">Easy</td><td class="yes">Easiest</td></tr>
+        <tr><td>Lineage in one workspace view</td><td class="no">Spans workspaces</td><td class="maybe">Partial</td><td class="yes">Yes</td><td class="yes">Yes</td></tr>
+        <tr><td>Auditor-friendly "who can see what" answer</td><td class="yes">One workspace, one answer</td><td class="maybe">Two or three answers</td><td class="no">Needs item-level analysis</td><td class="no">Needs role-level analysis</td></tr>
+      </tbody>
+    </table>
+    <table>
+      <thead><tr><th>Option</th><th>Choose it when</th><th>What you give up</th></tr></thead>
+      <tbody>
+        <tr><td><strong>A</strong></td><td>Regulated or sensitive data; several teams with distinct duties; an enterprise platform that will outlive its first project; audit requires per-layer evidence</td><td>Setup speed; single-workspace lineage; simple cross-layer exploration</td></tr>
+        <tr><td><strong>B</strong></td><td>The same team owns Silver and Gold, raw data still needs a hard boundary, and consumption belongs to a separate BI team</td><td>Independent Silver and Gold promotion; a hard boundary between Silver and Gold roles</td></tr>
+        <tr><td><strong>C</strong></td><td>One team, one domain, low data sensitivity; you want lakehouse-per-layer structure without workspace sprawl</td><td>Every role boundary except item-level sharing</td></tr>
+        <tr><td><strong>D</strong></td><td>Prototype, small data product, single owner; you want fewest moving parts</td><td>Nearly all isolation; any later split means rebuilding shortcuts, names and pipelines</td></tr>
+      </tbody>
+    </table>
+    <div class="callout tip"><p class="callout-title">Start strict where it is hard to undo</p><p>Splitting one workspace into several later is expensive because item identities, shortcuts, Git history and permissions all move. Merging separate workspaces is cheap by comparison. If you are unsure, isolate Bronze and Consumption first, since those boundaries matter most for security and for BI independence, and decide Silver and Gold afterward.</p></div>
+
+    <h2 id="security-controls">Security controls in this design</h2>
+    <p>Workspace roles are the coarse control. Fabric adds finer controls, and a layered design uses the finest control that fits the requirement.</p>
+<figure class="diagram">
+<svg class="dg" viewBox="0 0 900 360" role="img" aria-label="Six security controls stack from capacity down to the semantic model; each narrows access and none replaces the others">
+<defs>
+<marker id="fig-arch-6-a-purple" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar purple" d="M0 0L10 5L0 10z"/></marker>
+</defs>
+<rect class="box purple" x="14" y="14" width="240" height="44" rx="10"/>
+<text class="t-b" x="134" y="40" text-anchor="middle">Capacity and tenant settings</text>
+<text class="t-s" x="272" y="40">who may create workspaces and what compute they can consume</text>
+<rect class="box purple" x="14" y="70" width="240" height="44" rx="10"/>
+<text class="t-b" x="134" y="96" text-anchor="middle">Workspace role</text>
+<text class="t-s" x="272" y="96">Admin, Member, Contributor or Viewer; Contributor and above can read all lakehouse data and write</text>
+<path class="ln purple" d="M134 58V70" marker-end="url(#fig-arch-6-a-purple)"/>
+<rect class="box purple" x="14" y="126" width="240" height="44" rx="10"/>
+<text class="t-b" x="134" y="152" text-anchor="middle">Item permission</text>
+<text class="t-s" x="272" y="152">share one lakehouse, warehouse or model without giving a workspace role</text>
+<path class="ln purple" d="M134 114V126" marker-end="url(#fig-arch-6-a-purple)"/>
+<rect class="box purple" x="14" y="182" width="240" height="44" rx="10"/>
+<text class="t-b" x="134" y="208" text-anchor="middle">OneLake security role</text>
+<text class="t-s" x="272" y="208">table, column and row rules for lakehouse data across engines that honour them</text>
+<path class="ln purple" d="M134 170V182" marker-end="url(#fig-arch-6-a-purple)"/>
+<rect class="box purple" x="14" y="238" width="240" height="44" rx="10"/>
+<text class="t-b" x="134" y="264" text-anchor="middle">SQL permissions</text>
+<text class="t-s" x="272" y="264">GRANT, DENY, row-level and column-level security on the warehouse and SQL endpoint</text>
+<path class="ln purple" d="M134 226V238" marker-end="url(#fig-arch-6-a-purple)"/>
+<rect class="box purple" x="14" y="294" width="240" height="44" rx="10"/>
+<text class="t-b" x="134" y="320" text-anchor="middle">Semantic model security</text>
+<text class="t-s" x="272" y="320">row-level and object-level security for the people reading reports</text>
+<path class="ln purple" d="M134 282V294" marker-end="url(#fig-arch-6-a-purple)"/>
+</svg>
+<figcaption><b>Controls from coarse to fine.</b> Workspace roles decide who may enter a layer; OneLake security, SQL permissions and model security decide what they can read once inside. Use the finest control that fits and keep workspace roles tight.</figcaption>
+</figure>
+    <table>
+      <thead><tr><th>Requirement</th><th>Control</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td>Keep a team out of a layer entirely</td><td>No workspace role</td><td>Default. The simplest control and the strongest.</td></tr>
+        <tr><td>Let analysts query Gold or Consumption with T-SQL only</td><td>Viewer role, or an item permission</td><td>Viewers can connect to the SQL analytics endpoint and read data with T-SQL. They cannot read the lakehouse through Spark or OneLake APIs; Contributor and above can.</td></tr>
+        <tr><td>Give a data scientist read access to selected Gold tables with Spark</td><td>OneLake security role, or an item share with the right permission</td><td>Avoid Contributor, which also grants write access.</td></tr>
+        <tr><td>Restrict rows or columns of a table</td><td>OneLake security roles, SQL row and column security, or semantic model security</td><td>Apply it where each consumer connects, and test every access path.</td></tr>
+        <tr><td>Let a layer read the previous layer</td><td>Shortcut plus access at the target</td><td>See the access flow below.</td></tr>
+        <tr><td>Let business users see reports only</td><td>Workspace app audience or item permission</td><td>Never a workspace role.</td></tr>
+      </tbody>
+    </table>
+    <h3 id="shortcut-security">How access works through a shortcut</h3>
+    <p>A shortcut to another OneLake location is authorized at the target. For a same-tenant OneLake shortcut, the identity of the calling user is used to authorize access, and that user must have permissions at the target; the Silver role alone is not enough. The effective access is therefore the narrower of what the identity is allowed on the shortcut path and on the target path. Roles you hold in the consuming workspace do not widen your rights at the producing workspace.</p>
+<figure class="diagram">
+<svg class="dg" viewBox="0 0 900 282" role="img" aria-label="A Silver notebook reads a Bronze table through a shortcut; the caller needs access in the Silver workspace and on the Bronze target, and the effective access is the narrower of the two">
+<defs>
+<marker id="fig-arch-4-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+</defs>
+<rect class="box blue" x="18" y="78" width="170" height="70" rx="10"/>
+<text class="t-h" x="103" y="100" text-anchor="middle">Notebook run</text>
+<text class="t-s" x="103" y="117" text-anchor="middle">as a user or</text>
+<text class="t-s" x="103" y="134" text-anchor="middle">service principal</text>
+<rect class="zone" x="236" y="24" width="290" height="190" rx="12"/>
+<text class="t-h" x="252" y="44">DEV_SALES_SLV</text>
+<rect class="box silver" x="252" y="58" width="258" height="62" rx="10"/>
+<text class="t-h" x="381" y="84.5" text-anchor="middle">brz.customers</text>
+<text class="t-s" x="381" y="101.5" text-anchor="middle">shortcut in the Silver lakehouse</text>
+<rect class="box purple" x="252" y="140" width="258" height="56" rx="10"/>
+<text class="t-s" x="381" y="163.5" text-anchor="middle">Check 1</text>
+<text class="t-b" x="381" y="180.5" text-anchor="middle">role or permission in Silver</text>
+<rect class="zone" x="594" y="24" width="290" height="190" rx="12"/>
+<text class="t-h" x="610" y="44">DEV_SALES_BRZ</text>
+<rect class="box bronze" x="610" y="58" width="258" height="62" rx="10"/>
+<text class="t-h" x="739" y="84.5" text-anchor="middle">dbo.customers</text>
+<text class="t-s" x="739" y="101.5" text-anchor="middle">Delta table in the Bronze lakehouse</text>
+<rect class="box purple" x="610" y="140" width="258" height="56" rx="10"/>
+<text class="t-s" x="739" y="163.5" text-anchor="middle">Check 2</text>
+<text class="t-b" x="739" y="180.5" text-anchor="middle">role, ReadAll or OneLake security</text>
+<path class="ln" d="M188 113H236V89H252" marker-end="url(#fig-arch-4-a)"/>
+<path class="ln" d="M510 89H610" marker-end="url(#fig-arch-4-a)"/>
+<rect class="pill-bg" x="512.3" y="70.5" width="79.3" height="16"/>
+<text class="t-s" x="552" y="83" text-anchor="middle">resolves to</text>
+<rect class="box green" x="236" y="228" width="648" height="40" rx="10"/>
+<text class="t-s" x="560" y="243.5" text-anchor="middle">Effective access</text>
+<text class="t-b" x="560" y="260.5" text-anchor="middle">is limited by both checks</text>
+</svg>
+<figcaption><b>What is checked when a shortcut is read.</b> The shortcut is only a pointer. Authorization happens at the target, so granting a role in Silver does not grant access to Bronze data.</figcaption>
+</figure>
+    <div class="callout warning"><p class="callout-title">Some engines do not pass the caller through</p><p>Direct Lake over SQL endpoints and T-SQL in delegated identity mode do not pass the calling user's identity to the shortcut target; they use the item owner's identity instead and apply security on top. If the source table has OneLake row or column rules, the SQL analytics endpoint can block access through that shortcut. Direct Lake over OneLake and T-SQL in user identity mode avoid this behavior. Pick the Direct Lake variant with this in mind (see <a href="consumption-delivery.html#direct-lake">Direct Lake variants</a>).</p></div>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>OneLake security (table, column and row rules in OneLake security roles) is evolving, including which engines enforce it, how row and column rules combine across roles, and its release status. Before relying on it for a compliance control, read <a href="https://learn.microsoft.com/fabric/onelake/security/data-access-control-model">OneLake security roles, permissions, and scopes</a> and <a href="https://learn.microsoft.com/fabric/onelake/onelake-shortcut-security">Secure and manage OneLake shortcuts</a>. Also confirm which identity runs a notebook when a pipeline invokes it, and grant that identity access at every shortcut target.</p></div>
+
+    <h2 id="moving-data">Ways to move data between layers</h2>
+    <p>Shortcuts make the previous layer visible; something must still transform and write the next layer. This playbook uses notebooks because they handle arbitrary logic, MERGE and reconciliation. The alternatives suit narrower cases.</p>
+    <table>
+      <thead><tr><th>Mechanism</th><th>Good for</th><th>Trade-off</th></tr></thead>
+      <tbody>
+        <tr><td>Shortcut plus notebook (this playbook)</td><td>Any transformation, incremental MERGE, custom QA</td><td>You own the code and its tests</td></tr>
+        <tr><td>Direct cross-workspace read with a four-part name (<code>workspace.lakehouse.schema.table</code>)</td><td>Ad-hoc joins and one-off loads between schema-enabled lakehouses</td><td>No shortcut object, so no lineage entry and no schema-level reuse; the running identity needs access at the source</td></tr>
+        <tr><td>Materialized lake views</td><td>Declarative SQL or PySpark transformations that Fabric refreshes in dependency order</td><td>Less control over incremental logic and deletes; confirm cross-workspace behavior in a test before choosing it for isolated layers</td></tr>
+        <tr><td>Dataflows Gen2</td><td>Low-code ingestion and light transformation, mostly at Bronze</td><td>Harder to test, review and reuse than code</td></tr>
+        <tr><td>Copy job or pipeline Copy</td><td>Landing data from external sources into Bronze</td><td>A physical copy; not for layer-to-layer moves inside OneLake</td></tr>
+        <tr><td>Mirroring</td><td>Continuously replicating a supported database into OneLake</td><td>Available for specific sources; replaces the ingestion step, not Silver and Gold logic</td></tr>
+      </tbody>
+    </table>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>Materialized lake views and four-part cross-workspace names are newer capabilities. Check their current release status, supported sources and cross-workspace behavior in <a href="https://learn.microsoft.com/fabric/data-engineering/materialized-lake-views/overview-materialized-lake-view">Overview of materialized lake views</a> and <a href="https://learn.microsoft.com/fabric/data-engineering/lakehouse-schemas">Lakehouse schemas</a> before you standardize on either.</p></div>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p>
+      <ul>
+        <li>Give each layer, including Consumption and Delivery, its own workspace when data is sensitive, teams differ or auditors will ask who can see what.</li>
+        <li>Count the cost before you commit: objects, grants, orchestration and promotion all multiply; script them.</li>
+        <li>Use the decision table; merged workspaces are a valid compromise, and one lakehouse with schemas is a prototype pattern, not an isolation design.</li>
+        <li>Authorization on a shortcut happens at the target. Test with the identity that will run production notebooks.</li>
+        <li>Business users get apps or report permissions, never workspace roles.</li>
+      </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/fabric/onelake/onelake-medallion-lakehouse-architecture">Implement medallion lakehouse architecture in Fabric</a></li>
+        <li><a href="https://learn.microsoft.com/azure/architecture/databases/architecture/dataops-mdw">Modern data warehouse medallion architecture in Fabric (Azure Architecture Center)</a></li>
+        <li><a href="https://learn.microsoft.com/azure/cloud-adoption-framework/data/governance-security-baselines-fabric-data-lake-unify-data-platform">Fabric governance and security baselines (Cloud Adoption Framework)</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/fundamentals/roles-workspaces">Roles in workspaces in Microsoft Fabric</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/onelake/onelake-shortcuts">OneLake shortcuts</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/onelake/onelake-shortcut-security">Secure and manage OneLake shortcuts</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/onelake/security/data-access-control-model">OneLake security roles, permissions, and scopes</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/lakehouse-schemas">Lakehouse schemas</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/materialized-lake-views/overview-materialized-lake-view">Overview of materialized lake views</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

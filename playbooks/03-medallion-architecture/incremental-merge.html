@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Incremental loads and MERGE · Medallion Architecture</title>
+<meta name="description" content="How high watermarks and primary keys drive incremental loads, a reusable SCD type 1 Delta MERGE utility for Silver, delete handling and the failure modes to design for.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="03-medallion-architecture" data-page="incremental-merge.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 03 · Implementation</p>
+      <h1>Incremental loads and MERGE</h1>
+      <p class="lede">An incremental load applies only what changed since the last run. It is cheaper than a full reload and much easier to get subtly wrong. This page explains the two mechanisms that find the changes, gives a reusable Delta MERGE utility for Silver, shows how deletes reach Silver and lists the failure modes to design for.</p>
+      <ul class="chips"><li><b>Audience</b> data engineers</li><li><b>Focus</b> watermarks, MERGE, deletes</li><li><b>Pages</b> 7 of 10</li></ul>
+    </header>
+    <h2 id="watermark">The watermark column</h2>
+    <p>A <strong>watermark column</strong>, or high-water mark, is a column in the source that records when a row was created or last changed, typically a <code>last_modified_utc</code> timestamp the source application sets on every insert and update. By remembering the highest value already loaded, a load can ask the source for only the rows above it.</p>
+    <dl class="kv">
+      <dt>Monotonic</dt><dd>Values only increase as rows change. A column that can be set backwards, or that a bulk fix rewrites with old values, cannot serve.</dd>
+      <dt>Maintained by the source</dt><dd>The source sets it on every change, including changes made by batch jobs and manual fixes, not only by the main application.</dd>
+      <dt>Precise enough</dt><dd>A date without time, or a timestamp rounded to the minute, puts many changes on the same value; the load must then re-read the boundary value.</dd>
+      <dt>Indexed or partition-aligned</dt><dd>Where the source is a database, a filter on the column should be cheap. In Bronze Delta tables the column should support file skipping.</dd>
+    </dl>
+<figure class="diagram">
+<svg class="dg" viewBox="0 0 900 236" role="img" aria-label="The high watermark cycle: read the stored mark, slice source rows newer than the mark, merge them, commit, and only then store the new maximum for the next run">
+<defs>
+<marker id="fig-inc-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+</defs>
+<rect class="box purple" x="15" y="24" width="150" height="76" rx="10"/>
+<text class="t-b" x="90" y="49" text-anchor="middle">1 Read mark</text>
+<text class="t-s" x="90" y="66" text-anchor="middle">control table or</text>
+<text class="t-s" x="90" y="83" text-anchor="middle">max in target</text>
+<rect class="box blue" x="192" y="24" width="150" height="76" rx="10"/>
+<text class="t-b" x="267" y="49" text-anchor="middle">2 Slice source</text>
+<text class="t-s" x="267" y="66" text-anchor="middle">watermark &gt;</text>
+<text class="t-s" x="267" y="83" text-anchor="middle">stored mark</text>
+<rect class="box silver" x="369" y="24" width="150" height="76" rx="10"/>
+<text class="t-b" x="444" y="49" text-anchor="middle">3 Dedup, merge</text>
+<text class="t-s" x="444" y="66" text-anchor="middle">latest row per key,</text>
+<text class="t-s" x="444" y="83" text-anchor="middle">upsert by key</text>
+<rect class="box green" x="546" y="24" width="150" height="76" rx="10"/>
+<text class="t-b" x="621" y="49" text-anchor="middle">4 Commit</text>
+<text class="t-s" x="621" y="66" text-anchor="middle">one Delta commit,</text>
+<text class="t-s" x="621" y="83" text-anchor="middle">all or nothing</text>
+<rect class="box purple" x="723" y="24" width="150" height="76" rx="10"/>
+<text class="t-b" x="798" y="49" text-anchor="middle">5 Store new mark</text>
+<text class="t-s" x="798" y="66" text-anchor="middle">max watermark</text>
+<text class="t-s" x="798" y="83" text-anchor="middle">of the slice</text>
+<path class="ln" d="M165 62H192" marker-end="url(#fig-inc-1-a)"/>
+<path class="ln" d="M342 62H369" marker-end="url(#fig-inc-1-a)"/>
+<path class="ln" d="M519 62H546" marker-end="url(#fig-inc-1-a)"/>
+<path class="ln" d="M696 62H723" marker-end="url(#fig-inc-1-a)"/>
+<path class="ln dash" d="M798 100V150H90V100" marker-end="url(#fig-inc-1-a)"/>
+<rect class="pill-bg" x="336.1" y="141.5" width="227.8" height="16"/>
+<text class="t-s" x="450" y="154" text-anchor="middle">next run starts from the stored mark</text>
+<rect class="box plain" x="15" y="176" width="870" height="44" rx="10"/>
+<text class="t-s" x="450" y="202" text-anchor="middle">First run: no mark exists, so the slice is the whole source (a full load) and step 5 stores its maximum</text>
+</svg>
+<figcaption><b>The high watermark cycle.</b> The mark moves forward only after the merge has committed. If the run fails anywhere before step 5, the next run starts from the old mark and simply re-reads the same rows, which a key-based MERGE absorbs without duplicates.</figcaption>
+</figure>
+    <ol class="steps">
+      <li><strong>Initial load</strong><p>The first run has no mark, so it loads everything. On success it records the maximum watermark it loaded.</p></li>
+      <li><strong>Store the mark</strong><p>Keep it in a control table (source, column, last value, run id) or derive it from the target table itself. The utility below supports both.</p></li>
+      <li><strong>Read the mark</strong><p>Each later run starts by reading the stored value.</p></li>
+      <li><strong>Extract the slice</strong><p>Select source rows whose watermark is greater than the mark, minus an optional lookback.</p></li>
+      <li><strong>Load</strong><p>Deduplicate to one row per key and MERGE into the target.</p></li>
+      <li><strong>Advance the mark</strong><p>Only after the MERGE has committed, store the slice's maximum watermark. Advancing first and failing later loses rows silently.</p></li>
+    </ol>
+<figure class="diagram">
+<svg class="dg" viewBox="0 0 900 214" role="img" aria-label="A row committed late with an old watermark value falls below the stored mark and is skipped, unless a lookback window re-reads a short span before the mark">
+<defs>
+<marker id="fig-inc-2-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+</defs>
+<rect class="lane" x="380" y="30" width="160" height="110" rx="8"/>
+<text class="t-s" x="460" y="50" text-anchor="middle">lookback window</text>
+<path class="ln thin" d="M30 110H870" marker-end="url(#fig-inc-2-a)"/>
+<text class="t-s" x="870" y="132" text-anchor="end">watermark value</text>
+<path class="ln purple thick" d="M540 64V150"/>
+<text class="t-b" x="540" y="168" text-anchor="middle">stored mark</text>
+<circle class="dot" cx="90" cy="110" r="6"/>
+<circle class="dot" cx="160" cy="110" r="6"/>
+<circle class="dot" cx="230" cy="110" r="6"/>
+<circle class="dot" cx="300" cy="110" r="6"/>
+<text class="t-s" x="195" y="88" text-anchor="middle">loaded by earlier runs</text>
+<circle class="dot green" cx="620" cy="110" r="6"/>
+<circle class="dot green" cx="700" cy="110" r="6"/>
+<circle class="dot green" cx="780" cy="110" r="6"/>
+<text class="t-s" x="700" y="88" text-anchor="middle">new rows: always read</text>
+<circle class="dot orange" cx="470" cy="110" r="7"/>
+<text class="t-s" x="470" y="88" text-anchor="middle">late commit</text>
+<rect class="box plain" x="30" y="176" width="840" height="30" rx="10"/>
+<text class="t-s" x="450" y="195" text-anchor="middle">Without lookback the orange row is never loaded; with a 30-minute lookback it is re-read and merged</text>
+</svg>
+<figcaption><b>Why a lookback window exists.</b> Watermark values are assigned when a row changes, not when it becomes visible. A transaction that commits after the extract ran can land below the stored mark. Re-reading a short span before the mark catches it, and the key-based MERGE makes the re-read rows harmless.</figcaption>
+</figure>
+
+    <h2 id="primary-key">The primary key approach</h2>
+    <p>Where there is no reliable modified timestamp but the table has a sequential, ever-increasing key such as an identity column, the key itself can act as the mark. Each run loads rows whose key is above the highest key already loaded.</p>
+    <p>Example: the Contoso <code>customers</code> source has an auto-incrementing <code>customer_id</code>. The initial load takes every row; the highest id is 5000, so 5000 is stored. The next run asks for <code>customer_id &gt; 5000</code> and receives the 150 customers created since, the highest being 5150, which becomes the new mark.</p>
+    <p>This finds new rows only. An update to customer 4200 does not change its key, so the key approach never sees it. Use it for append-only or insert-heavy tables (events, log-like order lines that are never edited), or combine it with a periodic full comparison for the few updates that do happen.</p>
+    <h3 id="watermark-vs-key">Watermark column or primary key</h3>
+    <table>
+      <thead><tr><th>Feature</th><th>Watermark column (<code>last_modified_utc</code>)</th><th>Increasing key (<code>customer_id</code>)</th><th>Change data capture or change feed</th></tr></thead>
+      <tbody>
+        <tr><td>Captures inserts</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="yes">Yes</td></tr>
+        <tr><td>Captures updates</td><td class="yes">Yes, if every change sets it</td><td class="no">No</td><td class="yes">Yes</td></tr>
+        <tr><td>Captures physical deletes</td><td class="no">No</td><td class="no">No</td><td class="yes">Yes, as delete operations</td></tr>
+        <tr><td>Depends on</td><td>Source discipline in setting the column</td><td>Keys never reused or assigned out of order</td><td>CDC enabled at the source, or Delta change data feed on the upstream table</td></tr>
+        <tr><td>Typical tables</td><td>Frequently updated entities</td><td>Append-only facts and events</td><td>Sources where deletes matter and the platform supports it</td></tr>
+      </tbody>
+    </table>
+    <p>Choose per table, and combine where needed: a watermark for inserts and updates plus one of the <a href="#deletes">delete strategies</a> below is the most common production answer. Between Fabric layers you can also read the Delta change data feed of the upstream table, if it is enabled there, instead of filtering on a watermark.</p>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>If you plan to read the Delta change data feed through a shortcut, confirm that it is enabled on the upstream table and that the history you need is retained (VACUUM removes change files with the data files). See <a href="https://docs.delta.io/latest/delta-change-data-feed.html">Delta change data feed</a> and <a href="https://learn.microsoft.com/fabric/data-engineering/lakehouse-table-maintenance">Lakehouse table maintenance</a>.</p></div>
+
+    <h2 id="mark-storage">Where to keep the mark</h2>
+    <table>
+      <thead><tr><th>Option</th><th>How</th><th>Strength</th><th>Weakness</th></tr></thead>
+      <tbody>
+        <tr><td>Derived from the target</td><td><code>max(coalesce(watermark columns))</code> on the Silver table at the start of each run</td><td>Nothing extra to maintain; cannot drift from the data</td><td>Needs the watermark column kept in the target; a full scan of that column unless file statistics answer it; deleting the newest rows moves the mark back</td></tr>
+        <tr><td>Control table</td><td>A Delta or warehouse table keyed by source table; read before, written after the MERGE commit</td><td>Explicit, auditable, can be reset for a replay; works when the target does not keep the column</td><td>Two writes that must stay consistent; a mark written for a failed run loses data</td></tr>
+      </tbody>
+    </table>
+    <p>The utility derives the mark from the target by default and accepts an explicit <code>watermark_value</code> from a control table. It returns <code>new_watermark</code>, which the caller writes to the control table only after the call returns without an exception. The <a href="../10-control-table-pipelines/index.html">Control-Table Pipelines</a> playbook covers the control table itself.</p>
+
+    <h2 id="merge-utility">The reusable incremental MERGE utility</h2>
+    <p>The utility performs an SCD type 1 upsert: the target keeps one current row per key and changes overwrite it. It is table-agnostic; everything table-specific is a parameter. Put the helpers and the function in one module, ideally a library attached through the Environment (see <a href="../06-shared-libraries/index.html">Shared Python Libraries</a>), or in the first code cell of the notebook while you develop.</p>
+<figure class="diagram">
+<svg class="dg" viewBox="0 0 900 270" role="img" aria-label="The incremental MERGE utility in eight steps: resolve the mark, slice the source, check null keys, keep the latest row per key, split deletes from upserts, transform, merge in one commit and read metrics from the commit history">
+<defs>
+<marker id="fig-inc-3-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+</defs>
+<rect class="box purple" x="16" y="20" width="180" height="70" rx="10"/>
+<text class="t-b" x="106" y="42" text-anchor="middle">1 Resolve mark</text>
+<text class="t-s" x="106" y="59" text-anchor="middle">explicit value, or</text>
+<text class="t-s" x="106" y="76" text-anchor="middle">max in target</text>
+<rect class="box blue" x="238" y="20" width="180" height="70" rx="10"/>
+<text class="t-b" x="328" y="42" text-anchor="middle">2 Slice source</text>
+<text class="t-s" x="328" y="59" text-anchor="middle">filter, then _wm &gt;</text>
+<text class="t-s" x="328" y="76" text-anchor="middle">mark - lookback</text>
+<rect class="box orange" x="460" y="20" width="180" height="70" rx="10"/>
+<text class="t-b" x="550" y="42" text-anchor="middle">3 Check keys</text>
+<text class="t-s" x="550" y="59" text-anchor="middle">null keys: fail</text>
+<text class="t-s" x="550" y="76" text-anchor="middle">or drop</text>
+<rect class="box blue" x="682" y="20" width="180" height="70" rx="10"/>
+<text class="t-b" x="772" y="42" text-anchor="middle">4 Latest per key</text>
+<text class="t-s" x="772" y="59" text-anchor="middle">newest _wm, then</text>
+<text class="t-s" x="772" y="76" text-anchor="middle">tie-break columns</text>
+<rect class="box blue" x="16" y="150" width="180" height="70" rx="10"/>
+<text class="t-b" x="106" y="172" text-anchor="middle">5 Split rows</text>
+<text class="t-s" x="106" y="189" text-anchor="middle">delete condition</text>
+<text class="t-s" x="106" y="206" text-anchor="middle">vs upserts</text>
+<rect class="box blue" x="238" y="150" width="180" height="70" rx="10"/>
+<text class="t-b" x="328" y="172" text-anchor="middle">6 Transform</text>
+<text class="t-s" x="328" y="189" text-anchor="middle">optional, keeps</text>
+<text class="t-s" x="328" y="206" text-anchor="middle">key columns</text>
+<rect class="box silver" x="460" y="150" width="180" height="70" rx="10"/>
+<text class="t-b" x="550" y="172" text-anchor="middle">7 One MERGE</text>
+<text class="t-s" x="550" y="189" text-anchor="middle">delete, update,</text>
+<text class="t-s" x="550" y="206" text-anchor="middle">insert clauses</text>
+<rect class="box green" x="682" y="150" width="180" height="70" rx="10"/>
+<text class="t-b" x="772" y="172" text-anchor="middle">8 Metrics</text>
+<text class="t-s" x="772" y="189" text-anchor="middle">rows inserted, updated,</text>
+<text class="t-s" x="772" y="206" text-anchor="middle">deleted from history</text>
+<path class="ln" d="M196 55H238" marker-end="url(#fig-inc-3-a)"/>
+<path class="ln" d="M418 55H460" marker-end="url(#fig-inc-3-a)"/>
+<path class="ln" d="M640 55H682" marker-end="url(#fig-inc-3-a)"/>
+<path class="ln" d="M196 185H238" marker-end="url(#fig-inc-3-a)"/>
+<path class="ln" d="M418 185H460" marker-end="url(#fig-inc-3-a)"/>
+<path class="ln" d="M640 185H682" marker-end="url(#fig-inc-3-a)"/>
+<path class="ln" d="M772 90V120H106V150" marker-end="url(#fig-inc-3-a)"/>
+<text class="t-s" x="16" y="246">An empty slice returns early with mode noop; a missing target is created from the first slice (bootstrap).</text>
+</svg>
+<figcaption><b>Inside the incremental MERGE utility.</b> Steps 1 to 4 decide which rows take part; steps 5 to 8 apply them. Everything that changes the target happens in step 7, a single MERGE commit, so a failure anywhere leaves the table as it was.</figcaption>
+</figure>
+    <h3 id="merge-helpers">Helper functions</h3>
+<pre data-title="merge_helpers.py: helpers used by the Silver and Gold engines"><code class="language-python">from datetime import datetime, timedelta
+from functools import reduce
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
+
+from delta.tables import DeltaTable
+from pyspark.sql import Column, DataFrame, SparkSession, Window
+from pyspark.sql import functions as F
+from pyspark.sql.types import StringType
+
+RowFilter = Union[str, Column, Callable[[DataFrame], Column]]
+
+
+def table_exists(spark: SparkSession, name: str) -&gt; bool:
+    """True if the (optionally schema-qualified) table is registered in the catalog."""
+    return spark.catalog.tableExists(name)
+
+
+def resolve_columns(df: DataFrame, wanted: Sequence[str]) -&gt; List[str]:
+    """Actual (case-correct) names of the wanted columns that exist in df."""
+    by_lower = {c.lower(): c for c in df.columns}
+    return [by_lower[w.lower()] for w in wanted if w.lower() in by_lower]
+
+
+def choose_key(df: DataFrame, candidates: Sequence[Sequence[str]]) -&gt; List[str]:
+    """First candidate key whose columns all exist in df (case-insensitive)."""
+    for group in candidates:
+        found = resolve_columns(df, group)
+        if len(found) == len(group):
+            return found
+    raise ValueError(f"No candidate key found. Tried {list(candidates)}; columns: {df.columns}")
+
+
+def watermark_column(df: DataFrame, wm_cols: Sequence[str]) -&gt; Column:
+    """coalesce() of the watermark columns that exist in df, cast to timestamp."""
+    present = resolve_columns(df, wm_cols)
+    if not present:
+        raise ValueError(f"None of the watermark columns {list(wm_cols)} exist in {df.columns}")
+    return F.coalesce(*[F.col(c).cast("timestamp") for c in present])
+
+
+def last_watermark(spark: SparkSession, target_table: str, wm_cols: Sequence[str]) -&gt; Optional[datetime]:
+    """Highest watermark already present in the target; None if the target has no watermark column."""
+    tgt = spark.table(target_table)
+    present = resolve_columns(tgt, wm_cols)
+    if not present:
+        return None
+    expr = F.coalesce(*[F.col(c).cast("timestamp") for c in present])
+    return tgt.agg(F.max(expr)).first()[0]
+
+
+def latest_per_key(df: DataFrame, key_cols: Sequence[str], order_col: str = "_wm",
+                   tiebreak_cols: Sequence[str] = ()) -&gt; DataFrame:
+    """Keep one row per key: the newest by order_col, then by tiebreak_cols (deterministic)."""
+    order = [F.col(order_col).desc_nulls_last()] + [F.col(c).desc_nulls_last() for c in tiebreak_cols]
+    w = Window.partitionBy(*key_cols).orderBy(*order)
+    return df.withColumn("_rn", F.row_number().over(w)).where(F.col("_rn") == 1).drop("_rn")
+
+
+def apply_row_filter(df: DataFrame, cond: Optional[RowFilter]) -&gt; DataFrame:
+    """Apply a SQL string, a Column, or a callable(df) -&gt; Column."""
+    if cond is None:
+        return df
+    if isinstance(cond, Column):
+        return df.filter(cond)
+    if isinstance(cond, str):
+        return df.filter(F.expr(cond))
+    if callable(cond):
+        result = cond(df)
+        if not isinstance(result, Column):
+            raise TypeError("A callable row_filter must return a pyspark.sql.Column")
+        return df.filter(result)
+    raise TypeError("row_filter must be a SQL string, a Column or a callable(df) -&gt; Column")
+
+
+def align_to_target(src: DataFrame, tgt: DataFrame) -&gt; DataFrame:
+    """Select the target's columns that the source has, cast to the target's types, in target order."""
+    src_cols = {c.lower(): c for c in src.columns}
+    cols = [F.col(src_cols[f.name.lower()]).cast(f.dataType).alias(f.name)
+            for f in tgt.schema.fields if f.name.lower() in src_cols]
+    return src.select(*cols)
+
+
+def add_missing_columns(spark: SparkSession, target_table: str, src: DataFrame) -&gt; List[str]:
+    """Explicit schema evolution: add source columns the target does not have (nullable)."""
+    existing = {c.lower() for c in spark.table(target_table).columns}
+    new = [f for f in src.schema.fields if f.name.lower() not in existing]
+    if new:
+        ddl = ", ".join(f"`{f.name}` {f.dataType.simpleString()}" for f in new)
+        spark.sql(f"ALTER TABLE {target_table} ADD COLUMNS ({ddl})")
+    return [f.name for f in new]
+
+
+def commit_metrics(spark: SparkSession, table: str) -&gt; Dict[str, int]:
+    """operationMetrics of the latest commit in the table history, as integers."""
+    row = DeltaTable.forName(spark, table).history(1).select("operationMetrics").first()
+    raw = row[0] or {}
+    return {k: int(v) for k, v in raw.items() if str(v).lstrip("-").isdigit()}
+
+
+def build_slice(spark: SparkSession, source_table: str, key_candidates: Sequence[Sequence[str]],
+                watermark_cols: Sequence[str], row_filter: Optional[RowFilter] = None,
+                normalize_keys: bool = False, since: Optional[datetime] = None) -&gt; Tuple[DataFrame, List[str]]:
+    """Filtered source plus a _wm column, optionally limited to rows newer than `since`."""
+    df = apply_row_filter(spark.table(source_table), row_filter)
+    key_cols = choose_key(df, key_candidates)
+    if normalize_keys:
+        for k in key_cols:
+            if isinstance(df.schema[k].dataType, StringType):
+                df = df.withColumn(k, F.lower(F.trim(F.col(k))))
+    df = df.withColumn("_wm", watermark_column(df, watermark_cols))
+    if since is not None:
+        df = df.filter(F.col("_wm") &gt; F.lit(since))
+    return df, key_cols</code></pre>
+    <h3 id="merge-function">The function</h3>
+<pre data-title="incremental_merge_scd1 (same module, after the helpers)"><code class="language-python">def incremental_merge_scd1(
+    spark: SparkSession,
+    source_table: str,
+    target_table: str,
+    key_candidates: Sequence[Sequence[str]],
+    watermark_cols: Sequence[str],
+    *,
+    row_filter: Optional[RowFilter] = None,
+    transform_fn: Optional[Callable[[DataFrame], DataFrame]] = None,
+    delete_condition: Optional[str] = None,   # SQL over source columns, e.g. "is_deleted = true"
+    normalize_keys: bool = False,             # lower(trim()) string keys before dedup and merge
+    create_if_missing: bool = True,           # bootstrap the target on the first run
+    evolve_schema: bool = False,              # ALTER TABLE ADD COLUMNS for new source columns
+    lookback_minutes: int = 0,                # re-read this much history to tolerate late arrivals
+    watermark_value: Union[None, str, datetime] = None,  # control-table value; overrides the derived one
+    tiebreak_cols: Sequence[str] = (),        # deterministic order when two rows share a watermark
+    on_null_key: str = "fail",                # "fail" or "drop" rows whose key is null
+) -&gt; Dict[str, Any]:
+    """Incremental SCD type 1 upsert from source_table into target_table (Spark, Delta)."""
+    metrics: Dict[str, Any] = {"source": source_table, "target": target_table}
+
+    exists = table_exists(spark, target_table)
+    if not exists and not create_if_missing:
+        raise ValueError(f"{target_table} does not exist and create_if_missing is False")
+
+    # 1. High watermark: explicit value (control table) or derived from the target.
+    last_wm = watermark_value
+    if last_wm is None and exists:
+        last_wm = last_watermark(spark, target_table, watermark_cols)
+    if isinstance(last_wm, str):
+        last_wm = datetime.fromisoformat(last_wm)
+    since = last_wm - timedelta(minutes=lookback_minutes) if last_wm is not None else None
+    metrics["last_watermark"] = str(last_wm) if last_wm is not None else None
+
+    # 2. Filtered, watermark-sliced source. Filters run first so they can be pushed down.
+    inc, key_cols = build_slice(spark, source_table, key_candidates, watermark_cols,
+                                row_filter, normalize_keys, since)
+    null_key = reduce(lambda a, b: a | b, [F.col(k).isNull() for k in key_cols])
+    stats = inc.agg(
+        F.count(F.lit(1)).alias("n"),
+        F.max("_wm").alias("max_wm"),
+        F.sum(F.when(null_key, 1).otherwise(0)).alias("null_keys"),
+    ).first()
+    nulls = int(stats["null_keys"] or 0)
+    metrics.update(rows_in_slice=stats["n"], null_key_rows=nulls,
+                   new_watermark=str(stats["max_wm"]) if stats["max_wm"] is not None else None)
+    if stats["n"] == 0:
+        metrics["mode"] = "noop"
+        return metrics
+    if nulls:
+        if on_null_key == "fail":
+            raise ValueError(f"{nulls} rows in {source_table} have a null key {key_cols}")
+        inc = inc.filter(~null_key)
+
+    # 3. Latest version per key, then split deletes from upserts and transform the upserts.
+    latest = latest_per_key(inc, key_cols, "_wm", tiebreak_cols).drop("_wm")
+    persisted = False
+    try:
+        deletes = None
+        if delete_condition:
+            is_deleted = F.coalesce(F.expr(delete_condition), F.lit(False))
+            latest = latest.persist()
+            persisted = True
+            deletes = latest.filter(is_deleted).select(*key_cols)
+            upserts = latest.filter(~is_deleted)
+        else:
+            upserts = latest
+        if transform_fn is not None:
+            upserts = transform_fn(upserts)   # must keep the key columns under the same names
+
+        if not exists:
+            upserts.write.format("delta").mode("errorifexists").saveAsTable(target_table)
+            metrics["mode"] = "bootstrap"
+            metrics["rows_inserted"] = commit_metrics(spark, target_table).get("numOutputRows")
+            return metrics
+
+        # 4. Optional explicit schema evolution, then align the source to the target.
+        if evolve_schema:
+            metrics["columns_added"] = add_missing_columns(spark, target_table, upserts)
+        tgt = spark.table(target_table)
+        src_df = align_to_target(upserts, tgt).withColumn("_op", F.lit("U"))
+        if deletes is not None:
+            src_df = src_df.unionByName(align_to_target(deletes, tgt).withColumn("_op", F.lit("D")),
+                                        allowMissingColumns=True)
+        keys_lower = {k.lower() for k in key_cols}
+        cols = [c for c in src_df.columns if c != "_op"]
+        set_map = {c: F.col(f"s.`{c}`") for c in cols if c.lower() not in keys_lower}
+        insert_map = {c: F.col(f"s.`{c}`") for c in cols}
+        cond = " AND ".join(f"t.`{k}` = s.`{k}`" for k in key_cols)
+
+        # 5. One atomic MERGE. Clause order matters: the conditional delete comes first,
+        #    the unconditional update last, and deleted keys are never inserted.
+        builder = DeltaTable.forName(spark, target_table).alias("t").merge(src_df.alias("s"), cond)
+        if deletes is not None:
+            builder = builder.whenMatchedDelete(condition="s._op = 'D'")
+        builder = builder.whenMatchedUpdate(set=set_map)
+        builder = builder.whenNotMatchedInsert(
+            condition="s._op = 'U'" if deletes is not None else None, values=insert_map)
+        builder.execute()
+
+        m = commit_metrics(spark, target_table)
+        metrics.update(mode="merge", rows_inserted=m.get("numTargetRowsInserted"),
+                       rows_updated=m.get("numTargetRowsUpdated"), rows_deleted=m.get("numTargetRowsDeleted"))
+        return metrics
+    finally:
+        if persisted:
+            latest.unpersist()</code></pre>
+    <h3 id="merge-parameters">Parameters</h3>
+    <table>
+      <thead><tr><th>Parameter</th><th>Meaning</th><th>Guidance</th></tr></thead>
+      <tbody>
+        <tr><td><code>key_candidates</code></td><td>Ordered list of key column sets; the first set fully present in the source is the MERGE key</td><td>List the true grain first. A fallback key that is not unique merges different rows together; prefer failing to guessing</td></tr>
+        <tr><td><code>watermark_cols</code></td><td>Ordered list; the first non-null value per row becomes <code>_wm</code></td><td>Keep the most reliable column first; every column in the list must mean "last changed"</td></tr>
+        <tr><td><code>row_filter</code></td><td>SQL string, Column or callable returning a Column, applied before slicing</td><td>Filter invalid rows (non-positive keys, test data). Do not filter out deleted rows if you want deletes applied</td></tr>
+        <tr><td><code>transform_fn</code></td><td>Optional row-level transform applied to upserts</td><td>Must keep the key columns and should keep the watermark columns, or the next mark cannot be derived</td></tr>
+        <tr><td><code>delete_condition</code></td><td>SQL over source columns that identifies deleted rows</td><td><code>"is_deleted = true"</code>; matched keys are deleted, unmatched ones never inserted</td></tr>
+        <tr><td><code>normalize_keys</code></td><td><code>lower(trim())</code> on string key columns</td><td>Only for codes that arrive in mixed case or with padding; turn it on from the first load, not later</td></tr>
+        <tr><td><code>lookback_minutes</code></td><td>Re-read this span before the mark</td><td>Set it from the source's longest transaction or replication lag</td></tr>
+        <tr><td><code>watermark_value</code></td><td>Explicit mark from a control table; overrides the derived one</td><td>Also used to replay from a point in time</td></tr>
+        <tr><td><code>tiebreak_cols</code></td><td>Extra ordering when two versions of a key share a watermark</td><td>A sequence number or the source's own row version</td></tr>
+        <tr><td><code>on_null_key</code></td><td><code>"fail"</code> or <code>"drop"</code></td><td>Fail in Silver; a null key is a data problem someone must see</td></tr>
+        <tr><td><code>evolve_schema</code></td><td>Add new source columns to the target with <code>ALTER TABLE ADD COLUMNS</code></td><td>Off by default: new columns are ignored until someone decides to add them</td></tr>
+        <tr><td><code>create_if_missing</code></td><td>Create the target from the first slice</td><td>Turn off in production if tables are created by deployment</td></tr>
+      </tbody>
+    </table>
+    <h3 id="merge-usage">Using it for several tables</h3>
+    <p>The per-table settings live in one dictionary, so adding a table is a configuration change, not new code. The examples show the three accepted filter shapes.</p>
+<pre data-title="Silver notebook: incremental loads driven by a dictionary"><code class="language-python">from pyspark.sql import functions as F
+
+WATERMARK_COLS = ["last_modified_utc", "ingested_at_utc"]   # first non-null wins
+
+# One entry per Silver table. The engine is the same for every table; only this dictionary changes.
+SILVER_TABLES = {
+    "customers": {
+        "key_candidates": [["customer_id"], ["email"]],
+        "row_filter": "customer_id &gt; 0",                       # SQL string
+        "delete_condition": "is_deleted = true",               # propagate source soft deletes
+    },
+    "departments": {
+        "key_candidates": [["department_code"]],
+        "normalize_keys": True,                                # codes arrive as 'HR', 'hr ', 'Hr'
+    },
+    "orders": {
+        "key_candidates": [["order_id"]],
+        "row_filter": F.col("status").isNotNull(),             # Column expression
+        "delete_condition": "is_deleted = true",
+        "lookback_minutes": 30,                                # tolerate late-arriving rows
+    },
+    "order_lines": {
+        "key_candidates": [["order_line_id"], ["order_id", "line_number"]],
+        "row_filter": lambda df: df["quantity"] &gt;= 0,          # callable returning a Column
+        "delete_condition": "is_deleted = true",
+        "lookback_minutes": 30,
+        "tiebreak_cols": ["order_line_id"],
+    },
+}
+
+run_log = []
+for table, cfg in SILVER_TABLES.items():
+    metrics = incremental_merge_scd1(
+        spark,
+        source_table=f"brz.{table}",       # shortcut schema in the Silver lakehouse
+        target_table=f"dbo.{table}",
+        watermark_cols=WATERMARK_COLS,
+        **cfg,
+    )
+    print(table, metrics)
+    run_log.append(metrics)</code></pre>
+    <p>The returned dictionary has <code>mode</code> (<code>bootstrap</code>, <code>merge</code> or <code>noop</code>), <code>rows_in_slice</code>, <code>null_key_rows</code>, <code>last_watermark</code>, <code>new_watermark</code> and, for a merge, the inserted, updated and deleted counts read from the Delta commit history. Write it to a run log table (see <a href="notebooks.html#monitoring-hooks">monitoring hooks</a>).</p>
+    <div class="callout tip"><p class="callout-title">What changed from the original utility</p><p>The original version had an update clause before its delete clause, so the delete could never fire; it compared keys null-safely, so null keys matched each other; it set schema auto-merge for the whole session; it added typed NULL columns for target columns missing from the source and then wrote those NULLs over existing values; it broke ties with a non-deterministic row id; and it estimated merged rows with an extra count. The <a href="appendix.html#silver-engine">appendix</a> walks through each change line by line.</p></div>
+
+    <h2 id="deletes">Handling deletes</h2>
+    <p>A watermark filter only returns rows that still exist. A row deleted in the source simply stops appearing, and Silver keeps it forever unless something tells Silver it is gone. Decide per table which signal you have.</p>
+<figure class="diagram">
+<svg class="dg" viewBox="0 0 900 296" role="img" aria-label="Three ways deletes reach Silver: a soft-delete flag in the source handled by the merge delete clause, a periodic key snapshot compared with the target, or a change feed that carries delete operations">
+<defs>
+<marker id="fig-inc-4-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+</defs>
+<rect class="zone" x="10" y="14" width="880" height="80" rx="12"/>
+<text class="t-h" x="24" y="48">A. Soft-delete flag</text>
+<text class="t-s" x="24" y="68">source marks, never removes</text>
+<rect class="box bronze" x="220" y="28" width="150" height="52" rx="10"/>
+<text class="t-b" x="295" y="49.5" text-anchor="middle">Signal</text>
+<text class="t-s" x="295" y="66.5" text-anchor="middle">is_deleted = true</text>
+<rect class="box green" x="410" y="28" width="170" height="52" rx="10"/>
+<text class="t-b" x="495" y="49.5" text-anchor="middle">delete_condition</text>
+<text class="t-s" x="495" y="66.5" text-anchor="middle">on every run</text>
+<rect class="box silver" x="620" y="28" width="100" height="52" rx="10"/>
+<text class="t-b" x="670" y="49.5" text-anchor="middle">Silver</text>
+<text class="t-s" x="670" y="66.5" text-anchor="middle">row removed</text>
+<path class="ln" d="M370 54H410" marker-end="url(#fig-inc-4-a)"/>
+<path class="ln" d="M580 54H620" marker-end="url(#fig-inc-4-a)"/>
+<text class="t-s" x="738" y="48">cheapest, exact</text>
+<text class="t-s" x="738" y="66">needs source support</text>
+<rect class="zone" x="10" y="106" width="880" height="80" rx="12"/>
+<text class="t-h" x="24" y="140">B. Key snapshot</text>
+<text class="t-s" x="24" y="160">source deletes physically</text>
+<rect class="box bronze" x="220" y="120" width="150" height="52" rx="10"/>
+<text class="t-b" x="295" y="141.5" text-anchor="middle">Signal</text>
+<text class="t-s" x="295" y="158.5" text-anchor="middle">all current keys</text>
+<rect class="box orange" x="410" y="120" width="170" height="52" rx="10"/>
+<text class="t-b" x="495" y="141.5" text-anchor="middle">not matched by source</text>
+<text class="t-s" x="495" y="158.5" text-anchor="middle">flag or delete</text>
+<rect class="box silver" x="620" y="120" width="100" height="52" rx="10"/>
+<text class="t-b" x="670" y="141.5" text-anchor="middle">Silver</text>
+<text class="t-s" x="670" y="158.5" text-anchor="middle">row removed</text>
+<path class="ln" d="M370 146H410" marker-end="url(#fig-inc-4-a)"/>
+<path class="ln" d="M580 146H620" marker-end="url(#fig-inc-4-a)"/>
+<text class="t-s" x="738" y="140">full key scan</text>
+<text class="t-s" x="738" y="158">guard against short lists</text>
+<rect class="zone" x="10" y="198" width="880" height="80" rx="12"/>
+<text class="t-h" x="24" y="232">C. Change feed</text>
+<text class="t-s" x="24" y="252">CDC or mirroring upstream</text>
+<rect class="box bronze" x="220" y="212" width="150" height="52" rx="10"/>
+<text class="t-b" x="295" y="233.5" text-anchor="middle">Signal</text>
+<text class="t-s" x="295" y="250.5" text-anchor="middle">operation = D</text>
+<rect class="box blue" x="410" y="212" width="170" height="52" rx="10"/>
+<text class="t-b" x="495" y="233.5" text-anchor="middle">delete_condition</text>
+<text class="t-s" x="495" y="250.5" text-anchor="middle">on every run</text>
+<rect class="box silver" x="620" y="212" width="100" height="52" rx="10"/>
+<text class="t-b" x="670" y="233.5" text-anchor="middle">Silver</text>
+<text class="t-s" x="670" y="250.5" text-anchor="middle">row removed</text>
+<path class="ln" d="M370 238H410" marker-end="url(#fig-inc-4-a)"/>
+<path class="ln" d="M580 238H620" marker-end="url(#fig-inc-4-a)"/>
+<text class="t-s" x="738" y="232">exact and timely</text>
+<text class="t-s" x="738" y="250">needs CDC in Bronze</text>
+</svg>
+<figcaption><b>Three ways to see a delete.</b> A watermark only sees rows that still exist. If the source deletes physically, you need one of these signals; without one, Silver keeps rows the source no longer has.</figcaption>
+</figure>
+    <h3 id="soft-deletes">Soft-delete flags and change feeds</h3>
+    <p>If the source marks deletions (<code>is_deleted = true</code>) or Bronze lands CDC records with an operation column, pass that as <code>delete_condition</code>. The flagged row carries a new watermark, so it arrives in the slice like any change; the MERGE deletes the matching Silver row and never inserts a flagged key. Do not filter flagged rows out with <code>row_filter</code>, or the delete never reaches the MERGE.</p>
+    <p>If downstream layers need to see deletions (Gold facts that must drop or reverse rows), keep the flag in Silver instead of deleting physically: leave <code>delete_condition</code> empty, keep <code>is_deleted</code> as a column and let Gold apply it. The Gold engine on the <a href="silver-to-gold.html">next page</a> uses exactly that.</p>
+    <h3 id="key-snapshot">Key snapshot reconciliation</h3>
+    <p>When the source deletes physically and there is no CDC, compare the full set of current source keys with Silver on a schedule, for example nightly, and flag or delete the Silver rows whose key has disappeared. Delta's <code>WHEN NOT MATCHED BY SOURCE</code> clause does this in one MERGE.</p>
+<pre data-title="Nightly delete reconciliation by key snapshot (Silver notebook)"><code class="language-python">from delta.tables import DeltaTable
+from pyspark.sql import functions as F
+
+SOURCE, TARGET, KEY = "brz.orders", "dbo.orders", "order_id"
+MIN_RATIO = 0.95   # refuse to run if the source key list looks truncated
+
+source_keys = spark.table(SOURCE).select(KEY).distinct()
+src_n, tgt_n = source_keys.count(), spark.table(TARGET).count()
+if tgt_n and src_n &lt; MIN_RATIO * tgt_n:
+    raise RuntimeError(f"Source has {src_n} keys, target {tgt_n} rows: extract looks incomplete")
+
+# Rows in the target whose key no longer exists in the source: flag them (or delete them).
+(DeltaTable.forName(spark, TARGET).alias("t")
+    .merge(source_keys.alias("s"), f"t.`{KEY}` = s.`{KEY}`")
+    .whenNotMatchedBySourceUpdate(
+        condition="t.is_deleted = false",
+        set={"is_deleted": F.lit(True), "last_modified_utc": F.current_timestamp()})
+    # .whenNotMatchedBySourceDelete()      # physical delete instead of a soft-delete flag
+    .execute())</code></pre>
+    <div class="callout caution"><p class="callout-title">Guard against a truncated key list</p><p>If the Bronze extract failed halfway, the key list is short and the reconciliation flags or deletes rows that still exist. The ratio guard refuses to run when the source has noticeably fewer keys than the target. Tune the ratio to how many rows the source can legitimately delete between runs, and prefer a soft-delete flag so a mistake can be reversed.</p></div>
+
+    <h2 id="failure-modes">Failure modes</h2>
+    <table>
+      <thead><tr><th>Symptom</th><th>Cause</th><th>Design response</th></tr></thead>
+      <tbody>
+        <tr><td>Rows missing in Silver that exist in Bronze</td><td>Rows committed late with a watermark below the stored mark</td><td><code>lookback_minutes</code> sized to the source's commit lag; periodic reconciliation</td></tr>
+        <tr><td>Updates missing for some rows</td><td>A batch job or manual fix in the source did not set the watermark</td><td>Agree the contract with the source owner; schedule a periodic full comparison for affected tables</td></tr>
+        <tr><td>Rows with a NULL watermark loaded once, then never updated</td><td>NULL fails the <code>_wm &gt; mark</code> comparison after the bootstrap</td><td>Add a fallback column to <code>watermark_cols</code> (ingestion timestamp) so every row has a value</td></tr>
+        <tr><td>Every run reprocesses the whole table</td><td>The transform drops the watermark columns, so no mark can be derived from the target</td><td>Keep the watermark columns in the target, or pass <code>watermark_value</code> from a control table</td></tr>
+        <tr><td>MERGE fails: multiple source rows matched the same target row</td><td>The slice holds several versions of a key and they were not deduplicated, or the key is not the true grain</td><td>The utility keeps the latest per key; if it still fails, the chosen key is wrong</td></tr>
+        <tr><td>Run fails with a null key error</td><td>Source rows without a key value</td><td>Fix upstream, or set <code>on_null_key="drop"</code> and log the dropped count deliberately</td></tr>
+        <tr><td>New source column never appears in Silver</td><td>Alignment keeps only target columns; schema evolution is off</td><td>Review, then run once with <code>evolve_schema=True</code></td></tr>
+        <tr><td>Duplicate rows after enabling <code>normalize_keys</code></td><td>Existing rows were stored with the original casing and no longer match</td><td>Normalize from the first load, or rebuild the table when switching it on</td></tr>
+        <tr><td>Concurrent write conflict, or wrong metrics</td><td>Two jobs write the same table at once; the commit read for metrics belongs to the other job</td><td>One writer per table; schedule reconciliation and OPTIMIZE outside the load window</td></tr>
+        <tr><td>Bronze timestamps shift by hours</td><td>Mixed time zones or local-time columns compared with UTC</td><td>Store watermarks in UTC; cast consistently; keep the session time zone fixed in the Environment</td></tr>
+      </tbody>
+    </table>
+    <h3 id="operations">Keeping merged tables healthy</h3>
+    <ul>
+      <li><strong>Compaction.</strong> Frequent small MERGEs create small files. Run <code>OPTIMIZE</code> on a schedule, or rely on the table maintenance features of your runtime; see <a href="../08-delta-partitioning/index.html">Delta Partitioning</a> for layout.</li>
+      <li><strong>Retention.</strong> <code>VACUUM</code> removes files older than the retention period. Keep enough history for time travel during incident analysis and for change data feed readers.</li>
+      <li><strong>Low shuffle merge.</strong> Fabric's low shuffle merge setting reduces the rewrite cost of MERGE when a small share of rows change. Microsoft Learn documents it as enabled by default in Fabric Spark runtimes, at the cost of up to twice as many output files, which is one more reason to compact. Confirm the value in your runtime as described on the <a href="environment.html#spark-properties">Environment page</a> rather than setting it in every notebook.</li>
+      <li><strong>Idempotency.</strong> A rerun of the same slice produces the same target: updates overwrite with the same values and inserts become updates. That is what makes a lookback and an automatic retry safe.</li>
+    </ul>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p>
+      <ul>
+        <li>A watermark finds inserts and updates; an increasing key finds inserts only; neither finds physical deletes.</li>
+        <li>Advance the mark only after the MERGE commits, and re-read a short lookback window to catch late commits.</li>
+        <li>Deduplicate to one row per key before MERGE and fail on null keys; a wrong key is the most expensive bug in this pattern.</li>
+        <li>Pick a delete signal per table: soft-delete flag, change feed, or a guarded key snapshot.</li>
+        <li>Keep the utility table-agnostic and the table differences in configuration.</li>
+      </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://docs.delta.io/latest/delta-update.html">Delta Lake: table deletes, updates and merges</a></li>
+        <li><a href="https://docs.delta.io/latest/api/python/spark/index.html">Delta Lake Python API (DeltaTable, DeltaMergeBuilder)</a></li>
+        <li><a href="https://docs.delta.io/latest/delta-change-data-feed.html">Delta change data feed</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/low-shuffle-merge">Low shuffle merge optimization on Delta tables</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/lakehouse-table-maintenance">Lakehouse table maintenance</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/runtime">Apache Spark runtimes in Fabric</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/tutorial-incremental-copy-data-warehouse-lakehouse">Incrementally load data from a warehouse to a lakehouse (watermark pattern)</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

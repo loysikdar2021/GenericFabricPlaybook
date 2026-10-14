@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Invoke pipeline activity · Hub and Spoke</title>
+<meta name="description" content="How the Fabric Invoke pipeline activity works across workspaces: legacy versus new activity, connection identities, wait on completion, parameters, limits, known issues and a REST fallback.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="04-cross-workspace-orchestration" data-page="invoke-pipeline.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 04 · Hub and spoke</p>
+      <h1>The Invoke pipeline activity</h1>
+      <p class="lede">The activity that lets a pipeline in one workspace start and track a pipeline in another. This page separates the two activities that share the name, explains the connection and identity model, and turns the old list of "preview limitations" into what to do about each one.</p>
+    </header>
+
+    <h2 id="two-activities">Two activities with the same name</h2>
+    <p>Fabric has two Invoke pipeline activities. Pipelines built early on use the <strong>legacy</strong> activity, which only reaches pipelines in the same workspace. The <strong>new</strong> activity adds a connection and a workspace selector, and with them cross-workspace calls and child-run monitoring. A hub-and-spoke design needs the new one; the old one is still useful for modularising logic inside a single workspace.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 270" role="img" aria-label="The legacy Invoke pipeline activity can only call a child pipeline in the same workspace, while the new activity uses a connection to call pipelines in any accessible Fabric workspace and in Azure Data Factory or Synapse">
+        <defs>
+          <marker id="fig-inv-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-inv-1-at" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar teal" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-inv-1-ar" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar red" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <text class="t-h" x="20" y="26">Invoke pipeline (Legacy)</text>
+        <rect class="zone" x="20" y="36" width="420" height="230" rx="12"/>
+        <text class="t-s" x="34" y="56">Same workspace</text>
+        <rect class="box teal" x="40" y="70" width="150" height="56" rx="8"/>
+        <text class="t-b" x="115" y="102" text-anchor="middle">Parent pipeline</text>
+        <rect class="box teal" x="250" y="70" width="150" height="56" rx="8"/>
+        <text class="t-b" x="325" y="102" text-anchor="middle">Child pipeline</text>
+        <path class="ln teal thick" d="M190 98H248" marker-end="url(#fig-inv-1-at)"/>
+        <text class="t-s" x="219" y="90" text-anchor="middle">invoke</text>
+        <rect class="zone red" x="40" y="176" width="360" height="70" rx="10"/>
+        <text class="t-s c-red" x="54" y="194">Other workspace</text>
+        <rect class="box red dashed" x="210" y="198" width="170" height="38" rx="8"/>
+        <text class="t-b" x="295" y="222" text-anchor="middle">Spoke pipeline</text>
+        <path class="ln red dash" d="M115 126V174" marker-end="url(#fig-inv-1-ar)"/>
+        <text class="t-s c-red" x="125" y="156">not reachable</text>
+
+        <text class="t-h" x="460" y="26">Invoke pipeline (new)</text>
+        <rect class="zone teal" x="460" y="36" width="420" height="230" rx="12"/>
+        <rect class="box accent" x="476" y="84" width="110" height="60" rx="8"/>
+        <text class="t-h t-w" x="531" y="112" text-anchor="middle">Parent</text>
+        <text class="t-s t-w" x="531" y="130" text-anchor="middle">in any workspace</text>
+        <rect class="box blue" x="606" y="84" width="100" height="60" rx="8"/>
+        <text class="t-b" x="656" y="112" text-anchor="middle">Connection</text>
+        <text class="t-s" x="656" y="130" text-anchor="middle">SP · WI · user</text>
+        <rect class="box teal" x="740" y="60" width="130" height="44" rx="8"/>
+        <text class="t-b" x="805" y="80" text-anchor="middle">Fabric pipeline</text>
+        <text class="t-s" x="805" y="96" text-anchor="middle">any workspace</text>
+        <rect class="box gray" x="740" y="128" width="130" height="44" rx="8"/>
+        <text class="t-b" x="805" y="148" text-anchor="middle">ADF pipeline</text>
+        <text class="t-s" x="805" y="164" text-anchor="middle">external</text>
+        <rect class="box gray" x="740" y="196" width="130" height="44" rx="8"/>
+        <text class="t-b" x="805" y="216" text-anchor="middle">Synapse pipeline</text>
+        <text class="t-s" x="805" y="232" text-anchor="middle">external</text>
+        <path class="ln" d="M586 114H604" marker-end="url(#fig-inv-1-a)"/>
+        <path class="ln teal thick" d="M706 114H722V82H738" marker-end="url(#fig-inv-1-at)"/>
+        <path class="ln teal thick" d="M706 114H722V150H738" marker-end="url(#fig-inv-1-at)"/>
+        <path class="ln teal thick" d="M706 114H722V218H738" marker-end="url(#fig-inv-1-at)"/>
+      </svg>
+      <figcaption><b>What the new activity adds.</b> A connection object carries an identity, and with it the parent can reach pipelines in other workspaces and in external services. The legacy activity has neither.</figcaption>
+    </figure>
+    <table>
+      <thead><tr><th></th><th>Invoke pipeline (Legacy)</th><th>Invoke pipeline (new)</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Reach</strong></td><td>Fabric pipelines in the same workspace as the parent</td><td>Fabric pipelines in any workspace the connection identity can use; Azure Data Factory and Synapse pipelines</td></tr>
+        <tr><td><strong>Connection object</strong></td><td>Not used</td><td>Required; stored in the secure Fabric credentials store</td></tr>
+        <tr><td><strong>Child run monitoring</strong></td><td>Only the parent run is monitored</td><td>Child pipeline runs can be monitored</td></tr>
+        <tr><td><strong>Wait on completion</strong></td><td>Supported</td><td>Supported</td></tr>
+        <tr><td><strong>Parameters</strong></td><td>Supported</td><td>Supported</td></tr>
+        <tr><td><strong>Use for</strong></td><td>Modular logic inside one workspace</td><td>Hub-and-spoke across workspaces</td></tr>
+      </tbody>
+    </table>
+    <div class="callout note"><p class="callout-title">Spot the difference on the canvas</p><p>The new activity has Type, Connection and Workspace fields on its Settings tab; the legacy activity shows only an invoked-pipeline selector. If you open an older pipeline you may be prompted to upgrade the activity. Upgrading adds the connection and workspace properties; review the result, because those are exactly the properties your CI/CD process will need to handle (see <a href="operations.html#object-ids">the item-ID problem</a>).</p></div>
+
+    <h2 id="configure">Configure the activity</h2>
+    <p>On the pipeline canvas, add <strong>Invoke pipeline</strong> from the Activities tab and open its Settings tab.</p>
+    <table>
+      <thead><tr><th>Setting</th><th>What it does</th><th>Guidance for hub and spoke</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Type</strong></td><td>Fabric, Azure Data Factory or Azure Synapse Analytics</td><td>Fabric for spokes. ADF and Synapse are for hybrid estates that still run pipelines there.</td></tr>
+        <tr><td><strong>Connection</strong></td><td>Reusable connection object holding the identity used to call Fabric</td><td>One connection per environment, owned by the platform team, using a service principal or workspace identity. Name it for its environment, for example <code>CONN_FABRIC_PIPELINES_DEV</code>.</td></tr>
+        <tr><td><strong>Workspace</strong></td><td>The workspace that holds the target pipeline; the picker lists workspaces the connection identity can access</td><td>If a workspace is missing from the picker, the identity lacks a role there.</td></tr>
+        <tr><td><strong>Pipeline</strong></td><td>The pipeline to invoke</td><td>Choose by logical name. Both selectors offer dynamic content, which is how you avoid hard-coded IDs.</td></tr>
+        <tr><td><strong>Parameters</strong></td><td>Values passed to the child's parameters</td><td>Names must match the child's parameters exactly. Pass explicit parent context (see below).</td></tr>
+        <tr><td><strong>Wait on completion</strong></td><td>Whether the activity finishes when the child finishes or as soon as it starts</td><td>On for every activity that anything depends on.</td></tr>
+        <tr><td><strong>General tab</strong></td><td>Timeout, retries, retry interval, secure input and output</td><td>See <a href="control-flow.html#retries-timeouts">retries and timeouts</a>.</td></tr>
+      </tbody>
+    </table>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>Check in your tenant that both the Workspace and Pipeline fields accept dynamic content, and that your tenant shows the label you expect on the activity tile. The reference article is <a href="https://learn.microsoft.com/fabric/data-factory/invoke-pipeline-activity">Invoke pipeline activity</a>. Use the activity's code (<code>&lt;/&gt;</code>) view to see the exact JSON property names before you write any deployment-time replacement rules.</p></div>
+
+    <h2 id="identity">Connection and identity</h2>
+    <p>Every new Invoke pipeline activity needs a connection, and the connection's identity is what Fabric authorizes when the hub starts a child run. When you create the connection you choose an <em>Authentication kind</em>: organizational account, service principal, or workspace identity.</p>
+    <table>
+      <thead><tr><th>Authentication kind</th><th>Strengths</th><th>Weaknesses</th><th>Use for</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Organizational account</strong></td><td>Fastest to set up; fine for a first test</td><td>Tied to one person. A password change, disabled account or role change breaks the connection. Pipelines do not refresh authentication in the background, so a cached token can go stale.</td><td>Workshops and prototypes only</td></tr>
+        <tr><td><strong>Service principal</strong></td><td>Not tied to a person; scoped by a security group; well understood by security teams</td><td>A secret or certificate to rotate; needs the tenant setting for service principals to call Fabric APIs; must be added to every spoke workspace</td><td>Production, especially where service principals are already managed</td></tr>
+        <tr><td><strong>Workspace identity</strong></td><td>Fabric-managed identity with no secret to store or rotate</td><td>Must be created in the same workspace as the pipeline; needs the same tenant setting; not compatible with cross-tenant requests; Conditional Access policies for workload identities must exclude it</td><td>Production where you want zero secrets; verify first (see callout)</td></tr>
+      </tbody>
+    </table>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 260" role="img" aria-label="Two role checks happen on an orchestrated call: the identity running the hub pipeline needs a role in the hub, and the connection identity used by the Invoke activity needs Contributor in the spoke workspace">
+        <defs>
+          <marker id="fig-inv-2-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-inv-2-at" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar teal" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box gray" x="20" y="60" width="150" height="70" rx="10"/>
+        <text class="t-b" x="95" y="92" text-anchor="middle">Trigger</text>
+        <text class="t-s" x="95" y="112" text-anchor="middle">schedule or user</text>
+        <rect class="box accent" x="230" y="60" width="150" height="70" rx="10"/>
+        <text class="t-h t-w" x="305" y="92" text-anchor="middle">Hub pipeline run</text>
+        <text class="t-s t-w" x="305" y="112" text-anchor="middle">runs as an identity</text>
+        <rect class="box blue" x="440" y="60" width="170" height="70" rx="10"/>
+        <text class="t-b" x="525" y="92" text-anchor="middle">Invoke activity</text>
+        <text class="t-s" x="525" y="112" text-anchor="middle">uses the connection</text>
+        <rect class="zone teal" x="670" y="40" width="210" height="110" rx="12"/>
+        <text class="t-s" x="684" y="58">Spoke workspace</text>
+        <rect class="box teal" x="690" y="70" width="170" height="60" rx="8"/>
+        <text class="t-b" x="775" y="104" text-anchor="middle">Spoke pipeline run</text>
+        <path class="ln" d="M170 95H228" marker-end="url(#fig-inv-2-a)"/>
+        <path class="ln" d="M380 95H438" marker-end="url(#fig-inv-2-a)"/>
+        <path class="ln teal thick" d="M610 95H688" marker-end="url(#fig-inv-2-at)"/>
+        <rect class="box purple" x="90" y="170" width="230" height="70" rx="10"/>
+        <text class="t-b" x="205" y="198" text-anchor="middle">Check 1 · hub run identity</text>
+        <text class="t-s" x="205" y="218" text-anchor="middle">must hold a hub workspace role</text>
+        <rect class="box purple" x="535" y="170" width="230" height="70" rx="10"/>
+        <text class="t-b" x="650" y="198" text-anchor="middle">Check 2 · connection</text>
+        <text class="t-s" x="650" y="218" text-anchor="middle">needs Contributor in the spoke</text>
+        <path class="ln purple thin dash" d="M205 170V98"/>
+        <path class="ln purple thin dash" d="M650 170V98"/>
+      </svg>
+      <figcaption><b>Two identities, two checks.</b> A scheduled run executes as whoever owns the schedule, which can differ from the person who tested manually; the connection identity is separate again. Most "works for me, fails at night" reports come from check 1.</figcaption>
+    </figure>
+
+    <h3 id="wi-setup">Set up a workspace identity connection</h3>
+    <ol class="steps">
+      <li><strong>Create the workspace identity</strong><p>In the hub workspace, open Workspace settings, select the Workspace identity tab and choose <em>+ Workspace identity</em>. Only a workspace admin can do this, and the identity should live in the same workspace as the pipeline that will use it.</p></li>
+      <li><strong>Enable the tenant setting</strong><p>A Fabric admin turns on <em>Service principals can call Fabric public APIs</em> (disabled by default) and scopes it to a security group that contains your orchestration identities.</p></li>
+      <li><strong>Grant the identity access to each spoke</strong><p>In every spoke workspace choose Manage access and add the hub's workspace identity (or service principal) as <strong>Contributor</strong>. Learn states Contributor is sufficient for most scenarios.</p></li>
+      <li><strong>Create the connection</strong><p>In the Invoke pipeline activity open the Connection list, choose Browse all, select <em>Fabric Data Pipelines</em> under New sources, give the connection an environment-specific name, and set Authentication kind to workspace identity (or service principal, which also asks for tenant ID, client ID and secret).</p></li>
+      <li><strong>Select it in the activity and test twice</strong><p>Pick the workspace and pipeline, then run once manually and once from the schedule. The scheduled run is the one that exposes the run-identity check.</p></li>
+    </ol>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>The Invoke pipeline article lists workspace identity as an authentication kind, while the general workspace-identity article describes pipeline support for the Copy, Lookup and GetMetadata activities. Treat workspace identity for Invoke pipeline as "test before you standardize" and keep a service principal connection as the fallback. <a href="https://learn.microsoft.com/fabric/security/workspace-identity-authenticate">Authenticate with workspace identity</a>.</p></div>
+
+    <h2 id="wait-and-parameters">Wait on completion, parameters and results</h2>
+    <h3 id="wait">Wait on completion</h3>
+    <p>This one checkbox decides whether a dependency means anything. With it <strong>on</strong>, the activity stays running until the child finishes and takes the child's outcome, so the On success path really means "the child succeeded". With it <strong>off</strong>, the activity completes as soon as the child is started, and the On success path means only "the child was started".</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 296" role="img" aria-label="With Wait on completion on, the next hub activity starts only after the child run ends; with it off, the next activity starts immediately while the child is still running and On success only means the child started">
+        <rect class="lane" x="10" y="10" width="880" height="132" rx="8"/>
+        <text class="t-h" x="20" y="30">Wait on completion: on</text>
+        <text class="t-s" x="20" y="58">Hub: invoke</text>
+        <rect class="box teal" x="140" y="42" width="360" height="22" rx="4"/>
+        <text class="t-s" x="20" y="90">Spoke: child run</text>
+        <rect class="box teal" x="170" y="74" width="310" height="22" rx="4"/>
+        <text class="t-s" x="20" y="122">Hub: next activity</text>
+        <rect class="box green" x="500" y="106" width="150" height="22" rx="4"/>
+        <text class="t-s" x="662" y="122">starts after the child ends</text>
+        <rect class="lane" x="10" y="156" width="880" height="132" rx="8"/>
+        <text class="t-h" x="20" y="176">Wait on completion: off</text>
+        <text class="t-s" x="20" y="204">Hub: invoke</text>
+        <rect class="box teal" x="140" y="188" width="40" height="22" rx="4"/>
+        <text class="t-s" x="20" y="236">Spoke: child run</text>
+        <rect class="box teal" x="170" y="220" width="310" height="22" rx="4"/>
+        <text class="t-s c-red" x="490" y="236">On success only means "started"</text>
+        <text class="t-s" x="20" y="268">Hub: next activity</text>
+        <rect class="box orange" x="180" y="252" width="150" height="22" rx="4"/>
+        <text class="t-s" x="342" y="268">starts at once, child still running</text>
+      </svg>
+      <figcaption><b>Time runs left to right.</b> Without waiting, every downstream dependency fires on a child that has not finished, which is the most common way a "sequential" hub turns out not to be sequential.</figcaption>
+    </figure>
+    <p>Leave it off only when you genuinely want fire-and-forget, for example a notification pipeline whose outcome nothing depends on.</p>
+
+    <h3 id="parameters">Parameters and parent context</h3>
+    <p>Parameters on the activity map to parameters declared on the child pipeline, by name. Treat the list as the spoke's contract (see <a href="architecture.html#contract">the contract</a>) and always pass explicit parent context, so the child can log which orchestrated run it belongs to even if system variables are empty.</p>
+    <table>
+      <thead><tr><th>Child parameter</th><th>Value the hub passes (pipeline expression)</th><th>Purpose</th></tr></thead>
+      <tbody>
+        <tr><td><code>runDate</code></td><td><code>@variables('runDate')</code></td><td>The logical data window, computed once per hub run in a Set variable activity with <code>@if(empty(pipeline().parameters.runDate), formatDateTime(utcnow(), 'yyyy-MM-dd'), pipeline().parameters.runDate)</code>. An empty hub parameter means today; an explicit value re-runs a past window.</td></tr>
+        <tr><td><code>batchId</code></td><td><code>@concat('sales-', replace(variables('runDate'), '-', ''))</code></td><td>A deterministic key for the logical batch, so a re-run overwrites rather than duplicates. Do not derive it from the run ID.</td></tr>
+        <tr><td><code>parentRunId</code></td><td><code>@pipeline().RunId</code></td><td>Links child log rows to the hub run.</td></tr>
+        <tr><td><code>parentPipeline</code></td><td><code>@pipeline().PipelineName</code></td><td>Human-readable origin for the log.</td></tr>
+        <tr><td><code>hubWorkspaceId</code></td><td><code>@pipeline().DataFactory</code></td><td>The ID of the workspace the hub pipeline runs in.</td></tr>
+      </tbody>
+    </table>
+    <p>Learn documents <code>@pipeline()?.TriggeredByPipelineName</code> and <code>@pipeline()?.TriggeredByPipelineRunId</code> as populated when a run is started by an invoking activity (note the question mark, which makes the expression null-safe). Earlier guidance recorded these as null with the preview activity. Passing the values explicitly costs nothing and survives any change in that behaviour.</p>
+
+    <h3 id="return-values">Return values</h3>
+    <p>The Set variable activity can set a <em>pipeline return value</em>, and the intent is that a calling pipeline can consume it. The documentation does not describe how the new Invoke pipeline activity exposes it, and community reports describe the value as missing from the new activity's output.</p>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>Test a return value end to end in your tenant before using one. Reference: <a href="https://learn.microsoft.com/fabric/data-factory/set-variable-activity">Set Variable activity</a>. Until you have proved it, design as if child pipelines return nothing except success or failure.</p></div>
+    <p>The robust alternative is to treat the run log as the return channel: the spoke's last activity writes its metrics (rows written, high-water mark) keyed by <code>batchId</code>, and the hub reads them with a Lookup activity when it needs them. It works for every activity type, survives retries, and doubles as an audit trail.</p>
+
+    <h2 id="limits">Limits that shape the design</h2>
+    <table>
+      <thead><tr><th>Limit</th><th>Value</th><th>Design consequence</th></tr></thead>
+      <tbody>
+        <tr><td>Activities per pipeline (including activities inside containers)</td><td>120</td><td>Each Invoke counts as one. Split large flows into spoke pipelines instead of growing one canvas.</td></tr>
+        <tr><td>Parameters per pipeline</td><td>50</td><td>Pass a small contract, not a configuration dump. Read configuration from a control table.</td></tr>
+        <tr><td>Characters per expression</td><td>8,192</td><td>Keep expressions short; compute in a Set variable step.</td></tr>
+        <tr><td>Activity timeout</td><td>Default 12 hours</td><td>An Invoke activity inherits this; set a timeout that matches the child's SLA.</td></tr>
+        <tr><td>ForEach items / parallelism</td><td>100,000 items; default 20, maximum 50 in parallel</td><td>See <a href="control-flow.html#foreach">metadata-driven fan-out</a>.</td></tr>
+        <tr><td>Lookup activity rows</td><td>5,000</td><td>Paginate or filter control-table reads.</td></tr>
+        <tr><td>Concurrent pipeline runs per workspace</td><td>10,000, shared by all pipelines in the workspace</td><td>Rarely the binding limit; capacity is.</td></tr>
+        <tr><td>Queued runs per pipeline</td><td>100</td><td>A schedule that outpaces its pipeline queues up and then drops.</td></tr>
+        <tr><td>Schedules per pipeline</td><td>20</td><td>Enough for most hubs.</td></tr>
+        <tr><td>Payload per activity run</td><td>896 KB</td><td>Do not pass large arrays through outputs; pass keys.</td></tr>
+        <tr><td>Nesting depth of invoked pipelines</td><td>Not documented</td><td>Keep it to hub, spoke and at most one more level.</td></tr>
+        <tr><td>Cross-region invocation</td><td>Not documented</td><td>Test it, or keep hub and spokes in one region.</td></tr>
+      </tbody>
+    </table>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>The activity overview states a maximum activity timeout of seven days while the limits table lists a 24-hour maximum for pipeline activity runs; confirm which applies before you configure a long timeout. Also confirm nesting and cross-region behaviour for your topology. <a href="https://learn.microsoft.com/fabric/data-factory/data-factory-limitations">Data Factory limitations overview</a> and <a href="https://learn.microsoft.com/fabric/data-factory/activity-overview">Activity overview</a>.</p></div>
+
+    <h2 id="known-issues">Early limitations, rewritten</h2>
+    <p>Guidance written when the cross-workspace activity first appeared listed three problems: token expiry, missing parent context, and settings that could not be parameterized. Here is each one, plus the others people hit in practice, with the response that holds today.</p>
+    <table>
+      <thead><tr><th>Reported issue</th><th>What to do</th></tr></thead>
+      <tbody>
+        <tr><td>User tokens in the connection expire, so runs fail intermittently</td><td>Use a service principal or workspace identity. If you must keep a user connection, remember that pipelines do not refresh authentication in the background: after a password change, make a trivial edit to the pipeline and save it so a fresh token is cached.</td></tr>
+        <tr><td>Parent pipeline and run context is null in the child</td><td>Pass <code>parentRunId</code>, <code>parentPipeline</code> and <code>batchId</code> as explicit parameters. Treat system variables as a bonus.</td></tr>
+        <tr><td>Workspace and connection are fixed in the UI, so promotion needs manual JSON edits</td><td>Drive the workspace and pipeline selectors with dynamic content from a variable library, or rewrite the values at deployment time with a tool such as fabric-cicd. Create the connection once per environment. Details in <a href="operations.html#object-ids">the item-ID problem</a>.</td></tr>
+        <tr><td>Pipeline return values are missing</td><td>Write results to the run log and read them back with Lookup.</td></tr>
+        <tr><td>Child runs were hard to find</td><td>The new activity lets you monitor child runs; the new Monitoring hub shows upstream and downstream runs. Also write <code>parentRunId</code> to the log.</td></tr>
+        <tr><td>A workspace or pipeline is missing from the selector</td><td>The connection identity has no role in that workspace, or the workspace identity was created in a different workspace than the pipeline's.</td></tr>
+        <tr><td>Transient failures when many invokes start together</td><td>Enable retries with increasing delay on the Invoke activity, keep children idempotent, and stagger parallel branches (see <a href="control-flow.html#retries-timeouts">retries and timeouts</a>).</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="rest-fallback">When the native activity is not enough: the REST fallback</h2>
+    <p>Some cases fall outside what the activity handles: calling from outside Fabric (an external scheduler, a release pipeline), starting a run without any pipeline in between, or needing custom polling. The Fabric REST API for running an item on demand covers them. Run-on-demand returns <strong>202 Accepted</strong> immediately with a <code>Location</code> header for the job instance, so a caller that must wait has to poll.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 285" role="img" aria-label="A Web activity starts a pipeline run through the Fabric REST API and receives 202 Accepted with a Location header; an Until loop waits and polls the job instance until it reaches a terminal status; a decision then continues the flow if Completed or fails with the reason otherwise">
+        <defs>
+          <marker id="fig-inv-3-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-inv-3-ag" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-inv-3-ar" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar red" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box teal" x="20" y="80" width="150" height="60" rx="8"/>
+        <text class="t-b" x="95" y="106" text-anchor="middle">Web: start run</text>
+        <text class="t-s" x="95" y="126" text-anchor="middle">POST jobs/instances</text>
+        <rect class="box gray" x="200" y="80" width="130" height="60" rx="8"/>
+        <text class="t-b" x="265" y="106" text-anchor="middle">202 Accepted</text>
+        <text class="t-s" x="265" y="126" text-anchor="middle">Location header</text>
+        <rect class="zone" x="350" y="40" width="390" height="140" rx="12"/>
+        <text class="t-s" x="364" y="58">Until status is terminal</text>
+        <rect class="box teal" x="364" y="80" width="100" height="60" rx="8"/>
+        <text class="t-b" x="414" y="106" text-anchor="middle">Wait</text>
+        <text class="t-s" x="414" y="126" text-anchor="middle">Retry-After</text>
+        <rect class="box teal" x="484" y="80" width="100" height="60" rx="8"/>
+        <text class="t-b" x="534" y="106" text-anchor="middle">Web: GET</text>
+        <text class="t-s" x="534" y="126" text-anchor="middle">job instance</text>
+        <rect class="box teal" x="604" y="80" width="100" height="60" rx="8"/>
+        <text class="t-b" x="654" y="106" text-anchor="middle">Set variable</text>
+        <text class="t-s" x="654" y="126" text-anchor="middle">status</text>
+        <path class="ln" d="M170 110H198" marker-end="url(#fig-inv-3-a)"/>
+        <path class="ln" d="M330 110H362" marker-end="url(#fig-inv-3-a)"/>
+        <path class="ln" d="M464 110H482" marker-end="url(#fig-inv-3-a)"/>
+        <path class="ln" d="M584 110H602" marker-end="url(#fig-inv-3-a)"/>
+        <path class="ln dash" d="M654 142V164H414V142" marker-end="url(#fig-inv-3-a)"/>
+        <rect class="pill-bg" x="504" y="156" width="60" height="16"/>
+        <text class="t-s" x="534" y="168" text-anchor="middle">repeat</text>
+        <rect class="box gray" x="20" y="200" width="300" height="64" rx="8"/>
+        <text class="t-s" x="170" y="226" text-anchor="middle">Run-on-demand returns 202 immediately,</text>
+        <text class="t-s" x="170" y="244" text-anchor="middle">so waiting means polling</text>
+        <rect class="box purple" x="380" y="206" width="140" height="44" rx="22"/>
+        <text class="t-b" x="450" y="233" text-anchor="middle">Completed?</text>
+        <rect class="box green" x="570" y="206" width="150" height="44" rx="8"/>
+        <text class="t-b" x="645" y="233" text-anchor="middle">Continue the flow</text>
+        <rect class="box red" x="750" y="206" width="130" height="44" rx="8"/>
+        <text class="t-b" x="815" y="233" text-anchor="middle">Fail with reason</text>
+        <path class="ln" d="M450 180V204" marker-end="url(#fig-inv-3-a)"/>
+        <path class="ln green" d="M520 228H568" marker-end="url(#fig-inv-3-ag)"/>
+        <text class="t-s c-green" x="544" y="220" text-anchor="middle">yes</text>
+        <path class="ln red" d="M450 250V272H815V252" marker-end="url(#fig-inv-3-ar)"/>
+        <rect class="pill-bg" x="620" y="264" width="30" height="16"/>
+        <text class="t-s c-red" x="635" y="276" text-anchor="middle">no</text>
+      </svg>
+      <figcaption><b>Fire, then poll.</b> The same loop works whether the caller is a pipeline Web activity, a release script or an external scheduler. The loop must end in a decision that fails loudly; polling that swallows a failed status recreates the problem it was meant to solve.</figcaption>
+    </figure>
+    <p>From outside Fabric, the shape is a short script. This example (Python, runs anywhere with network access) authenticates as a service principal that has Contributor on the workspace, starts a pipeline and waits for a terminal state.</p>
+<pre data-title="start_and_wait.py (external caller)"><code class="language-python">import os
+import time
+
+import requests
+from azure.identity import ClientSecretCredential
+
+BASE = "https://api.fabric.microsoft.com/v1"
+WORKSPACE_ID = "&lt;workspace-id&gt;"
+PIPELINE_ID = "&lt;pipeline-id&gt;"
+
+credential = ClientSecretCredential(
+    tenant_id=os.environ["AZ_TENANT_ID"],
+    client_id=os.environ["AZ_CLIENT_ID"],
+    client_secret=os.environ["AZ_CLIENT_SECRET"],
+)
+token = credential.get_token("https://api.fabric.microsoft.com/.default").token
+headers = {"Authorization": f"Bearer {token}"}
+
+# Start the run: 202 Accepted, with the job-instance URL in the Location header
+start = requests.post(
+    f"{BASE}/workspaces/{WORKSPACE_ID}/items/{PIPELINE_ID}/jobs/instances",
+    params={"jobType": "Pipeline"},
+    headers=headers,
+    timeout=60,
+)
+start.raise_for_status()
+status_url = start.headers["Location"]
+delay = int(start.headers.get("Retry-After", "30"))
+
+# Poll until the job instance reaches a terminal status
+TERMINAL = {"Completed", "Failed", "Cancelled", "Deduped"}
+while True:
+    time.sleep(delay)
+    poll = requests.get(status_url, headers=headers, timeout=60)
+    poll.raise_for_status()
+    job = poll.json()
+    if job["status"] in TERMINAL:
+        break
+    delay = 30
+
+if job["status"] != "Completed":
+    raise RuntimeError(f"Pipeline run ended as {job['status']}: {job.get('failureReason')}")
+print("Pipeline run completed")</code></pre>
+    <p>Inside a pipeline, the equivalent is a Web activity for the start call (method POST, the URL built from the workspace and item IDs, a connection to the Fabric API base URL), an Until activity containing Wait, a Web activity for the status call and a Set variable activity, and a final If condition. A <strong>Fabric actions</strong> activity (preview) can run a Fabric REST operation from a pipeline without hand-building the request.</p>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>Check the exact job-instance status values and the Location header handling in the Fabric REST reference, and where your Web activity exposes response headers in its output JSON. <a href="https://learn.microsoft.com/rest/api/fabric/core/job-scheduler/run-on-demand-item-job">Run on demand item job</a>, <a href="https://learn.microsoft.com/fabric/data-factory/pipeline-rest-api-capabilities">REST API capabilities for pipelines</a> and <a href="https://learn.microsoft.com/fabric/data-factory/fabric-actions-activity">Fabric actions activity</a>. Parameter passing for on-demand pipeline runs is "not broadly supported" in the generic reference, so test it for pipelines.</p></div>
+    <div class="callout warning"><p class="callout-title">Do not make REST the default</p><p>The REST path trades a first-class activity for hand-built polling, secrets in the caller, and a monitoring view that shows an unrelated Web activity instead of a linked child run. Use it when you need it, and keep the native activity for everything else.</p></div>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p><ul>
+      <li>Use the new Invoke pipeline activity for cross-workspace calls; the legacy activity stays in its own workspace.</li>
+      <li>Authenticate with a service principal or workspace identity, grant Contributor on each spoke, and test a scheduled run, not only a manual one.</li>
+      <li>Always enable Wait on completion for anything a dependency relies on, and pass explicit parent context as parameters.</li>
+      <li>Do not rely on child return values. Use a run log as the return channel.</li>
+      <li>Keep a REST fire-and-poll fallback for callers outside Fabric, with a final step that fails loudly.</li>
+    </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/invoke-pipeline-activity">Invoke pipeline activity</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/security/workspace-identity-authenticate">Authenticate with workspace identity</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/security/workspace-identity">Workspace identity</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/expression-language">Expressions and functions for Data Factory in Microsoft Fabric</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/set-variable-activity">Set Variable activity</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/data-factory-limitations">Data Factory limitations overview</a></li>
+        <li><a href="https://learn.microsoft.com/rest/api/fabric/core/job-scheduler/run-on-demand-item-job">Job Scheduler: Run On Demand Item Job</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/pipeline-rest-api-capabilities">REST API capabilities for pipelines in Fabric Data Factory</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/fabric-actions-activity">Fabric actions activity</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

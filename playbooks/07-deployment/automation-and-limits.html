@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Automation and limits · Deployment Pipelines</title>
+<meta name="description" content="Drive deployment pipelines from CI through the REST API, compare with a code-first release, work around unsupported items with variable libraries, and set permissions and identities.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="07-deployment" data-page="automation-and-limits.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 07 · Deployment Pipelines</p>
+      <h1>Automation, limits and permissions</h1>
+      <p class="lede">Once the manual deployment is routine, script the same gates. This page shows the deploy API and its long-running behaviour, what to do for items the pipeline cannot configure, the limits worth planning around, and who needs which role.</p>
+    </header>
+<h2 id="automate">Automating a deployment</h2>
+<p>The deployment pipeline is a Fabric feature, but it has a public REST API, so a CI system can call it. This keeps what the pipeline is good at (compare, rules, autobinding, history) and adds what CI is good at (approvals, tests, scheduling). The sequence is the same as the manual one: deploy, wait, verify, hydrate.</p>
+<figure class="diagram">
+<svg class="dg" viewBox="0 0 900 322" role="img" aria-label="Sequence of a scripted deployment: the CI job posts a deploy request to the Fabric API, receives 202 Accepted with a Location and Retry-After, polls the operation until it reports Succeeded or Failed, then verifies and hydrates">
+<defs>
+<marker id="fig-au-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+<marker id="fig-au-1-a-teal" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar teal" d="M0 0L10 5L0 10z"/></marker>
+</defs>
+<rect class="box teal" x="50" y="12" width="200" height="44" rx="10"/>
+<text class="t-b" x="150" y="30.5" text-anchor="middle">CI job</text>
+<text class="t-s" x="150" y="45.5" text-anchor="middle">pipeline identity</text>
+<path class="ln gray dash thin" d="M150 56V304"/>
+<rect class="box blue" x="350" y="12" width="200" height="44" rx="10"/>
+<text class="t-b" x="450" y="30.5" text-anchor="middle">Fabric API</text>
+<text class="t-s" x="450" y="45.5" text-anchor="middle">v1</text>
+<path class="ln gray dash thin" d="M450 56V304"/>
+<rect class="box gray" x="650" y="12" width="200" height="44" rx="10"/>
+<text class="t-b" x="750" y="30.5" text-anchor="middle">Deployment pipeline</text>
+<text class="t-s" x="750" y="45.5" text-anchor="middle">copies, binds, applies rules</text>
+<path class="ln gray dash thin" d="M750 56V304"/>
+<rect class="zone orange" x="40" y="190" width="470" height="74" rx="12"/>
+<text class="t-s" x="54" y="209">poll until Succeeded or Failed</text>
+<path class="ln" d="M150 88H450" marker-end="url(#fig-au-1-a)"/>
+<rect class="pill-bg" x="184.1" y="69.5" width="231.8" height="16"/>
+<text class="t-s" x="300" y="82" text-anchor="middle">POST /deploymentPipelines/{id}/deploy</text>
+<path class="ln teal" d="M450 120H750" marker-end="url(#fig-au-1-a-teal)"/>
+<rect class="pill-bg" x="534.6" y="101.5" width="130.8" height="16"/>
+<text class="t-s" x="600" y="114" text-anchor="middle">start the deployment</text>
+<path class="ln dash" d="M450 156H150" marker-end="url(#fig-au-1-a)"/>
+<rect class="pill-bg" x="187.1" y="137.5" width="225.8" height="16"/>
+<text class="t-s" x="300" y="150" text-anchor="middle">202 Accepted + Location, Retry-After</text>
+<path class="ln" d="M150 218H450" marker-end="url(#fig-au-1-a)"/>
+<rect class="pill-bg" x="234.6" y="199.5" width="130.8" height="16"/>
+<text class="t-s" x="300" y="212" text-anchor="middle">GET /operations/{id}</text>
+<path class="ln dash" d="M450 248H150" marker-end="url(#fig-au-1-a)"/>
+<rect class="pill-bg" x="204.9" y="229.5" width="190.2" height="16"/>
+<text class="t-s" x="300" y="242" text-anchor="middle">Running ... Succeeded | Failed</text>
+<text class="t-b" x="164" y="292">then verify and hydrate</text>
+</svg>
+<figcaption><b>A scripted deployment is a long-running operation.</b> The POST returns immediately; the deployment runs on the service. Poll the operation URL at the Retry-After interval and treat anything other than Succeeded as a failed release step.</figcaption>
+</figure>
+<h3 id="deploy-api">The deploy call</h3>
+<p>The deploy operation is a <code>POST</code> to <code>/v1/deploymentPipelines/{deploymentPipelineId}/deploy</code>. It returns <strong>202 Accepted</strong> with a <code>Location</code> header for the operation, an <code>x-ms-operation-id</code> and a <code>Retry-After</code> interval, because the deployment runs as a long-running operation.</p>
+<table>
+<thead><tr><th>Body field</th><th>Required</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td><code>sourceStageId</code>, <code>targetStageId</code></td><td>Yes</td><td>Stage IDs of two consecutive stages. Deploying to a previous stage works only into an empty stage.</td></tr>
+<tr><td><code>items</code></td><td>No</td><td>List of <code>sourceItemId</code> and <code>itemType</code>. Omit it to deploy all supported items. At most 300 items per request.</td></tr>
+<tr><td><code>note</code></td><td>No</td><td>Up to 1,024 characters; stored in the deployment history. Put the build number and release reference in it.</td></tr>
+<tr><td><code>createdWorkspaceDetails</code></td><td>When the target stage is empty</td><td>Name and capacity of the workspace to create. Ignored otherwise.</td></tr>
+<tr><td><code>options</code></td><td>No</td><td>For example <code>allowCrossRegionDeployment</code> (default false) and per-item options keyed by source item ID.</td></tr>
+</tbody>
+</table>
+<pre data-title="Python (CI job): deploy one stage and wait for the result"><code class="language-python">import time
+import requests
+from azure.identity import DefaultAzureCredential
+
+API = "https://api.fabric.microsoft.com/v1"
+PIPELINE_ID = "&lt;pipeline-id&gt;"
+SOURCE_STAGE_ID = "&lt;source-stage-id&gt;"
+TARGET_STAGE_ID = "&lt;target-stage-id&gt;"
+
+# Uses the CI identity: environment variables for a service principal, or a signed-in user.
+token = DefaultAzureCredential().get_token("https://api.fabric.microsoft.com/.default").token
+headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+
+body = {
+    "sourceStageId": SOURCE_STAGE_ID,
+    "targetStageId": TARGET_STAGE_ID,
+    "note": "Release 12: promote Gold to TST (build 345)",
+}
+resp = requests.post(f"{API}/deploymentPipelines/{PIPELINE_ID}/deploy", headers=headers, json=body, timeout=60)
+resp.raise_for_status()
+
+if resp.status_code == 202:
+    operation_url = resp.headers["Location"]
+    wait = int(resp.headers.get("Retry-After", 30))
+    while True:
+        time.sleep(wait)
+        poll = requests.get(operation_url, headers=headers, timeout=60)
+        if poll.status_code == 429:  # throttled: honour Retry-After and try again
+            wait = int(poll.headers.get("Retry-After", wait))
+            continue
+        poll.raise_for_status()
+        state = poll.json()
+        if state.get("status") in ("Succeeded", "Failed"):
+            break
+        wait = int(poll.headers.get("Retry-After", wait))
+    if state["status"] != "Succeeded":
+        raise SystemExit(f"Deployment failed: {state}")
+print("Deployment succeeded")</code></pre>
+<div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>Check the <a href="https://learn.microsoft.com/rest/api/fabric/core/deployment-pipelines/deploy-stage-content">Deploy Stage Content</a> reference and the <a href="https://learn.microsoft.com/rest/api/fabric/articles/long-running-operation">long-running operations</a> article for the current payload, status values and how long an operation result is retained. Fetch the result of a finished operation promptly rather than relying on it later.</p></div>
+<h3 id="identity">Identity for automation</h3>
+<ul>
+<li><strong>Required roles.</strong> The caller needs the pipeline admin role and at least Contributor on both the source and the target workspace, exactly as for a person.</li>
+<li><strong>Service principals</strong> are supported only when every item involved in the operation supports service principals. A single unsupported item makes the call fail, so test your real item mix, and keep a user-based fallback.</li>
+<li><strong>Tenant settings.</strong> Allow service principals to call the Fabric public APIs, and allow them to create workspaces, connections and deployment pipelines if the automation will do so. Scope both to a security group that holds only your automation identities. See the <a href="../16-tenant-settings/index.html">Tenant settings reference</a>.</li>
+<li><strong>Ownership.</strong> The identity that deploys becomes the owner of cloned semantic models and the admin of a created workspace. Decide whether that should be a service principal, and document how rules and credentials are managed for models it owns.</li>
+</ul>
+<h3 id="ci-gates">What to add around the call</h3>
+<ol class="steps">
+<li><strong>Gate before TST and PRD</strong><p>Use the approval feature of your CI system on the environment that runs the deploy step. Require the TST deployment note to be referenced in the PRD run.</p></li>
+<li><strong>Verify after the deploy</strong><p>Run smoke checks and data quality tests as separate steps that fail the run. They are the automated form of the verification in the <a href="../14-deployment-checklist/index.html">Deployment checklist</a>.</p></li>
+<li><strong>Hydrate in order</strong><p>Trigger the load pipelines through the Fabric job APIs between layers. Orchestration across workspaces is covered in <a href="../04-cross-workspace-orchestration/index.html">cross-workspace orchestration</a>.</p></li>
+<li><strong>Fail closed</strong><p>If any step fails, stop the sequence. A half-promoted layer is the expensive failure mode.</p></li>
+</ol>
+
+<h3 id="code-first">When the pipeline is the wrong tool</h3>
+<p>A code-first release keeps definitions in Git and publishes them to each workspace with the Fabric item APIs. The open-source <code>fabric-cicd</code> library wraps that: you describe the workspace, which item types are in scope and which environment is targeted, and a parameter file holds per-environment replacements.</p>
+<pre data-title="Python (release script): publish a repository folder to one workspace with fabric-cicd"><code class="language-python">from fabric_cicd import FabricWorkspace, publish_all_items, unpublish_all_orphan_items
+
+target = FabricWorkspace(
+    workspace_id="&lt;workspace-id&gt;",
+    environment="TST",                      # selects the matching block in parameter.yml
+    repository_directory="./workspace",
+    item_type_in_scope=["Lakehouse", "Notebook", "DataPipeline", "SemanticModel", "Report"],
+)
+publish_all_items(target)
+unpublish_all_orphan_items(target)          # deletes target items that are no longer in the repository</code></pre>
+<table>
+<thead><tr><th>You get</th><th>You give up or must build</th></tr></thead>
+<tbody>
+<tr><td>Git as the only source of truth, with gated, testable releases</td><td>The pipeline compare view, change review and deployment history</td></tr>
+<tr><td>Per-environment replacements in a parameter file, including dynamic lookups of workspace and item IDs</td><td>Deployment rules and autobinding; you decide what to rewrite</td></tr>
+<tr><td>Explicit orphan clean-up with <code>unpublish_all_orphan_items</code></td><td>Safety: the same call is destructive if the repository folder is wrong</td></tr>
+<tr><td>No dependence on the preview UI</td><td>Support for deployment plans, which the library does not provide</td></tr>
+</tbody>
+</table>
+<div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>Read the <a href="https://learn.microsoft.com/fabric/cicd/tutorial-fabric-cicd-azure-devops">fabric-cicd and Azure DevOps tutorial</a> and the library documentation for the supported item types and the current parameter file syntax. The Fabric command-line tool also has deployment commands; confirm their status and syntax in its documentation before you put them in a runbook.</p></div>
+
+<h2 id="limits">Limitations and workarounds</h2>
+<table>
+<thead><tr><th>Limitation</th><th>Effect</th><th>Workaround</th></tr></thead>
+<tbody>
+<tr><td>Data pipelines have no deployment rules</td><td>A promoted pipeline keeps the connections and item references of the source stage</td><td>Use a variable library (next section). Do not hard-code connections.</td></tr>
+<tr><td>Dataflow Gen2: no autobinding, destinations are absolute references</td><td>A promoted dataflow reads and writes the DEV items</td><td>Use relative references for sources where possible and parameterize destinations; pass values from a pipeline.</td></tr>
+<tr><td>Semantic model credentials, refresh schedule and role assignments are not copied</td><td>A new model in TST or PRD cannot refresh and has no row-level security members</td><td>Set them once per target model, or script them against the Power BI REST API after the first deployment.</td></tr>
+<tr><td>Direct Lake on OneLake has no data source rule</td><td>The model keeps reading the source-stage lakehouse</td><td>Parameter rule, post-deployment rebind or scripted release (see <a href="deployment-rules.html#onelake-options">the options table</a>).</td></tr>
+<tr><td>Semantic models must use the enhanced metadata format</td><td>Models in the legacy format cannot be deployed</td><td>Save and republish from a current Power BI Desktop, or convert through the XMLA endpoint.</td></tr>
+<tr><td>At most 300 items per deployment</td><td>A large layer cannot go in one deploy</td><td>One pipeline per layer; selective deployments in batches.</td></tr>
+<tr><td>Deleted items are not deleted downstream</td><td>Items accumulate as <em>Not in source</em>; name collisions follow</td><td>Delete in each downstream workspace, in layer order.</td></tr>
+<tr><td>Backward deployment only into an empty stage, full only</td><td>No hotfix by backward deployment</td><td>Fix forward through the whole path.</td></tr>
+<tr><td>Items not on the support list are not copied</td><td>They are visible but not deployable in the new UI</td><td>Publish them with the Items API or <code>fabric-cicd</code>, or recreate them by hand and document it.</td></tr>
+<tr><td>Frozen-cell status in notebooks is not preserved</td><td>Frozen cells are lost on deploy</td><td>Do not rely on frozen cells for production behaviour.</td></tr>
+<tr><td>Microsoft 365 groups cannot be pipeline admins</td><td>Group-based access fails</td><td>Use individuals or security groups.</td></tr>
+<tr><td>Creating a deployment rule requires item ownership</td><td>Rules are blocked when the owner has left or is a service principal</td><td>Take over the item, or keep ownership with the release identity.</td></tr>
+</tbody>
+</table>
+
+<h3 id="variable-libraries">Per-stage values for data pipelines: variable libraries</h3>
+<p>Older guidance makes pipelines environment-aware by switching on the current workspace ID and setting variables in each case. A variable library replaces that approach: it is a Fabric item with named variables and several <em>value sets</em>, exactly one of which is active per workspace. Pipelines read values through <strong>library variables</strong>, and the same library can supply connection and item references, shortcut targets and notebook parameters.</p>
+<figure class="diagram">
+<svg class="dg" viewBox="0 0 900 300" role="img" aria-label="One variable library with three value sets is deployed to DEV, TST and PRD; each stage has exactly one active value set, and a pipeline activity reads the active value through the library variable">
+<defs>
+<marker id="fig-au-2-a-green" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+</defs>
+<rect class="zone" x="10" y="12" width="280" height="242" rx="12"/>
+<text class="t-b" x="24" y="31">DEV_SALES_BRZ</text>
+<rect class="box blue" x="30" y="44" width="240" height="92" rx="10"/>
+<text class="t-b" x="150" y="66" text-anchor="middle">VL_SALES_BRZ</text>
+<rect class="box green" x="40" y="84" width="66" height="38" rx="10"/>
+<text class="t-s" x="73" y="107" text-anchor="middle">Default</text>
+<rect class="box dashed" x="114" y="84" width="66" height="38" rx="10"/>
+<text class="t-s" x="147" y="107" text-anchor="middle">TST</text>
+<rect class="box dashed" x="188" y="84" width="66" height="38" rx="10"/>
+<text class="t-s" x="221" y="107" text-anchor="middle">PRD</text>
+<rect class="box teal" x="30" y="176" width="240" height="62" rx="10"/>
+<text class="t-b" x="150" y="202.5" text-anchor="middle">Pipeline activity</text>
+<text class="t-m" x="150" y="219.5" text-anchor="middle">libraryVariables.SourceLH</text>
+<path class="ln green" d="M73 136V176" marker-end="url(#fig-au-2-a-green)"/>
+<rect class="pill-bg" x="83.4" y="147.5" width="83.3" height="16"/>
+<text class="t-s" x="125" y="160" text-anchor="middle">active value</text>
+<rect class="zone" x="310" y="12" width="280" height="242" rx="12"/>
+<text class="t-b" x="324" y="31">TST_SALES_BRZ</text>
+<rect class="box blue" x="330" y="44" width="240" height="92" rx="10"/>
+<text class="t-b" x="450" y="66" text-anchor="middle">VL_SALES_BRZ</text>
+<rect class="box dashed" x="340" y="84" width="66" height="38" rx="10"/>
+<text class="t-s" x="373" y="107" text-anchor="middle">Default</text>
+<rect class="box green" x="414" y="84" width="66" height="38" rx="10"/>
+<text class="t-s" x="447" y="107" text-anchor="middle">TST</text>
+<rect class="box dashed" x="488" y="84" width="66" height="38" rx="10"/>
+<text class="t-s" x="521" y="107" text-anchor="middle">PRD</text>
+<rect class="box teal" x="330" y="176" width="240" height="62" rx="10"/>
+<text class="t-b" x="450" y="202.5" text-anchor="middle">Pipeline activity</text>
+<text class="t-m" x="450" y="219.5" text-anchor="middle">libraryVariables.SourceLH</text>
+<path class="ln green" d="M447 136V176" marker-end="url(#fig-au-2-a-green)"/>
+<rect class="pill-bg" x="457.4" y="147.5" width="83.3" height="16"/>
+<text class="t-s" x="499" y="160" text-anchor="middle">active value</text>
+<rect class="zone" x="610" y="12" width="280" height="242" rx="12"/>
+<text class="t-b" x="624" y="31">PRD_SALES_BRZ</text>
+<rect class="box blue" x="630" y="44" width="240" height="92" rx="10"/>
+<text class="t-b" x="750" y="66" text-anchor="middle">VL_SALES_BRZ</text>
+<rect class="box dashed" x="640" y="84" width="66" height="38" rx="10"/>
+<text class="t-s" x="673" y="107" text-anchor="middle">Default</text>
+<rect class="box dashed" x="714" y="84" width="66" height="38" rx="10"/>
+<text class="t-s" x="747" y="107" text-anchor="middle">TST</text>
+<rect class="box green" x="788" y="84" width="66" height="38" rx="10"/>
+<text class="t-s" x="821" y="107" text-anchor="middle">PRD</text>
+<rect class="box teal" x="630" y="176" width="240" height="62" rx="10"/>
+<text class="t-b" x="750" y="202.5" text-anchor="middle">Pipeline activity</text>
+<text class="t-m" x="750" y="219.5" text-anchor="middle">libraryVariables.SourceLH</text>
+<path class="ln green" d="M821 136V176" marker-end="url(#fig-au-2-a-green)"/>
+<rect class="pill-bg" x="727.4" y="147.5" width="83.3" height="16"/>
+<text class="t-s" x="769" y="160" text-anchor="middle">active value</text>
+<text class="t-s" x="10" y="282">Deployed to an empty stage, the library comes up with Default active; set the stage's own value set and save.</text>
+</svg>
+<figcaption><b>Variable libraries give unsupported items a per-stage value.</b> Pipelines have no deployment rule type, so connections and item IDs come from the active value set of the stage's variable library. After a deploy to an empty stage the Default value set is active and must be changed by hand.</figcaption>
+</figure>
+<ol class="steps">
+<li><strong>Create one library per layer workspace</strong><p>For example <code>VL_SALES_BRZ</code>, with variables such as <code>SourceLH</code> and <code>SourceWSID</code> and a value set per environment.</p></li>
+<li><strong>Reference the variables in the pipeline</strong><p>In dynamic content choose <strong>Library variables</strong>, which yields an expression of the form <code>@pipeline().libraryVariables.SourceLH</code>.</p></li>
+<li><strong>Deploy the library first, then the pipeline</strong><p>The library is a supported item in both Git and deployment pipelines.</p></li>
+<li><strong>Activate the stage's value set</strong><p>After a deployment to an empty stage the <em>Default</em> value set is active. Select the stage's own value set and save before anything that reads a variable runs.</p></li>
+</ol>
+<p>Variable libraries are covered in depth in the <a href="../09-variable-libraries/index.html">Variable libraries playbook</a>.</p>
+
+<h2 id="permissions">Permissions and roles</h2>
+<p>Pipeline permission and workspace permission are granted separately. A pipeline has a single permission, <em>Admin</em>; everything else comes from workspace roles.</p>
+<table>
+<thead><tr><th>Action</th><th>Requirement</th></tr></thead>
+<tbody>
+<tr><td>Create a pipeline</td><td>A license that allows it (see Learn); pipeline creation can be restricted to a platform group</td></tr>
+<tr><td>Assign a workspace to a stage</td><td>Pipeline admin, workspace admin of the workspace, and at least Contributor on the workspaces in adjacent stages</td></tr>
+<tr><td>Compare stages</td><td>Pipeline admin and Contributor or higher on both stage workspaces</td></tr>
+<tr><td>Deploy to an existing stage</td><td>Pipeline admin and at least Contributor on both workspaces; for an existing semantic model you must be Member, and where the tenant restricts it, the model owner</td></tr>
+<tr><td>Deploy to an empty stage</td><td>Pipeline admin and Contributor on the source workspace, plus capacity permission to create the workspace</td></tr>
+<tr><td>Deploy a dataflow</td><td>Owner of the dataflow</td></tr>
+<tr><td>View or set a rule</td><td>Pipeline admin, Contributor or higher on the target workspace, and owner of the item</td></tr>
+<tr><td>View deployment history</td><td>Pipeline admin</td></tr>
+</tbody>
+</table>
+<h3 id="role-design">A role design that works</h3>
+<ul>
+<li><strong>Developers</strong> are Contributor or Member on feature workspaces and DEV, and have no write role on TST or PRD.</li>
+<li><strong>Release managers</strong> hold the pipeline admin role and Contributor on every stage workspace they deploy between. Use a security group so membership is reviewable.</li>
+<li><strong>Automation identity</strong> is pipeline admin and Contributor on the stage workspaces, owner of the items whose rules it must manage, and owner of the connections that unattended runs use.</li>
+<li><strong>Connections.</strong> Connections have their own roles (User, User with resharing, Owner). A connection created by one person is unusable by others until shared, and is orphaned when its owner leaves. Prefer connections owned by a service principal, and grant the deployment team access to the rest.</li>
+</ul>
+
+<div class="takeaways"><p class="tk-title">Key takeaways</p>
+<ul>
+<li>The deploy API is a long-running operation: post, read Location and Retry-After, poll until Succeeded or Failed, then verify and hydrate.</li>
+<li>Service principals work only if every item in the deployment supports them; keep a user fallback and scope the tenant settings to a group.</li>
+<li>Choose code-first when you need gated, testable releases and can give up the compare view and deployment plans.</li>
+<li>Data pipelines belong on variable libraries; remember to activate the stage's value set after the first deployment.</li>
+<li>Separate pipeline admin from workspace roles on purpose, and own connections with a service principal.</li>
+</ul></div>
+
+<section class="refs">
+<h2 id="refs">References</h2>
+<ul>
+<li><a href="https://learn.microsoft.com/rest/api/fabric/core/deployment-pipelines/deploy-stage-content">Deployment Pipelines - Deploy Stage Content (REST)</a></li>
+<li><a href="https://learn.microsoft.com/rest/api/fabric/articles/long-running-operation">Long running operations (REST)</a></li>
+<li><a href="https://learn.microsoft.com/fabric/cicd/deployment-pipelines/pipeline-automation">Automate your deployment pipeline using APIs and DevOps</a></li>
+<li><a href="https://learn.microsoft.com/fabric/cicd/deployment-pipelines/understand-the-deployment-process">The deployment pipelines process (permissions, limitations)</a></li>
+<li><a href="https://learn.microsoft.com/fabric/cicd/variable-library/variable-library-overview">What is a variable library?</a></li>
+<li><a href="https://learn.microsoft.com/fabric/data-factory/tutorial-variable-library">Use a variable library in a data pipeline (tutorial)</a></li>
+<li><a href="https://learn.microsoft.com/fabric/cicd/tutorial-fabric-cicd-azure-devops">fabric-cicd and Azure DevOps tutorial</a></li>
+</ul>
+</section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

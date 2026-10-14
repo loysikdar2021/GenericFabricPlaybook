@@ -1,0 +1,20 @@
+{
+  "id": "04-cross-workspace-orchestration",
+  "number": "04",
+  "title": "Cross-Workspace Pipeline Orchestration (Hub and Spoke)",
+  "short": "Hub and Spoke",
+  "summary": "Orchestrate Fabric pipelines across workspaces with a hub master pipeline that invokes spoke pipelines: identity, control flow, central logging, CI/CD, alternatives and a hands-on workshop.",
+  "category": "data-engineering",
+  "level": "Advanced",
+  "audience": "Data engineers, platform architects, DevOps engineers",
+  "readingTime": "90 min",
+  "pages": [
+    { "file": "index.html", "title": "Overview", "description": "Why hub-and-spoke orchestration exists, when to use it, what the current platform supports and how this playbook is organized." },
+    { "file": "architecture.html", "title": "Hub-and-spoke architecture", "description": "Hub and spoke roles, the contract between them, how to cut spokes, and the capacity and permission model." },
+    { "file": "invoke-pipeline.html", "title": "The Invoke pipeline activity", "description": "Legacy versus new activity, connections and identities, wait on completion, parameters, limits, known issues and the REST fallback." },
+    { "file": "control-flow.html", "title": "Control flow and failure handling", "description": "Sequential, parallel, conditional and metadata-driven patterns, retries, timeouts, failure semantics, idempotency and run conditions." },
+    { "file": "operations.html", "title": "Logging, monitoring and CI/CD", "description": "Central run logging, Monitoring hub, workspace monitoring, alerts, the item-ID problem and deploying hub and spokes across environments." },
+    { "file": "alternatives.html", "title": "Alternatives and recommendations", "description": "Decision table comparing hub-and-spoke pipelines with notebook DAGs, Airflow jobs, event-driven triggers and run conditions, plus recommendations and a readiness checklist." },
+    { "file": "workshop.html", "title": "Workshop: build hub and spokes", "description": "Numbered hands-on exercise: two spoke workspaces, a hub workspace, a master pipeline, permissions, a test run and a troubleshooting table." }
+  ]
+}

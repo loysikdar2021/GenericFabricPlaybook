@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Workshop: build hub and spokes · Hub and Spoke</title>
+<meta name="description" content="A hands-on workshop that builds two spoke workspaces with copy pipelines and a hub workspace whose master pipeline invokes them in order, then moves to a workload identity, proves that failure propagates and lists common problems.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="04-cross-workspace-orchestration" data-page="workshop.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 04 · Hub and spoke</p>
+      <h1>Workshop: build hub and spokes</h1>
+      <p class="lede">Build a small but real hub and spoke: two spoke workspaces that each copy a CSV file into a Delta table, and a hub workspace whose master pipeline invokes them in order. Then replace your personal sign-in with a workload identity, break a spoke on purpose to prove the hub turns red, and keep the troubleshooting table for later. About 90 minutes.</p>
+    </header>
+
+    <h2 id="goal">What you will build</h2>
+    <p>The spokes do almost nothing on purpose. The workshop teaches orchestration mechanics: invoking across workspaces, waiting for completion, passing a parameter and propagating failure. Domain logic can be added to the spokes later without changing the hub, which is the point of the pattern.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 250" role="img" aria-label="Target design: the hub workspace DEV_ORCH_HUB runs the pipeline PL_ORCH_HUB_SalesDaily whose Invoke Bronze activity runs PL_SALES_BRZ_Ingest in DEV_SALES_BRZ, copying customers.csv to the customers table, and whose Invoke Silver activity, started on success, runs PL_SALES_SLV_Conform in DEV_SALES_SLV, copying orders.csv to the orders table">
+        <defs>
+          <marker id="fig-ws-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-ws-1-ag" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="zone purple" x="20" y="20" width="310" height="210" rx="12"/>
+        <text class="t-h" x="36" y="42">DEV_ORCH_HUB</text>
+        <text class="t-s" x="36" y="60">PL_ORCH_HUB_SalesDaily</text>
+        <rect class="box accent" x="60" y="78" width="230" height="44" rx="8"/>
+        <text class="t-b t-w" x="175" y="105" text-anchor="middle">Invoke Bronze</text>
+        <rect class="box accent" x="60" y="164" width="230" height="44" rx="8"/>
+        <text class="t-b t-w" x="175" y="191" text-anchor="middle">Invoke Silver</text>
+        <path class="ln green thick" d="M175 122V162" marker-end="url(#fig-ws-1-ag)"/>
+        <text class="t-s c-green" x="187" y="146">On success</text>
+        <rect class="zone" x="400" y="20" width="480" height="100" rx="12"/>
+        <text class="t-h" x="416" y="42">DEV_SALES_BRZ</text>
+        <rect class="box teal" x="416" y="58" width="170" height="48" rx="8"/>
+        <text class="t-b" x="501" y="79" text-anchor="middle">PL_SALES_BRZ_Ingest</text>
+        <text class="t-s" x="501" y="96" text-anchor="middle">Copy customers</text>
+        <rect class="box gray" x="612" y="58" width="110" height="48" rx="8"/>
+        <text class="t-b" x="667" y="79" text-anchor="middle">customers.csv</text>
+        <text class="t-s" x="667" y="96" text-anchor="middle">Files</text>
+        <rect class="box blue" x="756" y="58" width="110" height="48" rx="8"/>
+        <text class="t-b" x="811" y="79" text-anchor="middle">customers</text>
+        <text class="t-s" x="811" y="96" text-anchor="middle">Delta table</text>
+        <path class="ln" d="M610 82H588" marker-end="url(#fig-ws-1-a)"/>
+        <path class="ln" d="M501 106V114H811V108" marker-end="url(#fig-ws-1-a)"/>
+        <rect class="zone" x="400" y="130" width="480" height="100" rx="12"/>
+        <text class="t-h" x="416" y="152">DEV_SALES_SLV</text>
+        <rect class="box teal" x="416" y="168" width="170" height="48" rx="8"/>
+        <text class="t-b" x="501" y="189" text-anchor="middle">PL_SALES_SLV_Conform</text>
+        <text class="t-s" x="501" y="206" text-anchor="middle">Copy orders</text>
+        <rect class="box gray" x="612" y="168" width="110" height="48" rx="8"/>
+        <text class="t-b" x="667" y="189" text-anchor="middle">orders.csv</text>
+        <text class="t-s" x="667" y="206" text-anchor="middle">Files</text>
+        <rect class="box blue" x="756" y="168" width="110" height="48" rx="8"/>
+        <text class="t-b" x="811" y="189" text-anchor="middle">orders</text>
+        <text class="t-s" x="811" y="206" text-anchor="middle">Delta table</text>
+        <path class="ln" d="M610 192H588" marker-end="url(#fig-ws-1-a)"/>
+        <path class="ln" d="M501 216V224H811V218" marker-end="url(#fig-ws-1-a)"/>
+        <path class="ln" d="M290 100H350V82H414" marker-end="url(#fig-ws-1-a)"/>
+        <path class="ln" d="M290 186H350V192H414" marker-end="url(#fig-ws-1-a)"/>
+      </svg>
+      <figcaption><b>Target design.</b> Two spoke pipelines own the data movement; the hub owns the order. No data passes through the hub.</figcaption>
+    </figure>
+    <table>
+      <thead><tr><th>Role</th><th>Workspace</th><th>Lakehouse</th><th>Source file</th><th>Target table</th><th>Pipeline</th></tr></thead>
+      <tbody>
+        <tr><td>Spoke A (Bronze)</td><td><code>DEV_SALES_BRZ</code></td><td><code>LH_SALES_BRZ</code></td><td><code>Files/customers.csv</code></td><td><code>customers</code></td><td><code>PL_SALES_BRZ_Ingest</code></td></tr>
+        <tr><td>Spoke B (Silver)</td><td><code>DEV_SALES_SLV</code></td><td><code>LH_SALES_SLV</code></td><td><code>Files/orders.csv</code></td><td><code>orders</code></td><td><code>PL_SALES_SLV_Conform</code></td></tr>
+        <tr><td>Hub</td><td><code>DEV_ORCH_HUB</code></td><td>none</td><td>none</td><td>none</td><td><code>PL_ORCH_HUB_SalesDaily</code></td></tr>
+      </tbody>
+    </table>
+    <div class="callout example"><p class="callout-title">An honest simplification</p><p>In this exercise the Silver pipeline does not consume the Bronze table, so the dependency is a sequencing exercise rather than a data dependency. <a href="#stage-extend">Stage 7</a> makes the dependency real with a shortcut and a notebook, without changing a single hub setting.</p></div>
+    <p><strong>Prerequisites.</strong> A Fabric capacity you may assign workspaces to, the right to create workspaces and connections, and the permissions listed in the next section. You do not need Git or a deployment pipeline for this workshop.</p>
+
+    <h2 id="request">Request workspaces and permissions</h2>
+    <p>In most organizations someone else controls capacity, tenant settings and Entra objects, so start the requests first. The hub's connection identity is the one that matters most: it needs <strong>Contributor</strong> on every spoke, and that role assignment is what you will test in Stage 5.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 290" role="img" aria-label="Permission map: a Fabric admin enables the tenant setting for service principals; in the hub workspace the Invoke activities use a connection that authenticates as a workspace identity or service principal; that identity needs the Contributor role on each spoke workspace; the builder needs Admin on all three workspaces">
+        <defs>
+          <marker id="fig-ws-2-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-ws-2-ao" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar orange" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box purple" x="20" y="14" width="330" height="50" rx="8"/>
+        <text class="t-b" x="185" y="36" text-anchor="middle">Fabric admin</text>
+        <text class="t-s" x="185" y="54" text-anchor="middle">lets service principals call Fabric APIs</text>
+        <path class="ln dash" d="M185 64V100" marker-end="url(#fig-ws-2-a)"/>
+        <rect class="zone purple" x="20" y="100" width="330" height="170" rx="12"/>
+        <text class="t-h" x="36" y="122">DEV_ORCH_HUB</text>
+        <rect class="box accent" x="40" y="136" width="130" height="44" rx="8"/>
+        <text class="t-b t-w" x="105" y="163" text-anchor="middle">Invoke activities</text>
+        <rect class="box blue" x="200" y="136" width="130" height="44" rx="8"/>
+        <text class="t-b" x="265" y="156" text-anchor="middle">Connection</text>
+        <text class="t-s" x="265" y="172" text-anchor="middle">Fabric Data Pipelines</text>
+        <path class="ln" d="M170 158H198" marker-end="url(#fig-ws-2-a)"/>
+        <rect class="box orange" x="120" y="204" width="210" height="48" rx="8"/>
+        <text class="t-b" x="225" y="226" text-anchor="middle">Workspace identity</text>
+        <text class="t-s" x="225" y="242" text-anchor="middle">or service principal</text>
+        <path class="ln" d="M265 180V202" marker-end="url(#fig-ws-2-a)"/>
+        <rect class="box gray" x="560" y="14" width="320" height="40" rx="8"/>
+        <text class="t-b" x="720" y="39" text-anchor="middle">Builder: Admin on all three</text>
+        <rect class="zone" x="560" y="70" width="320" height="86" rx="12"/>
+        <text class="t-h" x="576" y="92">DEV_SALES_BRZ</text>
+        <text class="t-s" x="576" y="112">PL_SALES_BRZ_Ingest runs here</text>
+        <text class="t-s" x="576" y="132">Role needed: Contributor</text>
+        <rect class="zone" x="560" y="170" width="320" height="86" rx="12"/>
+        <text class="t-h" x="576" y="192">DEV_SALES_SLV</text>
+        <text class="t-s" x="576" y="212">PL_SALES_SLV_Conform runs here</text>
+        <text class="t-s" x="576" y="232">Role needed: Contributor</text>
+        <path class="ln orange thick" d="M330 228H450V113H558" marker-end="url(#fig-ws-2-ao)"/>
+        <path class="ln orange thick" d="M330 228H450V213H558" marker-end="url(#fig-ws-2-ao)"/>
+        <rect class="pill-bg" x="394" y="166" width="112" height="16"/>
+        <text class="t-s c-orange" x="450" y="178" text-anchor="middle">Contributor</text>
+      </svg>
+      <figcaption><b>Who needs what.</b> The identity that the connection authenticates as is the identity every spoke authorizes. Nothing is needed on the hub except the identity's existence.</figcaption>
+    </figure>
+    <table>
+      <thead><tr><th>Request</th><th>From</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td>Three workspaces: <code>DEV_ORCH_HUB</code>, <code>DEV_SALES_BRZ</code>, <code>DEV_SALES_SLV</code></td><td>Workspace creators or a platform team</td><td>Assign each to a Fabric capacity. Using the same capacity is fine for the workshop; separate capacities are a design choice for production.</td></tr>
+        <tr><td>Admin role on all three for the builder</td><td>Workspace owners</td><td>Admin is required to manage access and to create the workspace identity.</td></tr>
+        <tr><td>A workload identity for the hub: workspace identity (created in the hub) or a service principal</td><td>Hub workspace Admin, or an Entra admin for a service principal</td><td>Needed from Stage 5. Only a workspace Admin can create a workspace identity, and it is granted no workspace role by default.</td></tr>
+        <tr><td>Contributor for that identity on both spokes</td><td>Spoke workspace Admins</td><td>Contributor is sufficient for most scenarios according to Learn. Do not grant Admin.</td></tr>
+        <tr><td>Tenant setting <em>Service principals can call Fabric public APIs</em></td><td>Fabric admin</td><td>Disabled by default. Scope it to a security group that contains the identity.</td></tr>
+        <tr><td>Permission to create connections</td><td>Fabric admin or connection owners</td><td>The Fabric Data Pipelines connection is created in the Invoke activity's Connection list.</td></tr>
+      </tbody>
+    </table>
+<pre data-title="Request template (copy into your ticketing system)"><code class="language-text">Subject: Fabric workspaces and access for the orchestration workshop
+
+1. Create three workspaces on capacity &lt;capacity-name&gt;:
+   DEV_ORCH_HUB, DEV_SALES_BRZ, DEV_SALES_SLV
+2. Grant &lt;builder-upn&gt; the Admin role on all three.
+3. Tenant setting "Service principals can call Fabric public APIs":
+   enable for security group &lt;group-name&gt;; add the hub identity to it.
+4. After the workspace identity exists in DEV_ORCH_HUB, add that identity
+   as Contributor on DEV_SALES_BRZ and DEV_SALES_SLV.
+5. Confirm &lt;builder-upn&gt; may create connections.
+
+Owner: &lt;team&gt;      Environment: DEV      Needed by: &lt;date&gt;</code></pre>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>Whether workspace identity is supported as the authentication kind of the Invoke pipeline activity is described differently in different Learn articles, so Stage 5 tests it rather than assuming it. If it fails in your tenant, use a service principal for the same connection. <a href="https://learn.microsoft.com/fabric/security/workspace-identity">Workspace identity</a> and <a href="https://learn.microsoft.com/fabric/data-factory/invoke-pipeline-activity">Invoke pipeline activity</a>.</p></div>
+
+    <h2 id="sample-data">Sample data</h2>
+    <p>Save these two files locally. They are synthetic and deliberately tiny.</p>
+<pre data-title="customers.csv"><code class="language-text">customer_id,customer_name,region
+1001,Alpine Outfitters,West
+1002,Birch Hardware,East
+1003,Cedar Textiles,Central
+1004,Delta Foods,East
+1005,Evergreen Supply,West</code></pre>
+<pre data-title="orders.csv"><code class="language-text">order_id,customer_id,amount,status
+5001,1001,250.00,Shipped
+5002,1002,125.50,Shipped
+5003,1001,980.00,Open
+5004,1003,45.25,Shipped
+5005,1005,310.00,Open
+5006,1004,75.00,Cancelled</code></pre>
+
+    <h2 id="stage-spokes">Stage 1: Create the spoke workspaces and lakehouses</h2>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 170" role="img" aria-label="Stage 1 result: two spoke workspaces, each with one lakehouse; the Bronze lakehouse has customers.csv in Files and no tables yet, and the Silver lakehouse has orders.csv in Files and no tables yet">
+        <rect class="zone" x="20" y="14" width="420" height="140" rx="12"/>
+        <text class="t-h" x="36" y="36">DEV_SALES_BRZ</text>
+        <rect class="box blue" x="40" y="50" width="380" height="90" rx="10"/>
+        <text class="t-b" x="56" y="72">LH_SALES_BRZ</text>
+        <rect class="box gray" x="60" y="84" width="165" height="44" rx="8"/>
+        <text class="t-b" x="142" y="104" text-anchor="middle">Files</text>
+        <text class="t-s" x="142" y="120" text-anchor="middle">customers.csv</text>
+        <rect class="box gray dashed" x="245" y="84" width="155" height="44" rx="8"/>
+        <text class="t-b" x="322" y="104" text-anchor="middle">Tables</text>
+        <text class="t-s" x="322" y="120" text-anchor="middle">empty for now</text>
+        <rect class="zone" x="460" y="14" width="420" height="140" rx="12"/>
+        <text class="t-h" x="476" y="36">DEV_SALES_SLV</text>
+        <rect class="box blue" x="480" y="50" width="380" height="90" rx="10"/>
+        <text class="t-b" x="496" y="72">LH_SALES_SLV</text>
+        <rect class="box gray" x="500" y="84" width="165" height="44" rx="8"/>
+        <text class="t-b" x="582" y="104" text-anchor="middle">Files</text>
+        <text class="t-s" x="582" y="120" text-anchor="middle">orders.csv</text>
+        <rect class="box gray dashed" x="685" y="84" width="155" height="44" rx="8"/>
+        <text class="t-b" x="762" y="104" text-anchor="middle">Tables</text>
+        <text class="t-s" x="762" y="120" text-anchor="middle">empty for now</text>
+      </svg>
+      <figcaption><b>End of Stage 1.</b> Two workspaces, two lakehouses, one source file each.</figcaption>
+    </figure>
+    <ol class="steps">
+      <li><strong>Create the workspaces</strong><p>In the Fabric portal choose Workspaces, then <em>+ New workspace</em>. Create <code>DEV_SALES_BRZ</code> and <code>DEV_SALES_SLV</code>, and assign each to the Fabric capacity you were given (Advanced settings, License mode). If designated spoke workspaces already exist, use them instead.</p></li>
+      <li><strong>Create a lakehouse in each</strong><p>In each workspace choose <em>+ New item</em>, then Lakehouse. Name them <code>LH_SALES_BRZ</code> and <code>LH_SALES_SLV</code>. Leave the schema option at its default; if your lakehouse shows a schema box in a later step, keep the default schema.</p></li>
+      <li><strong>Upload the files</strong><p>Open <code>LH_SALES_BRZ</code>, hover over the <em>Files</em> folder, choose the ellipsis, then Upload, Upload files, and select <code>customers.csv</code>. Repeat in <code>LH_SALES_SLV</code> with <code>orders.csv</code>. Refresh and confirm each file appears under Files.</p></li>
+    </ol>
+
+    <h2 id="stage-spoke-pipelines">Stage 2: Build the two spoke pipelines</h2>
+    <p>Each spoke pipeline is a single Copy data activity with one parameter. The parameter is the pipeline's public contract: the hub will pass it explicitly.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 200" role="img" aria-label="Spoke pipeline canvas: a Copy customers activity reads Files/customers.csv from the lakehouse and writes a Delta table whose name comes from the pipeline parameter sinkTable, with table action Overwrite">
+        <defs>
+          <marker id="fig-ws-3-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-ws-3-ao" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar orange" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <text class="t-h" x="20" y="26">PL_SALES_BRZ_Ingest</text>
+        <rect class="box gray" x="20" y="90" width="200" height="56" rx="8"/>
+        <text class="t-b" x="120" y="114" text-anchor="middle">Files/customers.csv</text>
+        <text class="t-s" x="120" y="132" text-anchor="middle">Source: LH_SALES_BRZ</text>
+        <rect class="box teal" x="300" y="84" width="200" height="68" rx="8"/>
+        <text class="t-b" x="400" y="108" text-anchor="middle">Copy customers</text>
+        <text class="t-s" x="400" y="126" text-anchor="middle">Copy data activity</text>
+        <text class="t-s" x="400" y="142" text-anchor="middle">Table action: Overwrite</text>
+        <rect class="box blue" x="580" y="90" width="300" height="56" rx="8"/>
+        <text class="t-b" x="730" y="114" text-anchor="middle">Tables / sinkTable</text>
+        <text class="t-s" x="730" y="132" text-anchor="middle">@pipeline().parameters.sinkTable</text>
+        <rect class="box orange" x="580" y="14" width="300" height="44" rx="8"/>
+        <text class="t-b" x="730" y="34" text-anchor="middle">Parameter sinkTable (String)</text>
+        <text class="t-s" x="730" y="50" text-anchor="middle">default value: customers</text>
+        <path class="ln" d="M220 118H298" marker-end="url(#fig-ws-3-a)"/>
+        <path class="ln" d="M500 118H578" marker-end="url(#fig-ws-3-a)"/>
+        <path class="ln orange dash" d="M730 58V88" marker-end="url(#fig-ws-3-ao)"/>
+      </svg>
+      <figcaption><b>The spoke pipeline.</b> The destination table name is not typed into the activity; it comes from the parameter, so the caller decides it.</figcaption>
+    </figure>
+    <ol class="steps">
+      <li><strong>Create the pipeline</strong><p>In <code>DEV_SALES_BRZ</code> choose <em>+ New item</em>, Data pipeline, name it <code>PL_SALES_BRZ_Ingest</code> and choose Create. When the start screen appears, choose Pipeline activity and then Copy data (or add Copy data from the Activities tab).</p></li>
+      <li><strong>Name the activity</strong><p>On the General tab set the name to <code>Copy customers</code>.</p></li>
+      <li><strong>Add the parameter</strong><p>Click an empty part of the canvas, open the Parameters tab and add <code>sinkTable</code>, type String, default value <code>customers</code>.</p></li>
+      <li><strong>Configure the source</strong><p>Select the Copy activity and open Source. Connection: <code>LH_SALES_BRZ</code>. Root folder: Files. File path type: File path. File path: <code>customers.csv</code> (use Browse). File format: DelimitedText, and in the format settings make sure <em>First row as header</em> is selected, otherwise the columns arrive as generic names.</p></li>
+      <li><strong>Configure the destination</strong><p>Open Destination. Connection: <code>LH_SALES_BRZ</code>. Root folder: Tables. Table: choose Add dynamic content and enter <code>@pipeline().parameters.sinkTable</code>. Table action: Overwrite. Leave the Advanced section at its defaults and do not enable partitioning: these are tiny tables, and partitioning a small table produces many tiny files (see the <a href="../08-delta-partitioning/index.html">Delta partitioning playbook</a>).</p></li>
+      <li><strong>Save and validate</strong><p>Choose Save on the Home tab, then Validate. A Fabric pipeline has no separate publish step: saving is what makes it runnable by the hub. Optionally choose Run once to confirm that the <code>customers</code> table appears under Tables.</p></li>
+    </ol>
+    <p>Repeat the same steps in <code>DEV_SALES_SLV</code>. Only the names change:</p>
+    <table>
+      <thead><tr><th>Setting</th><th>Spoke A (Bronze)</th><th>Spoke B (Silver)</th></tr></thead>
+      <tbody>
+        <tr><td>Workspace</td><td><code>DEV_SALES_BRZ</code></td><td><code>DEV_SALES_SLV</code></td></tr>
+        <tr><td>Pipeline</td><td><code>PL_SALES_BRZ_Ingest</code></td><td><code>PL_SALES_SLV_Conform</code></td></tr>
+        <tr><td>Activity name</td><td><code>Copy customers</code></td><td><code>Copy orders</code></td></tr>
+        <tr><td>Parameter <code>sinkTable</code> default</td><td><code>customers</code></td><td><code>orders</code></td></tr>
+        <tr><td>Source connection and file</td><td><code>LH_SALES_BRZ</code>, <code>customers.csv</code></td><td><code>LH_SALES_SLV</code>, <code>orders.csv</code></td></tr>
+        <tr><td>Destination connection</td><td><code>LH_SALES_BRZ</code>, Tables</td><td><code>LH_SALES_SLV</code>, Tables</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="stage-hub">Stage 3: Create the hub and its master pipeline</h2>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 230" role="img" aria-label="Hub pipeline canvas: Invoke Bronze runs first with Wait on completion and sinkTable set to customers; its On success path leads to Invoke Silver with Wait on completion and sinkTable set to orders; the hub run succeeds only if both succeed">
+        <defs>
+          <marker id="fig-ws-4-ag" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-ws-4-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <text class="t-h" x="20" y="26">PL_ORCH_HUB_SalesDaily</text>
+        <rect class="box accent" x="20" y="50" width="250" height="76" rx="8"/>
+        <text class="t-b t-w" x="145" y="74" text-anchor="middle">Invoke Bronze</text>
+        <text class="t-s t-w" x="145" y="94" text-anchor="middle">DEV_SALES_BRZ</text>
+        <text class="t-s t-w" x="145" y="112" text-anchor="middle">PL_SALES_BRZ_Ingest</text>
+        <rect class="box accent" x="370" y="50" width="250" height="76" rx="8"/>
+        <text class="t-b t-w" x="495" y="74" text-anchor="middle">Invoke Silver</text>
+        <text class="t-s t-w" x="495" y="94" text-anchor="middle">DEV_SALES_SLV</text>
+        <text class="t-s t-w" x="495" y="112" text-anchor="middle">PL_SALES_SLV_Conform</text>
+        <path class="ln green thick" d="M270 88H368" marker-end="url(#fig-ws-4-ag)"/>
+        <text class="t-s c-green" x="319" y="80" text-anchor="middle">On success</text>
+        <rect class="box orange" x="20" y="150" width="250" height="56" rx="8"/>
+        <text class="t-b" x="145" y="172" text-anchor="middle">Wait on completion: on</text>
+        <text class="t-s" x="145" y="190" text-anchor="middle">sinkTable = customers</text>
+        <rect class="box orange" x="370" y="150" width="250" height="56" rx="8"/>
+        <text class="t-b" x="495" y="172" text-anchor="middle">Wait on completion: on</text>
+        <text class="t-s" x="495" y="190" text-anchor="middle">sinkTable = orders</text>
+        <path class="ln dash" d="M145 126V148" marker-end="url(#fig-ws-4-a)"/>
+        <path class="ln dash" d="M495 126V148" marker-end="url(#fig-ws-4-a)"/>
+        <rect class="box gray" x="720" y="50" width="160" height="76" rx="8"/>
+        <text class="t-b" x="800" y="78" text-anchor="middle">Hub run</text>
+        <text class="t-s" x="800" y="98" text-anchor="middle">succeeds only if</text>
+        <text class="t-s" x="800" y="114" text-anchor="middle">both children do</text>
+        <path class="ln" d="M620 88H718" marker-end="url(#fig-ws-4-a)"/>
+      </svg>
+      <figcaption><b>The master pipeline.</b> Two Invoke activities, one dependency, and the contract (<code>sinkTable</code>) passed explicitly.</figcaption>
+    </figure>
+    <ol class="steps">
+      <li><strong>Create the hub workspace</strong><p>Choose Workspaces, <em>+ New workspace</em>, name it <code>DEV_ORCH_HUB</code>, add a description such as "Control plane for the sales workshop", assign the capacity and choose Apply.</p></li>
+      <li><strong>Create the master pipeline</strong><p>In <code>DEV_ORCH_HUB</code> create a Data pipeline named <code>PL_ORCH_HUB_SalesDaily</code>.</p></li>
+      <li><strong>Add the first Invoke activity</strong><p>On the Activities tab choose <em>Invoke pipeline</em>. Use the new activity, not the one labelled Legacy. The legacy activity cannot cross workspaces. Name it <code>Invoke Bronze</code>.</p></li>
+      <li><strong>Create the connection</strong><p>On the Settings tab open the Connection list and choose Browse all. Under New sources choose <em>Fabric Data Pipelines</em>. Name the connection <code>CONN_FabricPipelines_DEV</code>, set Authentication kind to Organizational account for this first run (you will replace it in Stage 5), choose Sign in, complete the sign-in and choose Connect.</p></li>
+      <li><strong>Point the activity at the spoke</strong><p>Select the connection, then Workspace <code>DEV_SALES_BRZ</code> and Pipeline <code>PL_SALES_BRZ_Ingest</code>. Keep <em>Wait on completion</em> selected. In the pipeline's parameter list set <code>sinkTable</code> to <code>customers</code>.</p></li>
+      <li><strong>Add the second Invoke activity</strong><p>Add another Invoke pipeline activity named <code>Invoke Silver</code>, reuse the same connection, choose Workspace <code>DEV_SALES_SLV</code> and Pipeline <code>PL_SALES_SLV_Conform</code>, keep Wait on completion selected and set <code>sinkTable</code> to <code>orders</code>.</p></li>
+      <li><strong>Connect them</strong><p>Drag from the On success (green check) handle of <code>Invoke Bronze</code> to <code>Invoke Silver</code>. Silver now starts only if Bronze succeeds. Save the pipeline.</p></li>
+    </ol>
+    <div class="callout tip"><p class="callout-title">The four output states</p><p>On success runs the next activity when the previous one succeeded; On fail when it failed; On completion when it finished either way; On skip when it was skipped. An activity with no incoming connection starts immediately, in parallel with every other such activity. Choosing the wrong state is the commonest cause of a hub that runs Silver after a Bronze failure.</p></div>
+
+    <h2 id="stage-run">Stage 4: Run and monitor</h2>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 270" role="img" aria-label="Run timeline: the hub run spans the whole period; Invoke Bronze runs first and Invoke Silver runs after it; each invoked activity shows a matching child run in its own spoke workspace that is slightly shorter because of start-up and polling time">
+        <defs>
+          <marker id="fig-ws-5-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <text class="t-s" x="20" y="44">Hub run</text>
+        <rect class="box accent" x="270" y="28" width="590" height="26" rx="6"/>
+        <text class="t-s" x="20" y="84">Invoke Bronze (hub)</text>
+        <rect class="box teal" x="270" y="68" width="260" height="26" rx="6"/>
+        <text class="t-s" x="20" y="124">Invoke Silver (hub)</text>
+        <rect class="box teal" x="530" y="108" width="330" height="26" rx="6"/>
+        <text class="t-s" x="20" y="164">Child run in DEV_SALES_BRZ</text>
+        <rect class="box blue" x="290" y="148" width="220" height="26" rx="6"/>
+        <text class="t-s" x="20" y="204">Child run in DEV_SALES_SLV</text>
+        <rect class="box blue" x="550" y="188" width="290" height="26" rx="6"/>
+        <path class="ln" d="M270 238H860" marker-end="url(#fig-ws-5-a)"/>
+        <text class="t-s" x="270" y="258">start</text>
+        <text class="t-s" x="840" y="258">time</text>
+        <path class="ln dash" d="M530 94V186"/>
+        <text class="t-s" x="540" y="228">Silver starts only after Bronze ends</text>
+      </svg>
+      <figcaption><b>One hub run, two linked child runs.</b> The Gantt view in the Monitoring hub draws exactly this shape; each child run also lives in its own spoke workspace.</figcaption>
+    </figure>
+    <ol class="steps">
+      <li><strong>Run</strong><p>Open the <strong>Output</strong> tab first so you can watch from the start, choose Save, then Run (accept Save and run if prompted).</p></li>
+      <li><strong>Watch the Output tab</strong><p>You should see <code>Invoke Bronze</code> in progress, then Succeeded, then <code>Invoke Silver</code> in progress, then Succeeded. Total time is the sum of the children plus start-up for each.</p></li>
+      <li><strong>Open the Monitoring hub</strong><p>From the left navigation open Monitor. You should see three pipeline runs: <code>PL_ORCH_HUB_SalesDaily</code>, <code>PL_SALES_BRZ_Ingest</code> and <code>PL_SALES_SLV_Conform</code>. Open the hub run to see its activity runs and select Gantt to see the timeline.</p></li>
+      <li><strong>Verify the data</strong><p>Open <code>LH_SALES_BRZ</code>: the table <code>customers</code> exists with five rows and the expected columns. Open <code>LH_SALES_SLV</code>: the table <code>orders</code> exists with six rows. If a table is missing, refresh the lakehouse explorer first.</p></li>
+      <li><strong>Check the lineage</strong><p>Switch the hub workspace to the Lineage view. If the cross-workspace relationships appear, note which are shown; if they do not, that is normal and is one reason to keep the run log in <a href="operations.html#run-log">operations</a>.</p></li>
+    </ol>
+
+    <h2 id="stage-identity">Stage 5: Replace your account with a workload identity</h2>
+    <p>The run above worked because <em>you</em> are Admin everywhere and your sign-in is on the connection. That is the configuration that fails at 02:00, when your token has expired or you have left. Swap it now, using the permission map from the <a href="#request">request section</a>.</p>
+    <ol class="steps">
+      <li><strong>Create the workspace identity</strong><p>In <code>DEV_ORCH_HUB</code> open Workspace settings, the Workspace identity tab, and choose <em>+ Workspace identity</em>. Only a workspace Admin can do this, and the identity is created with no workspace role. If you were given a service principal instead, skip this step.</p></li>
+      <li><strong>Confirm the tenant setting</strong><p>Ask the Fabric admin to confirm that <em>Service principals can call Fabric public APIs</em> is enabled for a group that contains the identity.</p></li>
+      <li><strong>Grant Contributor on both spokes</strong><p>In <code>DEV_SALES_BRZ</code> choose Manage access, Add people or groups, search for the identity (a workspace identity carries the name of its workspace), choose Contributor and Add. Repeat in <code>DEV_SALES_SLV</code>.</p></li>
+      <li><strong>Create the new connection</strong><p>In <code>Invoke Bronze</code> Settings choose Browse all, then Fabric Data Pipelines, name it <code>CONN_FabricPipelines_DEV_WI</code> and set Authentication kind to Workspace identity (or Service principal, which also asks for tenant ID, client ID and secret). Select this connection in <code>Invoke Silver</code> too. Anyone else who edits the hub needs permission to use the connection.</p></li>
+      <li><strong>Run twice</strong><p>Run once manually. Then open Schedule, add a schedule that fires a few minutes from now (a start and an end date are required), and confirm the scheduled run also succeeds. Turn the schedule off afterwards. A manual run uses your session; a scheduled run is the real test of the identity.</p></li>
+    </ol>
+    <div class="callout warning"><p class="callout-title">If the identity run fails</p><p>The two likeliest causes are a missing Contributor assignment on one spoke and the tenant setting not covering the identity. Workspace identity is listed as an authentication kind for this connection in one Learn article but is described only for specific activities in another; if it still fails after the roles are correct, use a service principal on the same connection. See <a href="invoke-pipeline.html#identity">connection and identity</a>.</p></div>
+
+    <h2 id="stage-failure">Stage 6: Prove that failure propagates</h2>
+    <p>A hub that stays green while a spoke fails is worse than no hub. Test both failure positions.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 250" role="img" aria-label="Two failure experiments. Left: Silver is broken, so Invoke Bronze succeeds, Invoke Silver fails and the hub run fails. Right: Bronze is broken, so Invoke Bronze fails, Invoke Silver is skipped and the hub run fails">
+        <defs>
+          <marker id="fig-ws-6-ag" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-ws-6-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <text class="t-h" x="20" y="22">Experiment A: break the Silver spoke</text>
+        <rect class="zone" x="20" y="32" width="420" height="200" rx="12"/>
+        <rect class="box green" x="40" y="62" width="160" height="50" rx="8"/>
+        <text class="t-b" x="120" y="92" text-anchor="middle">Invoke Bronze</text>
+        <rect class="box red" x="260" y="62" width="160" height="50" rx="8"/>
+        <text class="t-b" x="340" y="92" text-anchor="middle">Invoke Silver</text>
+        <path class="ln green thick" d="M200 87H258" marker-end="url(#fig-ws-6-ag)"/>
+        <rect class="box red" x="140" y="150" width="160" height="50" rx="8"/>
+        <text class="t-b" x="220" y="172" text-anchor="middle">Hub run</text>
+        <text class="t-s" x="220" y="190" text-anchor="middle">Failed</text>
+        <path class="ln" d="M340 112V132H220V148" marker-end="url(#fig-ws-6-a)"/>
+        <text class="t-h" x="460" y="22">Experiment B: break the Bronze spoke</text>
+        <rect class="zone" x="460" y="32" width="420" height="200" rx="12"/>
+        <rect class="box red" x="480" y="62" width="160" height="50" rx="8"/>
+        <text class="t-b" x="560" y="92" text-anchor="middle">Invoke Bronze</text>
+        <rect class="box gray dashed" x="700" y="62" width="160" height="50" rx="8"/>
+        <text class="t-b" x="780" y="85" text-anchor="middle">Invoke Silver</text>
+        <text class="t-s" x="780" y="102" text-anchor="middle">skipped</text>
+        <path class="ln dash" d="M640 87H698" marker-end="url(#fig-ws-6-a)"/>
+        <rect class="box red" x="580" y="150" width="160" height="50" rx="8"/>
+        <text class="t-b" x="660" y="172" text-anchor="middle">Hub run</text>
+        <text class="t-s" x="660" y="190" text-anchor="middle">Failed</text>
+        <path class="ln" d="M560 112V132H660V148" marker-end="url(#fig-ws-6-a)"/>
+      </svg>
+      <figcaption><b>Both experiments must end in a red hub run.</b> If experiment B shows the hub as Succeeded, a connector or a catch path is masking the failure.</figcaption>
+    </figure>
+    <ol class="steps">
+      <li><strong>Experiment A: break Silver</strong><p>In <code>PL_SALES_SLV_Conform</code> change the source file path to <code>orders_missing.csv</code> and save. Run the hub. Expected: Bronze succeeds, <code>Invoke Silver</code> fails with the child's error visible in its output, and the hub run is Failed. The <code>customers</code> table is still refreshed, which is the correct behaviour for a sequence of independent spokes.</p></li>
+      <li><strong>Restore it</strong><p>Set the path back to <code>orders.csv</code>, save, and run the hub again. Expected: both succeed. Because the spokes overwrite, a re-run is safe.</p></li>
+      <li><strong>Experiment B: break Bronze</strong><p>Change the source path in <code>PL_SALES_BRZ_Ingest</code> to <code>customers_missing.csv</code> and save. Run the hub. Expected: <code>Invoke Bronze</code> fails, <code>Invoke Silver</code> is skipped, and the hub run is Failed.</p></li>
+      <li><strong>Experiment C: turn Wait off</strong><p>Restore Bronze. On <code>Invoke Bronze</code> clear Wait on completion, break Bronze again and run. Expected: the hub reports Bronze as Succeeded the moment the child starts and Silver runs, even though the child fails later. That is why Wait on completion is not optional. Re-enable it and restore the file path.</p></li>
+    </ol>
+    <p>For why leaf activities decide the status and how a catch path can mask a failure, see <a href="control-flow.html#failure-handling">failure handling</a>.</p>
+
+    <h2 id="stage-extend">Stage 7 (optional): Log runs and make the dependency real</h2>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 190" role="img" aria-label="Making the dependency real: a table in the Bronze lakehouse is exposed to the Silver lakehouse through a shortcut, a notebook activity in the Silver spoke pipeline joins orders to customers and writes orders_enriched; the hub definition does not change">
+        <defs>
+          <marker id="fig-ws-7-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="zone" x="20" y="20" width="200" height="150" rx="12"/>
+        <text class="t-h" x="36" y="42">DEV_SALES_BRZ</text>
+        <rect class="box blue" x="40" y="62" width="160" height="60" rx="8"/>
+        <text class="t-b" x="120" y="88" text-anchor="middle">customers</text>
+        <text class="t-s" x="120" y="106" text-anchor="middle">table in LH_SALES_BRZ</text>
+        <rect class="zone" x="300" y="20" width="580" height="150" rx="12"/>
+        <text class="t-h" x="316" y="42">DEV_SALES_SLV</text>
+        <rect class="box gray" x="320" y="62" width="150" height="60" rx="8"/>
+        <text class="t-b" x="395" y="88" text-anchor="middle">customers_bronze</text>
+        <text class="t-s" x="395" y="106" text-anchor="middle">shortcut</text>
+        <rect class="box teal" x="520" y="62" width="160" height="60" rx="8"/>
+        <text class="t-b" x="600" y="88" text-anchor="middle">Notebook activity</text>
+        <text class="t-s" x="600" y="106" text-anchor="middle">after Copy orders</text>
+        <rect class="box blue" x="720" y="62" width="140" height="60" rx="8"/>
+        <text class="t-b" x="790" y="88" text-anchor="middle">orders_enriched</text>
+        <text class="t-s" x="790" y="106" text-anchor="middle">Delta table</text>
+        <path class="ln dash" d="M200 92H318" marker-end="url(#fig-ws-7-a)"/>
+        <path class="ln" d="M470 92H518" marker-end="url(#fig-ws-7-a)"/>
+        <path class="ln" d="M680 92H718" marker-end="url(#fig-ws-7-a)"/>
+        <text class="t-s" x="316" y="150">The hub pipeline is unchanged: the contract held</text>
+      </svg>
+      <figcaption><b>Evolve a spoke without touching the hub.</b> Silver now genuinely depends on Bronze data, and the hub still just invokes one pipeline and waits.</figcaption>
+    </figure>
+    <ol class="steps">
+      <li><strong>Add the run log</strong><p>Create a Warehouse in <code>DEV_ORCH_HUB</code>, run the <code>ops.pipeline_run_log</code> script from <a href="operations.html#run-log">the run log section</a>, and add a Stored procedure activity before and after each Invoke (Started, Succeeded, and Failed on the On fail path). Re-run the failure experiments and check the log tells the same story as the Monitoring hub.</p></li>
+      <li><strong>Add a shortcut to the Bronze table</strong><p>In <code>LH_SALES_SLV</code> choose New shortcut under Tables, then Microsoft OneLake, select <code>LH_SALES_BRZ</code> and the <code>customers</code> table, and name the shortcut <code>customers_bronze</code>. Reading through a shortcut is evaluated against the caller, so the identity that runs the notebook also needs read access to the Bronze lakehouse; plan that permission as you planned Contributor.</p></li>
+      <li><strong>Add a notebook and use it</strong><p>Create a notebook in <code>DEV_SALES_SLV</code> with <code>LH_SALES_SLV</code> as its default lakehouse and the cell below. In <code>PL_SALES_SLV_Conform</code> add a Notebook activity after <code>Copy orders</code> on its On success path and save.</p></li>
+    </ol>
+<pre data-title="Notebook cell in DEV_SALES_SLV (PySpark)"><code class="language-python">orders = spark.read.table("orders")
+customers = spark.read.table("customers_bronze")      # shortcut to LH_SALES_BRZ / customers
+
+(orders.join(customers, "customer_id", "left")
+       .write.mode("overwrite")
+       .saveAsTable("orders_enriched"))</code></pre>
+    <p>Run the hub again. The hub definition has not changed, but Silver now reads Bronze output, and a Bronze failure now has a real consequence rather than a symbolic one.</p>
+
+    <h2 id="troubleshooting">Troubleshooting</h2>
+    <table>
+      <thead><tr><th>Symptom</th><th>Likely cause</th><th>Fix</th></tr></thead>
+      <tbody>
+        <tr><td>A spoke workspace is missing from the Workspace list in the Invoke activity</td><td>The connection's identity has no role there, or the workspace is not visible to it</td><td>Add the identity as Contributor on the spoke and reopen the list</td></tr>
+        <tr><td>Forbidden or "not authorized" on the child run</td><td>Contributor missing on one spoke, or the tenant setting does not cover the identity</td><td>Check the role on both spokes and the setting's security group</td></tr>
+        <tr><td>Manual run works, scheduled run fails</td><td>The connection uses a person's sign-in and its token has expired or the person lost access</td><td>Switch to a workspace identity or service principal and re-test on a schedule (Stage 5)</td></tr>
+        <tr><td>The hub shows Succeeded while the child is still running or later fails</td><td>Wait on completion is off</td><td>Select Wait on completion on every Invoke activity</td></tr>
+        <tr><td>Silver runs even though Bronze failed</td><td>The two activities are connected with On completion, or there is no connection at all</td><td>Use On success; an unconnected activity starts in parallel</td></tr>
+        <tr><td>The table has the default name instead of the one you passed</td><td>The parameter name in the Invoke activity does not match the child's, so the value is ignored</td><td>Match the name exactly (<code>sinkTable</code>) and re-select the pipeline so parameters reload</td></tr>
+        <tr><td>Columns are named generically, or the header is a data row</td><td>First row as header is not selected</td><td>Select it in the DelimitedText format settings of the Source tab</td></tr>
+        <tr><td>Copy fails with file not found</td><td>Wrong root folder or file path; the file was uploaded to a subfolder</td><td>Use Browse to select the file; check Recursively if it is nested</td></tr>
+        <tr><td>No table appears after a successful run</td><td>The destination root folder is Files, not Tables, or the explorer is stale</td><td>Set Root folder to Tables and refresh the lakehouse</td></tr>
+        <tr><td>The Invoke activity shows no linked child run</td><td>The Legacy Invoke pipeline activity was used</td><td>Replace it with the new Invoke pipeline activity</td></tr>
+        <tr><td>The Workspace identity button is disabled, or the identity is in a Failed state</td><td>You are not a workspace Admin, or the first creation in the tenant failed</td><td>Ask a workspace Admin; for a Failed state wait an hour, delete it, wait five minutes and create it again</td></tr>
+        <tr><td>A colleague cannot edit or run the hub</td><td>They have no permission to use the connection</td><td>Share the connection with them or run the hub as the identity</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="cleanup">Clean up</h2>
+    <ul class="checklist">
+      <li>Delete the schedule you created in Stage 5, or confirm it is off.</li>
+      <li>Remove the workspace identity or service principal's Contributor role from the spokes if the workshop identity will not be reused.</li>
+      <li>Delete the workshop connections you no longer need.</li>
+      <li>Delete the three workspaces if they were created only for this workshop.</li>
+    </ul>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p><ul>
+      <li>The spoke pipeline's parameter is its contract: the hub passes <code>sinkTable</code> explicitly and the spoke can change inside without the hub changing.</li>
+      <li>Wait on completion and On success together make the hub honest. Test both failure positions, and with Wait off, to see why.</li>
+      <li>The first run proves the wiring; the scheduled run with a workload identity proves the design.</li>
+      <li>Contributor for the hub's identity on every spoke is the permission to request first, because everything else depends on it.</li>
+    </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/invoke-pipeline-activity">Invoke pipeline activity</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/copy-data-activity">Copy activity in Data Factory for Microsoft Fabric</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/pipeline-runs">Run, schedule, or use events to trigger a pipeline</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/monitor-pipeline-runs">Choose how to monitor pipeline runs</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/security/workspace-identity">Workspace identity in Microsoft Fabric</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/security/workspace-identity-authenticate">Authenticate with workspace identity</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/fundamentals/give-access-workspaces">Give users access to workspaces</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/onelake/onelake-shortcuts">OneLake shortcuts</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

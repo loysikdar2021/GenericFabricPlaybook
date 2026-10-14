@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Why and when to partition · Delta Partitioning</title>
+<meta name="description" content="How Delta partition pruning works, what partitioning costs, how to size partitions with simple arithmetic, and when concurrent writers justify it.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="08-delta-partitioning" data-page="concepts.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 08 · Delta Partitioning</p>
+      <h1>Why and when to partition</h1>
+      <p class="lede">Partitioning trades flexibility for the ability to skip, isolate and bound work. This page explains what you gain, what you pay, how to check the arithmetic before you commit, and why concurrent writers are now the main reason to partition at all.</p>
+    </header>
+
+    <h2 id="pruning">What partitioning does</h2>
+    <p>Hive-style partitioning divides a Delta table into physical subdirectories by the values of one or more partition columns. Each distinct value (or combination of values) gets its own directory, such as <code>order_month=2026-03/</code>. When a query filters on the partition column, the engine reads only the matching directories. This is <strong>partition pruning</strong>, and it can cut both latency and cost.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 228" role="img" aria-label="A query filtering on one month reads only one of five partition directories when the table is partitioned by month, but must consider every file when the table is unpartitioned and unclustered because month values are spread across all files">
+        <rect class="box blue" x="20" y="64" width="190" height="100" rx="10"/>
+        <text class="t-b" x="115" y="98" text-anchor="middle">Query</text>
+        <text class="t-s" x="115" y="120" text-anchor="middle">WHERE order_month</text>
+        <text class="t-s" x="115" y="138" text-anchor="middle">= '2026-03'</text>
+
+        <text class="t-h" x="240" y="22">Partitioned by order_month: one directory is read</text>
+        <rect class="zone" x="240" y="30" width="120" height="82" rx="8"/>
+        <text class="t-s" x="300" y="48" text-anchor="middle">2026-01</text>
+        <rect class="box gray dashed" x="252" y="58" width="44" height="26" rx="5"/>
+        <rect class="box gray dashed" x="304" y="58" width="44" height="26" rx="5"/>
+        <text class="t-s" x="300" y="102" text-anchor="middle">skipped</text>
+        <rect class="zone" x="370" y="30" width="120" height="82" rx="8"/>
+        <text class="t-s" x="430" y="48" text-anchor="middle">2026-02</text>
+        <rect class="box gray dashed" x="382" y="58" width="44" height="26" rx="5"/>
+        <rect class="box gray dashed" x="434" y="58" width="44" height="26" rx="5"/>
+        <text class="t-s" x="430" y="102" text-anchor="middle">skipped</text>
+        <rect class="zone blue" x="500" y="30" width="120" height="82" rx="8"/>
+        <text class="t-b" x="560" y="48" text-anchor="middle">2026-03</text>
+        <rect class="box blue" x="512" y="58" width="44" height="26" rx="5"/>
+        <rect class="box blue" x="564" y="58" width="44" height="26" rx="5"/>
+        <text class="t-b" x="560" y="102" text-anchor="middle">read</text>
+        <rect class="zone" x="630" y="30" width="120" height="82" rx="8"/>
+        <text class="t-s" x="690" y="48" text-anchor="middle">2026-04</text>
+        <rect class="box gray dashed" x="642" y="58" width="44" height="26" rx="5"/>
+        <rect class="box gray dashed" x="694" y="58" width="44" height="26" rx="5"/>
+        <text class="t-s" x="690" y="102" text-anchor="middle">skipped</text>
+        <rect class="zone" x="760" y="30" width="120" height="82" rx="8"/>
+        <text class="t-s" x="820" y="48" text-anchor="middle">2026-05</text>
+        <rect class="box gray dashed" x="772" y="58" width="44" height="26" rx="5"/>
+        <rect class="box gray dashed" x="824" y="58" width="44" height="26" rx="5"/>
+        <text class="t-s" x="820" y="102" text-anchor="middle">skipped</text>
+
+        <text class="t-h" x="240" y="146">Unpartitioned and unclustered: every file is a candidate</text>
+        <rect class="box orange" x="240" y="158" width="56" height="28" rx="5"/>
+        <rect class="box orange" x="304" y="158" width="56" height="28" rx="5"/>
+        <rect class="box orange" x="368" y="158" width="56" height="28" rx="5"/>
+        <rect class="box orange" x="432" y="158" width="56" height="28" rx="5"/>
+        <rect class="box orange" x="496" y="158" width="56" height="28" rx="5"/>
+        <rect class="box orange" x="560" y="158" width="56" height="28" rx="5"/>
+        <rect class="box orange" x="624" y="158" width="56" height="28" rx="5"/>
+        <rect class="box orange" x="688" y="158" width="56" height="28" rx="5"/>
+        <rect class="box orange" x="752" y="158" width="56" height="28" rx="5"/>
+        <rect class="box orange" x="816" y="158" width="56" height="28" rx="5"/>
+        <text class="t-s" x="240" y="212">Month values are spread across all files, so min and max statistics cannot exclude any of them.</text>
+      </svg>
+      <figcaption><b>Pruning in one picture.</b> Partitioning is one way to group like values together. Liquid clustering and Z-Order achieve a similar effect with file-level value ranges instead of directories.</figcaption>
+    </figure>
+    <p>Pruning only happens when the query filters on the partition column itself. A predicate on a different column, or a function applied to a column, does not prune partitions even if it selects the same rows logically.</p>
+<pre data-title="Spark SQL · filter on the partition column"><code class="language-sql">-- Prunes: the predicate is on the partition column
+SELECT SUM(amount) FROM silver.orders WHERE order_month = '2026-03';
+
+-- Does not prune: order_month is not in the predicate
+SELECT SUM(amount) FROM silver.orders
+WHERE date_format(order_date, 'yyyy-MM') = '2026-03';</code></pre>
+
+    <h3 id="benefits">What you gain, and what you pay</h3>
+    <div class="pros-cons">
+      <div class="pros"><h4>What partitioning buys</h4><ul>
+        <li><strong>Pruning</strong> for queries that filter on the partition column</li>
+        <li><strong>Concurrent-writer isolation:</strong> operations on different partitions touch different files and do not conflict</li>
+        <li><strong>Bounded rewrites:</strong> an update, delete or <code>OPTIMIZE</code> limited to one partition leaves the rest untouched</li>
+        <li><strong>Cheap retention:</strong> a <code>DELETE</code> that matches whole partitions removes files without rewriting data</li>
+      </ul></div>
+      <div class="cons"><h4>What partitioning costs</h4><ul>
+        <li>At least one file per partition touched by every write, which breeds small files</li>
+        <li>More row groups and files, which strains Direct Lake and SQL endpoint metadata sync</li>
+        <li>A rigid scheme: partition columns cannot change without rewriting the table</li>
+        <li>Skew: uneven partitions give uneven task sizes and uneven performance</li>
+      </ul></div>
+    </div>
+    <p>For read performance alone, current Fabric guidance prefers liquid clustering over partitioning: it avoids the small-file risk of high-cardinality columns and lets you change the clustering columns later. Partitioning remains the right tool when you need the isolation and bounded rewrites in the left column. See <a href="fabric-features.html#liquid-clustering">Fabric layout features</a>.</p>
+
+    <h2 id="sizing">Size partitions before you create them</h2>
+    <p>Two rules of thumb from the Fabric documentation keep partitioned tables healthy: the partition column should have <strong>low to moderate cardinality</strong> (tens to hundreds of distinct values, not thousands), and each partition should hold <strong>at least about 1 GB</strong> of data. Larger tables can accommodate more partitions. Older Delta guidance often adds a total-size floor of roughly 1 TB below which partitioning is not worth it; treat that as a rough hint, because the per-partition target is the figure that actually protects you from small files.</p>
+    <p>The check is simple arithmetic: divide the table's size by the number of partitions a granularity would create.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 266" role="img" aria-label="For a 600 gigabyte table covering five years, daily partitions average about 330 megabytes, below the 1 gigabyte target, while weekly, monthly and quarterly partitions average 2.3, 10 and 30 gigabytes">
+        <text class="t-h" x="20" y="20">Average partition size for a 600 GB table covering five years (log scale)</text>
+        <path class="ln orange dash" d="M370 38V226"/>
+        <text class="t-s" x="378" y="36">1 GB per partition target</text>
+        <text class="t-b" x="208" y="64" text-anchor="end">Daily</text>
+        <rect class="box red" x="220" y="44" width="78" height="30" rx="6"/>
+        <text class="t-s" x="690" y="64">330 MB, 1,825 partitions</text>
+        <text class="t-b" x="208" y="110" text-anchor="end">Weekly</text>
+        <rect class="box green" x="220" y="90" width="204" height="30" rx="6"/>
+        <text class="t-s" x="690" y="110">2.3 GB, 260 partitions</text>
+        <text class="t-b" x="208" y="156" text-anchor="end">Monthly</text>
+        <rect class="box green" x="220" y="136" width="300" height="30" rx="6"/>
+        <text class="t-s" x="690" y="156">10 GB, 60 partitions</text>
+        <text class="t-b" x="208" y="202" text-anchor="end">Quarterly</text>
+        <rect class="box green" x="220" y="182" width="372" height="30" rx="6"/>
+        <text class="t-s" x="690" y="202">30 GB, 20 partitions</text>
+        <path class="ln thin" d="M220 228H680"/>
+        <path class="ln thin" d="M220 224V232"/><path class="ln thin" d="M370 224V232"/><path class="ln thin" d="M520 224V232"/><path class="ln thin" d="M670 224V232"/>
+        <text class="t-s" x="220" y="248" text-anchor="middle">0.1 GB</text>
+        <text class="t-s" x="370" y="248" text-anchor="middle">1 GB</text>
+        <text class="t-s" x="520" y="248" text-anchor="middle">10 GB</text>
+        <text class="t-s" x="670" y="248" text-anchor="middle">100 GB</text>
+      </svg>
+      <figcaption><b>The grain is chosen by size, not by how people think about time.</b> The same table is unhealthy at daily grain and comfortable at monthly grain. Weekly meets the size target but exceeds the 100 to 200 partition guidance for Direct Lake.</figcaption>
+    </figure>
+    <table>
+      <thead><tr><th>Grain</th><th>Partitions over five years</th><th>Average size (600 GB table)</th><th>Verdict</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Daily</strong></td><td>1,825</td><td>about 330 MB</td><td class="no">Too small</td><td>A daily grain needs roughly 1 GB a day, about 1.8 TB over five years, to pay off</td></tr>
+        <tr><td><strong>Weekly</strong></td><td>260</td><td>about 2.3 GB</td><td class="maybe">Borderline</td><td>Meets the size target, but the partition count is above the 100 to 200 guideline for Direct Lake</td></tr>
+        <tr><td><strong>Monthly</strong></td><td>60</td><td>about 10 GB</td><td class="yes">Good</td><td>The usual sweet spot for time-series fact tables</td></tr>
+        <tr><td><strong>Quarterly</strong></td><td>20</td><td>about 30 GB</td><td class="yes">Good</td><td>Healthy, but each rewrite or <code>OPTIMIZE</code> touches more data</td></tr>
+        <tr><td><strong>Yearly</strong></td><td>5</td><td>about 120 GB</td><td class="maybe">Conditional</td><td>Only if writers and retention naturally align to years</td></tr>
+      </tbody>
+    </table>
+    <p>Run the same check against reality, not intention. The snippet below counts the distinct values a candidate column would create and divides the table size by that count.</p>
+<pre data-title="PySpark · estimate partition count and average size"><code class="language-python">from pyspark.sql import functions as F
+
+table = "silver.orders"
+candidate = F.date_format("order_date", "yyyy-MM")        # the grain you are considering
+
+detail = spark.sql(f"DESCRIBE DETAIL {table}").first()
+size_gb = detail["sizeInBytes"] / 1024**3
+
+partitions = spark.table(table).select(candidate.alias("p")).distinct().count()
+print(f"{partitions} partitions, about {size_gb / partitions:.2f} GB each (target: 1 GB or more)")</code></pre>
+    <div class="callout warning"><p class="callout-title">Files, not just partitions</p><p>Each write creates at least one file in every partition it touches. A single batch containing late-arriving rows that span 24 months creates at least 24 files, which may each be tiny. Partition size is necessary but not sufficient: the write pattern decides whether partitions stay healthy.</p></div>
+
+    <h2 id="writers">Concurrent-writer isolation</h2>
+    <p>Delta Lake uses optimistic concurrency control. Two operations that rewrite the same files conflict, and one of them fails or must retry. Concurrent appends generally do not conflict, but updates, deletes and merges can, even when they logically modify different rows, because the engine works at file granularity.</p>
+    <p>Partitioning makes it possible for concurrent operations to touch disjoint file sets. Two <code>MERGE</code> operations on a table partitioned by <code>region</code> do not conflict as long as each targets a different region <strong>and the partition column is stated explicitly in the merge condition</strong>. Having the column in the source data is not enough; Delta can only prove the operations are disjoint if the condition itself says so.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 290" role="img" aria-label="Two pipelines merging into different region partitions with the partition column in the merge condition both succeed, whereas without the partition column in the condition the engine cannot prove the file sets are disjoint and one commit fails or retries">
+        <text class="t-h" x="10" y="22">Partition column in the MERGE condition</text>
+        <rect class="zone green" x="10" y="30" width="430" height="250" rx="12"/>
+        <rect class="box blue" x="30" y="70" width="140" height="56" rx="8"/>
+        <text class="t-b" x="100" y="94" text-anchor="middle">Pipeline A</text>
+        <text class="t-s" x="100" y="112" text-anchor="middle">region = 'EMEA'</text>
+        <rect class="box teal" x="30" y="170" width="140" height="56" rx="8"/>
+        <text class="t-b" x="100" y="194" text-anchor="middle">Pipeline B</text>
+        <text class="t-s" x="100" y="212" text-anchor="middle">region = 'APAC'</text>
+        <rect class="zone" x="250" y="50" width="170" height="196" rx="8"/>
+        <text class="t-s" x="335" y="68" text-anchor="middle">orders, partitioned by region</text>
+        <rect class="box blue" x="266" y="80" width="138" height="40" rx="6"/>
+        <text class="t-s" x="335" y="105" text-anchor="middle">region=EMEA</text>
+        <rect class="box teal" x="266" y="130" width="138" height="40" rx="6"/>
+        <text class="t-s" x="335" y="155" text-anchor="middle">region=APAC</text>
+        <rect class="box gray" x="266" y="180" width="138" height="40" rx="6"/>
+        <text class="t-s" x="335" y="205" text-anchor="middle">region=AMER (idle)</text>
+        <path class="ln green thick" d="M170 98L264 100"/>
+        <path class="ln green thick" d="M170 198L264 152"/>
+        <text class="t-b c-green" x="225" y="268" text-anchor="middle">Disjoint files: both commits succeed</text>
+
+        <text class="t-h" x="460" y="22">Condition omits the partition column</text>
+        <rect class="zone red" x="460" y="30" width="430" height="250" rx="12"/>
+        <rect class="box blue" x="480" y="70" width="140" height="56" rx="8"/>
+        <text class="t-b" x="550" y="94" text-anchor="middle">Pipeline A</text>
+        <text class="t-s" x="550" y="112" text-anchor="middle">key match only</text>
+        <rect class="box teal" x="480" y="170" width="140" height="56" rx="8"/>
+        <text class="t-b" x="550" y="194" text-anchor="middle">Pipeline B</text>
+        <text class="t-s" x="550" y="212" text-anchor="middle">key match only</text>
+        <rect class="box orange" x="700" y="94" width="170" height="104" rx="8"/>
+        <text class="t-b" x="785" y="140" text-anchor="middle">Same file set</text>
+        <text class="t-s" x="785" y="160" text-anchor="middle">any file may match</text>
+        <path class="ln red thick" d="M620 98L698 124"/>
+        <path class="ln red thick" d="M620 198L698 168"/>
+        <text class="t-b c-red" x="675" y="260" text-anchor="middle">Conflict: one commit fails or must retry</text>
+      </svg>
+      <figcaption><b>The condition, not the intent, decides.</b> Delta must be able to see from the statement that two writers cannot touch the same files. Where concurrent writers are rare, sequencing them is often cheaper than partitioning for them.</figcaption>
+    </figure>
+    <p>That is why Fabric now frames concurrent-writer isolation as the primary reason to partition. Use it for scenarios such as several pipelines processing different business units or regions into one table at the same time. If your pipelines run one after another, or each writes its own table, you do not need it.</p>
+
+    <h2 id="column">Choosing the partition column</h2>
+    <ul class="checklist">
+      <li>The column is filtered on, or written by one writer at a time, in the large majority of operations.</li>
+      <li>Its cardinality is low to moderate: tens to hundreds of values, with each value holding at least about 1 GB.</li>
+      <li>Its values are stable. A column whose value changes after the row is written forces rows to move between partitions.</li>
+      <li>Its values are known at write time, since the partition is chosen as the file is written.</li>
+      <li>It does not expose sensitive values: directory names appear in storage paths and listings, so never partition by a person, account or device identifier.</li>
+    </ul>
+    <table>
+      <thead><tr><th>Candidate column</th><th>Verdict</th><th>Why</th></tr></thead>
+      <tbody>
+        <tr><td><code>order_date</code> (daily)</td><td class="no">Usually no</td><td>Too many small partitions for most tables; see the sizing table</td></tr>
+        <tr><td><code>order_month</code> (derived, for example <code>2026-03</code>)</td><td class="yes">Yes</td><td>For large time-series tables: 60 to 120 values, each large enough, and aligned with retention and rolling windows</td></tr>
+        <tr><td><code>region</code> or <code>business_unit</code></td><td class="maybe">Conditional</td><td>If each value is at least about 1 GB and writers align to it. The classic concurrent-writer case; watch for skew where one region dominates</td></tr>
+        <tr><td><code>status</code> (open, closed)</td><td class="no">No</td><td>Few values but they change after the row is written, and the split is badly skewed</td></tr>
+        <tr><td><code>customer_id</code>, <code>device_id</code></td><td class="no">Never</td><td>Millions of tiny partitions; exposes identifiers; use clustering for lookups instead</td></tr>
+        <tr><td><code>ingest_month</code></td><td class="maybe">For raw landing tables</td><td>Simple and robust, and supports retention; poor for queries that filter on business dates</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="pitfalls">Common pitfalls</h2>
+    <table>
+      <thead><tr><th>Pitfall</th><th>Symptom</th><th>Remedy</th></tr></thead>
+      <tbody>
+        <tr><td>High-cardinality partition column</td><td>Thousands of directories, tiny files, slow writes and slow SQL endpoint sync</td><td>Coarser grain, or liquid clustering for lookups</td></tr>
+        <tr><td>Too many partition levels</td><td>Cardinality multiplies (12 months by 50 regions is 600 partitions)</td><td>One level, and Z-Order or clustering for the second dimension</td></tr>
+        <tr><td>Frequent small writes into many partitions</td><td>File count grows with every micro-batch</td><td>Enable optimize write and auto compaction; batch the writes</td></tr>
+        <tr><td>Filtering without the partition column</td><td>Full scans despite partitioning</td><td>Expose the partition column to users, or switch to clustering on the real filter columns</td></tr>
+        <tr><td>Skewed partitions</td><td>One partition dwarfs the rest and one task runs long</td><td>Pick a more even column or a coarser grain</td></tr>
+        <tr><td>Mixing partitioning with liquid clustering</td><td>Table creation or alteration fails</td><td>The two are incompatible: choose one per table</td></tr>
+      </tbody>
+    </table>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p><ul>
+      <li>Partition pruning only helps queries that filter on the partition column itself.</li>
+      <li>Size first: table size divided by partition count should be at least about 1 GB, and the count should be tens to hundreds.</li>
+      <li>A month is the usual grain for time-series tables; daily partitions need roughly 1 GB a day.</li>
+      <li>Concurrent-writer isolation works only if the partition column appears in the operation's condition.</li>
+      <li>Never partition by identifiers or by columns whose values change after the row is written.</li>
+    </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/delta-lake-partitioning">Partitioning for Delta tables</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/delta-lake-concurrency-control">Concurrency control and conflict resolution</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/fundamentals/direct-lake-understand-storage">Understand Direct Lake query performance</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/sql-analytics-endpoint-performance">SQL analytics endpoint performance considerations</a></li>
+        <li><a href="https://docs.delta.io/latest/concurrency-control.html">Delta Lake concurrency control</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

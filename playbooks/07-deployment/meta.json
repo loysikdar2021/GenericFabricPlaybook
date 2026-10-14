@@ -1,0 +1,22 @@
+{
+  "id": "07-deployment",
+  "number": "07",
+  "title": "Deployment Pipelines and Promotion",
+  "short": "Deployment Pipelines",
+  "summary": "Combine Git with Fabric deployment pipelines to promote lakehouses, notebooks, warehouses, semantic models and reports from DEV to TST to PRD, with pairing, autobinding, rules and a safe layer order.",
+  "category": "alm",
+  "level": "Advanced",
+  "audience": "Platform architects, data engineers, release managers",
+  "readingTime": "120 min",
+  "pages": [
+    { "file": "index.html", "title": "Overview", "description": "What the hybrid Git plus deployment pipeline pattern solves, when to use it, and a map of the playbook." },
+    { "file": "strategy.html", "title": "Deployment strategy", "description": "The hybrid pattern, an honest comparison with Git-only and code-first promotion, operating rules and anti-patterns." },
+    { "file": "pipeline-setup.html", "title": "Pipeline setup and pairing", "description": "Create a pipeline, assign workspaces, choose the UI, understand item pairing and resolve common setup problems." },
+    { "file": "manual-deploy.html", "title": "The manual deployment", "description": "Compare stages, choose full, selective or backward deployment, deploy with a note, review changes and know what is copied." },
+    { "file": "autobinding.html", "title": "Autobinding", "description": "How dependent items stay connected across stages, what binds and what does not, and how to override it." },
+    { "file": "order-and-layers.html", "title": "Deployment order and layers", "description": "One pipeline per medallion layer, the dependency order from Bronze to Delivery, and the deploy, hydrate, verify loop." },
+    { "file": "deployment-rules.html", "title": "Supported items and rules", "description": "The support matrix for Git and pipelines, rule types per item, and worked scenarios for notebooks and semantic models including Direct Lake." },
+    { "file": "automation-and-limits.html", "title": "Automation and limits", "description": "Deploy from CI with the REST API, code-first alternatives, workarounds for unsupported items, and permissions." },
+    { "file": "appendix.html", "title": "Appendix: IDs and rule values", "description": "An inventory notebook, queries that return rule values, and a per-stage rule settings template." }
+  ]
+}

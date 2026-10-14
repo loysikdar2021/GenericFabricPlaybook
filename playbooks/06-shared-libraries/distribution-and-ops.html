@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Options, operations, checklist · Shared Libraries</title>
+<meta name="description" content="Compare ways to distribute shared Python code in Fabric (Environment wheel, private feed, notebook resources, Lakehouse Files, %run), test without an Environment, govern the library, troubleshoot and validate.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="06-shared-libraries" data-page="distribution-and-ops.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 06 · Shared Python Libraries</p>
+      <h1>Options, operations, checklist</h1>
+      <p class="lede">A wheel in an Environment is the default, not the only answer. This page compares every realistic way to share code between Fabric notebooks, shows how to test without publishing anything, and covers the governance, troubleshooting and validation work that keeps a shared library trustworthy.</p>
+    </header>
+
+    <h2 id="options">Distribution options compared</h2>
+    <p>The right mechanism depends on three questions: does the code run unattended, how far does it need to travel, and how much process does it deserve. The matrix lists what each option gives you and what it costs.</p>
+    <table>
+      <thead><tr><th>Option</th><th>Safe in pipeline runs</th><th>Versioned</th><th>Beyond one workspace</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Wheel in an Environment, Full mode</strong></td><td class="yes">Yes</td><td class="yes">Yes</td><td class="maybe">Partly</td><td>Every item that attaches the Environment gets the same snapshot. Publish takes minutes and session start gains a dependency-deployment step. Other workspaces attach the same Environment only through your promotion process (see <a href="environment.html#across-stages">Environments across stages</a>).</td></tr>
+        <tr><td><strong>Wheel in an Environment, Quick mode</strong></td><td class="maybe">Notebooks only</td><td class="yes">Yes</td><td class="maybe">Partly</td><td>Notebooks only, not Spark job definitions. Publish takes seconds; the wheel installs at session start. Best for the library's own developers.</td></tr>
+        <tr><td><strong>Private package feed</strong> <span class="badge preview">Preview</span></td><td class="yes">Yes</td><td class="yes">Yes</td><td class="yes">Yes</td><td>Full mode only. Needs a feed, a connection and a republish to pick up new versions. Not supported with Private Link or outbound access protection.</td></tr>
+        <tr><td><strong>Wheel in notebook resources</strong> plus <code>%pip install builtin/...</code></td><td class="no">No</td><td class="maybe">File name only</td><td class="no">No</td><td>Session-scoped and manual. Inline installs are off by default in pipeline runs.</td></tr>
+        <tr><td><strong>Source files in resources</strong> plus <code>sys.path</code></td><td class="maybe">Works, unmanaged</td><td class="no">No</td><td class="maybe">Environment resources only</td><td>No publish and no package metadata; edits show up immediately, for everyone attached.</td></tr>
+        <tr><td><strong>Wheel in Lakehouse Files</strong> plus <code>%pip install</code> of the mounted path</td><td class="maybe">Inline install rules apply</td><td class="maybe">Folder convention</td><td class="maybe">Via the default lakehouse</td><td>Easy to drift; breaks if the default lakehouse changes. Access control is the lakehouse's, not the library's.</td></tr>
+        <tr><td><strong><code>%run</code> a shared notebook</strong></td><td class="yes">Yes</td><td class="no">No</td><td class="no">No</td><td>Same workspace only. No semantic versions, no unit tests, and everything lands in the caller's namespace.</td></tr>
+      </tbody>
+    </table>
+
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 320" role="img" aria-label="Decision path: if the code does not run unattended, use Quick mode or a pip install from notebook resources for experiments; if it does, ask whether it is needed beyond one capacity, which points to a private feed; otherwise ask whether it needs tests and versions, which points to a wheel in an Environment, and if not use a run notebook in the same workspace">
+        <defs>
+          <marker id="fig-ops-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box purple" x="14" y="140" width="170" height="50" rx="25"/>
+        <text class="t-b" x="99" y="170" text-anchor="middle">Unattended runs?</text>
+        <rect class="box purple" x="224" y="140" width="200" height="50" rx="25"/>
+        <text class="t-b" x="324" y="170" text-anchor="middle">Needed beyond one capacity?</text>
+        <rect class="box purple" x="464" y="140" width="190" height="50" rx="25"/>
+        <text class="t-b" x="559" y="170" text-anchor="middle">Needs tests and versions?</text>
+        <rect class="box orange" x="14" y="240" width="170" height="60" rx="10"/>
+        <text class="t-b" x="99" y="266" text-anchor="middle">Experiment only</text><text class="t-s" x="99" y="284" text-anchor="middle">Quick mode, %pip builtin/</text>
+        <rect class="box blue" x="224" y="30" width="200" height="60" rx="10"/>
+        <text class="t-b" x="324" y="56" text-anchor="middle">Private package feed</text><text class="t-s" x="324" y="74" text-anchor="middle">Environment pulls it</text>
+        <rect class="box accent" x="694" y="135" width="192" height="60" rx="10"/>
+        <text class="t-b t-w" x="790" y="161" text-anchor="middle">Wheel in an Environment</text><text class="t-s t-w" x="790" y="179" text-anchor="middle">Full mode, the default</text>
+        <rect class="box gray" x="464" y="240" width="190" height="60" rx="10"/>
+        <text class="t-b" x="559" y="266" text-anchor="middle">%run notebook</text><text class="t-s" x="559" y="284" text-anchor="middle">same workspace only</text>
+        <path class="ln" d="M184 165H222" marker-end="url(#fig-ops-1-a)"/>
+        <path class="ln" d="M424 165H462" marker-end="url(#fig-ops-1-a)"/>
+        <path class="ln" d="M654 165H692" marker-end="url(#fig-ops-1-a)"/>
+        <path class="ln" d="M99 190V238" marker-end="url(#fig-ops-1-a)"/>
+        <path class="ln" d="M324 140V92" marker-end="url(#fig-ops-1-a)"/>
+        <path class="ln" d="M559 190V238" marker-end="url(#fig-ops-1-a)"/>
+        <text class="t-s c-green" x="203" y="157" text-anchor="middle">yes</text>
+        <text class="t-s c-red" x="443" y="157" text-anchor="middle">no</text>
+        <text class="t-s c-green" x="673" y="157" text-anchor="middle">yes</text>
+        <text class="t-s c-red" x="109" y="218">no</text>
+        <text class="t-s c-green" x="334" y="118">yes</text>
+        <text class="t-s c-red" x="569" y="218">no</text>
+      </svg>
+      <figcaption><b>Decision path.</b> The default end state for production Python libraries is the wheel in an Environment; every other box is either a stepping stone (experiments) or a deliberate exception (feed, <code>%run</code>).</figcaption>
+    </figure>
+
+    <h3 id="when-each">When each option earns its place</h3>
+    <ul>
+      <li><strong>Environment, Full mode</strong> is the production answer for a single platform team and a handful of workspaces. Everything in this playbook assumes it.</li>
+      <li><strong>Environment, Quick mode</strong> is for the library's own developers: change, publish in seconds, retest in a notebook. Promote the validated version to Full mode.</li>
+      <li><strong>A private feed</strong> is worth the extra moving parts when the same package is consumed by Fabric and by something else (another Spark platform, a function app) or when you already run an organization-wide feed with its own access rules.</li>
+      <li><strong>Notebook resources</strong> and <strong>Lakehouse Files</strong> are for testing and one-off distribution. They are session-scoped and unmanaged; do not let a production pipeline depend on them.</li>
+      <li><strong><code>%run</code></strong> suits a few dozen lines of configuration-like code that every notebook in one workspace needs, where a package would be overkill. It copies names into the caller's namespace, nests at most five levels, and accepts only simple parameter types.</li>
+    </ul>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>Limits for resources (total size, per-file size, file count), the behavior of <code>%run</code> and the status of private-feed support are documented per article and change over time. Check <a href="https://learn.microsoft.com/fabric/data-engineering/how-to-use-notebook#notebook-resources">Notebook resources</a>, <a href="https://learn.microsoft.com/fabric/data-engineering/author-execute-notebook#reference-run">Reference run</a> and <a href="https://learn.microsoft.com/fabric/data-engineering/environment-manage-library">Manage libraries in Fabric environments</a> before you commit to one.</p></div>
+
+    <h2 id="test-without-env">Testing without creating an Environment</h2>
+    <p>You can try a build before it has an Environment, or iterate on it without waiting for a publish. These techniques are session-scoped on purpose: they cannot affect any other notebook, and they disappear when the session ends.</p>
+
+    <h3 id="test-pip-builtin">Install the wheel from notebook resources</h3>
+    <p>Upload the wheel to the notebook's <strong>Resources</strong> (the built-in folder), then install it in the first cells of the notebook. This is the quickest way to test a release candidate.</p>
+<pre data-title="Notebook cell (first cell): install a wheel from built-in resources"><code class="language-python">%pip install "builtin/contoso_fabric_utils-1.5.0rc1-py3-none-any.whl"</code></pre>
+<pre data-title="Notebook cell: use it"><code class="language-python">import contoso_fabric_utils as lib
+print(lib.__version__)    # 1.5.0rc1</code></pre>
+    <p>The installation restarts the Python interpreter, so variables defined before it are lost; keep installs at the top. The package is available on the driver and the executors for that session only.</p>
+
+    <h3 id="test-sys-path">Import source files straight from resources</h3>
+    <p>For a tight edit loop you can skip packaging entirely: upload the package folder (<code>contoso_fabric_utils/</code> with its <code>__init__.py</code>) to the notebook's built-in resources and put the resources folder on the import path.</p>
+<pre data-title="Notebook cell: import from the resources folder"><code class="language-python">import sys
+
+sys.path.insert(0, "builtin")        # folder that CONTAINS contoso_fabric_utils/
+
+import contoso_fabric_utils as lib   # resolves to builtin/contoso_fabric_utils/__init__.py
+print(lib.__version__)               # "0+unknown": not installed, so there is no package metadata</code></pre>
+    <div class="callout warning"><p class="callout-title">Put the parent folder on the path, never the package folder</p><p>If you add <code>builtin/contoso_fabric_utils</code> itself to <code>sys.path</code>, every module inside it becomes importable by its bare name. A module called <code>io.py</code> would then shadow the standard library <code>io</code> module and break unrelated imports. This is why the package module is called <code>loads.py</code> and not <code>io.py</code>.</p></div>
+    <p>Relative reads and writes against resources do not work in a high concurrency session, so use a standard session for this technique. Each resources folder (built-in and Environment) is limited to 500 MB in total, 100 MB per file and 100 files and folders, which is another reason this is a testing tool and not a distribution channel. Files in either folder are scoped to the session and are not touched by an Environment publish.</p>
+
+    <h3 id="test-lakehouse">Install from Lakehouse Files</h3>
+    <p>If several people need to try the same candidate, put the wheel in a lakehouse folder (for example <code>Files/libs/</code>) and install from the mounted path. The lakehouse must be the notebook's default lakehouse so that it is mounted as a local path.</p>
+<pre data-title="Notebook cell: install from the default lakehouse's Files area"><code class="language-python">%pip install "/lakehouse/default/Files/libs/contoso_fabric_utils-1.5.0rc1-py3-none-any.whl"</code></pre>
+
+    <h3 id="test-run">Share a few functions with %run</h3>
+<pre data-title="Notebook cell: run a shared notebook in the same workspace"><code class="language-python">%run NB_SALES_SLV_CommonHelpers { "env_name": "dev" }</code></pre>
+    <p><code>%run</code> executes another notebook in the current context, so everything it defines is available afterward. It works in interactive and pipeline runs, but only for notebooks in the same workspace, with a limited set of parameter types (integer, float, boolean, string) and a maximum nesting depth. It is also how copy-paste returns in disguise: there is no version number, and a change to the shared notebook affects every caller immediately. A script from the notebook's own resources can be run with <code>%run -b script.py</code>.</p>
+
+    <table>
+      <thead><tr><th>Technique</th><th>What you give up compared with an Environment wheel</th></tr></thead>
+      <tbody>
+        <tr><td><code>%pip</code> from built-in resources</td><td>Persistence, pipeline support, a single attached version for all notebooks</td></tr>
+        <tr><td><code>sys.path</code> on resources</td><td>Package metadata and version, dependency resolution, any guarantee that two notebooks run the same files</td></tr>
+        <tr><td>Lakehouse Files</td><td>Access control specific to the library; anything stops working if the default lakehouse changes</td></tr>
+        <tr><td><code>%run</code></td><td>Versioning, unit tests, isolation from the caller's namespace, cross-workspace use</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="governance">Workspace usage patterns and governance</h2>
+    <h3 id="attach-pattern">Workspace default or per-item attachment</h3>
+    <table>
+      <thead><tr><th>Pattern</th><th>Good for</th><th>Trade-off</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Workspace default Environment</strong></td><td>Every notebook and Spark job in the workspace should get the library without anyone remembering to attach it</td><td>Only a workspace admin can choose which Environment is the default, which is a useful control. Items inherit it, including ones that do not need it; if the default is ever changed or removed, imports fail in every item that relied on it</td></tr>
+        <tr><td><strong>Attach per item</strong></td><td>Stricter control, or workspaces that host teams with different library sets</td><td>An unattached item fails with <code>ModuleNotFoundError</code>; attachment must be reviewed like any other dependency</td></tr>
+        <tr><td><strong>Both</strong></td><td>Default for the platform library; explicit attachment for exceptions</td><td>Two places to look when debugging; document the exceptions</td></tr>
+      </tbody>
+    </table>
+    <h3 id="governance-rules">Rules that keep it trustworthy</h3>
+    <ul>
+      <li><strong>Ownership.</strong> The library repository has named owners and a code-owners file, so a change to the public API cannot merge without them. See <a href="../17-pr-notifications-codeowners/index.html">Pull-Request Notifications with CODEOWNERS</a>.</li>
+      <li><strong>Semantic versions and a support policy.</strong> State which major and minor versions are supported (for example the current major and the previous minor) and how long a deprecated function stays.</li>
+      <li><strong>Review library code as production code.</strong> A notebook run from a pipeline executes with the identity of the pipeline's last modifying user, and the library runs inside it. A malicious or careless library change has the same reach as that identity.</li>
+      <li><strong>No secrets, endpoints or IDs in the wheel.</strong> Pass them in at call time from <a href="../09-variable-libraries/index.html">variable libraries</a> or Key Vault references, so one wheel works in every stage.</li>
+      <li><strong>Keep dependencies minimal and pinned.</strong> Rely on the runtime's preinstalled packages wherever possible. Review the preinstalled list for your runtime in the <a href="https://learn.microsoft.com/fabric/data-engineering/runtime">runtime documentation</a>.</li>
+      <li><strong>Publish on release, not on commit.</strong> Environment publishing runs as a Spark job and consumes capacity. A publish per merge to main wastes it and exposes workspaces to unreleased code.</li>
+      <li><strong>Test on each runtime you support.</strong> Python, Spark and Delta versions differ between runtimes, so a green test on one runtime does not cover another. Add a CI job per runtime you actually attach.</li>
+    </ul>
+
+    <h2 id="troubleshooting">Troubleshooting</h2>
+    <table>
+      <thead><tr><th>Symptom</th><th>Likely cause</th><th>Fix</th></tr></thead>
+      <tbody>
+        <tr><td><code>ModuleNotFoundError</code> in a notebook</td><td>Environment not attached, default-environment toggle off, or session started before the publish finished</td><td>Check the Environment shown in the notebook; confirm publish state; start a new session</td></tr>
+        <tr><td>Interactive run works, pipeline run fails</td><td>The interactive session used a <code>%pip</code> cell or Quick mode; the pipeline activity did not</td><td>Publish in Full mode and delete inline installs</td></tr>
+        <tr><td>Imported version is not the one you published</td><td>Two versions listed under Custom libraries, an inline <code>%pip</code> overriding it, or a stale session</td><td>Delete the older wheel, remove inline installs, restart the session, print <code>__version__</code></td></tr>
+        <tr><td>Publish runs for a long time</td><td>Full mode resolves dependencies and validates compatibility; a large dependency set takes longer than the typical few minutes</td><td>Watch <strong>View progress</strong>; cancel and retry if it stalls; trim dependencies to what the runtime does not already provide</td></tr>
+        <tr><td>Publish fails with a library conflict</td><td>A dependency of the wheel clashes with a built-in package</td><td>Remove the dependency from the wheel's metadata and rely on the runtime copy</td></tr>
+        <tr><td>Publish API call is rejected because another publish is running</td><td>An Environment accepts one publish at a time</td><td>Serialize with a workflow <code>concurrency</code> group; wait or cancel the running publish</td></tr>
+        <tr><td>Upload API call returns a validation error</td><td>File is not a supported format (<code>.whl</code>, <code>.py</code>, <code>.jar</code>, <code>.tar.gz</code>) or the name lacks its extension</td><td>Pass the full file name with extension in the URL</td></tr>
+        <tr><td>CI gets an authorization error from Fabric</td><td>Tenant setting off, service principal not in the allowed group, or no write role on the workspace or Environment</td><td>Check the three in that order; confirm the federated credential subject matches the GitHub environment</td></tr>
+        <tr><td><code>NameError: name 'spark' is not defined</code></td><td>A module function reads the notebook's global <code>spark</code></td><td>Take a session argument and fall back to the active session (see <a href="library-design.html#changes">design changes</a>)</td></tr>
+        <tr><td>Overwrite fails with a schema mismatch</td><td><code>overwrite_schema</code> is <code>False</code> by default and the output schema changed</td><td>Decide whether the change is intended; if so pass <code>overwrite_schema=True</code> for that call</td></tr>
+        <tr><td>Merge fails with "multiple source rows matched"</td><td>Duplicate keys in the change set and <code>check_duplicates=False</code></td><td>Deduplicate by key (keep the most recent row) before the merge, or leave the check on</td></tr>
+        <tr><td>Sessions start slower after adopting the library</td><td>Full mode deploys the snapshot at session start</td><td>Expected; for latency-sensitive jobs use a custom live pool attached to the Environment</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="checklist">Validation checklist</h2>
+    <p>Run through this list once per stage when you introduce the library and after every release.</p>
+    <ul class="checklist">
+      <li>The Environment's <strong>Custom libraries</strong> list contains exactly one wheel of the distribution, at the intended version, and the publish state is <strong>Success</strong>.</li>
+      <li>A new notebook session with the Environment attached imports <code>contoso_fabric_utils</code> and prints the expected <code>__version__</code>.</li>
+      <li>A test run of <code>full_load_overwrite</code> into a <strong>scratch</strong> table succeeds and returns the expected row count; <code>merge_upsert</code> reports the expected inserts, updates and deletes on a small change set.</li>
+      <li>A <strong>pipeline-triggered</strong> run of the smoke notebook passes in the stage, not only an interactive run.</li>
+      <li>CI logs show the upload, the publish and the verification that the wheel is in the published list.</li>
+      <li>The wheel's <code>METADATA</code> declares no runtime dependency on <code>pyspark</code> or <code>delta-spark</code>.</li>
+      <li>No notebook still contains an inline <code>%pip install</code> of the library or a pasted copy of its functions.</li>
+      <li>The Git tag, the project version, the wheel file name and the changelog entry agree.</li>
+      <li>The workspace default or per-item attachment is documented, and Read permission on the Environment is granted wherever notebooks are shared.</li>
+    </ul>
+    <div class="callout tip"><p class="callout-title">Keep the wheel's dependencies minimal</p><p>Rely on the Fabric runtime's preinstalled libraries wherever possible; every extra dependency is one more thing that can conflict at publish time and cannot be downloaded at all from workspaces that block public repositories. The list of preinstalled packages per runtime is linked from the <a href="https://learn.microsoft.com/fabric/data-engineering/environment-manage-library">Manage libraries in Fabric environments</a> and <a href="https://learn.microsoft.com/fabric/data-engineering/runtime">runtime</a> articles.</p></div>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p><ul>
+      <li>Default to a Full-mode Environment wheel; use a private feed only for cross-platform reuse, and treat everything session-scoped as a testing tool.</li>
+      <li>Test candidates with <code>%pip install builtin/...whl</code> or by putting the parent folder on <code>sys.path</code>, never the package folder itself.</li>
+      <li>Give the library owners, a support policy and a release-only publish cadence; review its code like production code.</li>
+      <li>Validate with a pipeline-triggered smoke run in every stage, not just an interactive import.</li>
+    </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/library-management">Manage Apache Spark libraries in Fabric</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/environment-manage-library">Manage libraries in Fabric environments</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/how-to-use-notebook">How to use notebooks (notebook resources)</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/author-execute-notebook">Develop, execute, and manage notebooks (%run, magic commands)</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/custom-live-pools-overview">Custom live pools overview</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/runtime">Apache Spark runtime in Fabric</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

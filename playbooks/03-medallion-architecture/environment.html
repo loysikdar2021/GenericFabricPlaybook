@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Environment item · Medallion Architecture</title>
+<meta name="description" content="How to create, configure and publish a Fabric Environment item, choose a runtime, set Spark properties and libraries per layer, set it as workspace default and carry it through Git and deployment pipelines.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="03-medallion-architecture" data-page="environment.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 03 · Engineering foundations</p>
+      <h1>The Environment item</h1>
+      <p class="lede">An Environment item is the execution contract for a layer: the runtime, Spark properties, compute sizes and libraries that every notebook in that workspace runs with. Set it once as the workspace default and the setup snippets disappear from notebooks.</p>
+      <ul class="chips"><li><b>Audience</b> platform and data engineers</li><li><b>Focus</b> Spark configuration</li><li><b>Pages</b> 5 of 10</li></ul>
+    </header>
+    <h2 id="environment-item">What the Environment item is</h2>
+    <p>An Environment is a workspace item that defines Spark session configuration for notebooks and Spark job definitions. You can run without one, using the workspace-level Spark settings, but an Environment makes the configuration reusable, governed and versionable as a single artifact. It replaces the session-builder snippet that otherwise gets pasted at the top of every notebook, where it drifts.</p>
+<figure class="diagram">
+<svg class="dg" viewBox="0 0 900 300" role="img" aria-label="An Environment item has three components, Spark compute, libraries and resources, and is attached to notebooks and Spark job definitions; compute and libraries take effect on publish and resources change live">
+<defs>
+<marker id="fig-env-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+</defs>
+<rect class="zone blue" x="10" y="12" width="580" height="276" rx="12"/>
+<text class="t-h" x="24" y="31">ENV_SALES_SLV_Spark</text>
+<rect class="box plain" x="30" y="46" width="360" height="62" rx="10"/>
+<text class="t-b" x="210" y="72.5" text-anchor="middle">Spark compute</text>
+<text class="t-s" x="210" y="89.5" text-anchor="middle">runtime, pool, sizes, Spark properties</text>
+<rect class="box orange" x="410" y="46" width="160" height="62" rx="10"/>
+<text class="t-s" x="490" y="81" text-anchor="middle">Save and publish</text>
+<rect class="box plain" x="30" y="124" width="360" height="62" rx="10"/>
+<text class="t-b" x="210" y="150.5" text-anchor="middle">Libraries</text>
+<text class="t-s" x="210" y="167.5" text-anchor="middle">public and custom libraries</text>
+<rect class="box orange" x="410" y="124" width="160" height="62" rx="10"/>
+<text class="t-s" x="490" y="159" text-anchor="middle">Save and publish</text>
+<rect class="box plain" x="30" y="202" width="360" height="62" rx="10"/>
+<text class="t-b" x="210" y="228.5" text-anchor="middle">Resources</text>
+<text class="t-s" x="210" y="245.5" text-anchor="middle">small files for notebooks</text>
+<rect class="box green" x="410" y="202" width="160" height="62" rx="10"/>
+<text class="t-s" x="490" y="237" text-anchor="middle">Live, no publish</text>
+<rect class="box blue" x="660" y="62" width="224" height="62" rx="10"/>
+<text class="t-b" x="772" y="88.5" text-anchor="middle">Notebooks</text>
+<text class="t-s" x="772" y="105.5" text-anchor="middle">attach or inherit</text>
+<rect class="box blue" x="660" y="176" width="224" height="62" rx="10"/>
+<text class="t-b" x="772" y="202.5" text-anchor="middle">Spark job definitions</text>
+<text class="t-s" x="772" y="219.5" text-anchor="middle">attach or inherit</text>
+<path class="ln" d="M590 150H625V93H660" marker-end="url(#fig-env-1-a)"/>
+<path class="ln" d="M590 150H625V207H660" marker-end="url(#fig-env-1-a)"/>
+</svg>
+<figcaption><b>What an Environment item holds.</b> Spark compute and libraries are staged until you save and publish. Resources are small shared files that change live. Notebooks and Spark job definitions pick all three up when they attach the environment, or inherit it as the workspace default.</figcaption>
+</figure>
+    <table>
+      <thead><tr><th>Component</th><th>Contains</th><th>Takes effect</th></tr></thead>
+      <tbody>
+        <tr><td>Spark compute</td><td>The Spark runtime, the pool (starter pool or a custom pool), driver and executor cores and memory, and Spark properties</td><td>On save and publish</td></tr>
+        <tr><td>Libraries</td><td>Public libraries from PyPI or Conda and custom libraries you upload, such as wheels</td><td>On save and publish</td></tr>
+        <tr><td>Resources</td><td>Small files that attached notebooks can read</td><td>Immediately; resources are not part of publishing</td></tr>
+      </tbody>
+    </table>
+    <p>In this playbook each layer workspace carries one Environment named <code>ENV_&lt;DOMAIN&gt;_&lt;LAYER&gt;_&lt;Function&gt;</code>, for example <code>ENV_SALES_SLV_Spark</code>, set as that workspace's default. Layers differ in what they need: Bronze ingests, Silver merges, Gold feeds Direct Lake and SQL readers, and a per-layer Environment lets each have its own runtime, profile and libraries without per-notebook overrides.</p>
+    <div class="callout note"><p class="callout-title">Who can change the default</p><p>After an environment is set as the workspace default, only workspace admins can update its contents. That is useful for governance, and it means changes to a layer's runtime or libraries go through whoever administers the layer's workspace.</p></div>
+
+    <h2 id="runtime-choice">Choosing a runtime</h2>
+    <p>The runtime sets the Spark and Delta Lake versions, the operating system and the preinstalled libraries. The environment pins it, so a change of runtime is an explicit, reviewable change that you publish and promote like any other.</p>
+    <table>
+      <thead><tr><th>Runtime</th><th>Apache Spark</th><th>Delta Lake</th><th>Consider it when</th></tr></thead>
+      <tbody>
+        <tr><td>1.3</td><td>3.5</td><td>3.2</td><td>Your libraries and code are validated on it, and you need continuity while you test the next runtime</td></tr>
+        <tr><td>2.0</td><td>4.1</td><td>4.2 on the runtime reference page</td><td>You want the newest Spark line for new builds, after testing your casts, merges and libraries on it</td></tr>
+      </tbody>
+    </table>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>Runtime lifecycle status and component versions are stated differently across pages. The lifecycle page assigns each runtime a stage (experimental preview, public preview, general availability, end of support announced, long-term support) and an end-of-support schedule; the runtime reference pages list Delta Lake versions, and at least one other page lists a different Delta minor version for runtime 2.0. Read <a href="https://learn.microsoft.com/fabric/data-engineering/lifecycle">Apache Spark runtime lifecycle in Fabric</a>, <a href="https://learn.microsoft.com/fabric/data-engineering/runtime-1-3">Runtime 1.3</a> and <a href="https://learn.microsoft.com/fabric/data-engineering/runtime-2-0">Runtime 2.0</a> before you choose, and prefer a runtime whose stage is general availability for production layers.</p></div>
+    <div class="callout caution"><p class="callout-title">Test behavior changes, not just versions</p><p>A new Spark major version can change defaults that your loads depend on, for example how invalid casts are handled when ANSI SQL mode is on. In a notebook on the candidate runtime, check <code>spark.conf.get("spark.sql.ansi.enabled")</code> and run your merge and cast tests against it before promoting. If publishing fails after a runtime change, remove or update the incompatible library or compute setting and publish again.</p></div>
+
+    <h2 id="environment-steps">Create and publish an Environment</h2>
+    <ol class="steps">
+      <li><strong>Prepare the Spark properties file.</strong> Choose the variant from the next section and keep it in the repository next to the code.</li>
+      <li><strong>Create the item.</strong> In the layer workspace, select New item, choose Environment, and name it with the item convention, for example <code>ENV_SALES_SLV_Spark</code>.</li>
+      <li><strong>Select the runtime.</strong> On the Home tab, pick the runtime from the Runtime dropdown.</li>
+      <li><strong>Configure compute.</strong> Choose the pool and, if the workspace admin has enabled item-level compute customization, the driver and executor sizes. Add the Spark properties from your file.</li>
+      <li><strong>Add libraries.</strong> Add public libraries by name and version, or upload a custom wheel that holds the shared merge engine and helpers. Choose Full publish mode for anything pipelines and schedules will run.</li>
+      <li><strong>Save and publish.</strong> Save stages the change; Publish applies it. Only one publish can run at a time, and Libraries and Spark compute cannot be edited during a publish.</li>
+      <li><strong>Set it as the workspace default.</strong> In Workspace settings, open Data Engineering/Science, then Spark settings, then the Environment tab. Turn on Set default environment, select the environment and save.</li>
+      <li><strong>Verify.</strong> Run the verification cell below in a notebook and confirm the properties are applied.</li>
+    </ol>
+    <div class="callout tip"><p class="callout-title">Custom pools and item-level compute</p><p>Compute sizes in an Environment take effect only when a workspace admin turns on Customize compute configurations for items in the workspace's Pool settings. When it is off, the Compute section of environment items is disabled and every Spark job uses the workspace default pool.</p></div>
+
+    <h2 id="spark-properties">Spark properties</h2>
+    <p>Two variants cover the layers. Both are flat key and value pairs. The baseline sets the Parquet date and timestamp behavior; the merge-heavy variant adds two settings for merge-heavy and scan-heavy loads.</p>
+    <div class="tabs">
+      <div class="tab" data-title="Baseline">
+<pre data-title="Baseline Spark properties"><code class="language-yaml"># Baseline Spark properties for every layer (flat key: value pairs).
+# CORRECTED reads and writes old date and timestamp values as they are, with no calendar rebasing.
+spark.sql.parquet.datetimeRebaseModeInRead: CORRECTED
+spark.sql.parquet.datetimeRebaseModeInWrite: CORRECTED
+spark.sql.parquet.int96RebaseModeInRead: CORRECTED
+spark.sql.parquet.int96RebaseModeInWrite: CORRECTED</code></pre>
+      </div>
+      <div class="tab" data-title="Merge-heavy">
+<pre data-title="Merge-heavy Spark properties"><code class="language-yaml"># Baseline properties plus two settings for merge-heavy and scan-heavy loads (Silver, and Gold loads that merge).
+spark.sql.parquet.datetimeRebaseModeInRead: CORRECTED
+spark.sql.parquet.datetimeRebaseModeInWrite: CORRECTED
+spark.sql.parquet.int96RebaseModeInRead: CORRECTED
+spark.sql.parquet.int96RebaseModeInWrite: CORRECTED
+spark.microsoft.delta.merge.lowShuffle.enabled: 'true'
+spark.sql.files.maxPartitionBytes: 512m</code></pre>
+      </div>
+      <div class="tab" data-title="Git form">
+<pre data-title="Spark compute in Git"><code class="language-yaml"># Git representation of the Spark compute section (the Setting folder of the environment item).
+runtime_version: '1.3'          # must match the runtime selected for the environment
+spark_conf:
+  spark.sql.parquet.datetimeRebaseModeInRead: CORRECTED
+  spark.sql.parquet.datetimeRebaseModeInWrite: CORRECTED
+  spark.sql.parquet.int96RebaseModeInRead: CORRECTED
+  spark.sql.parquet.int96RebaseModeInWrite: CORRECTED
+  spark.microsoft.delta.merge.lowShuffle.enabled: 'true'
+  spark.sql.files.maxPartitionBytes: 512m</code></pre>
+      </div>
+    </div>
+    <table>
+      <thead><tr><th>Property</th><th>What it does</th><th>Trade-off</th></tr></thead>
+      <tbody>
+        <tr><td><code>spark.sql.parquet.datetimeRebaseModeInRead</code> and <code>...InWrite</code></td><td>Controls how DATE and TIMESTAMP values are read and written when files may come from older engines that used a hybrid Julian and Gregorian calendar. Modes: <code>EXCEPTION</code> (the default, fails on ambiguous old values), <code>CORRECTED</code> (no rebasing) and <code>LEGACY</code> (rebases)</td><td><code>CORRECTED</code> avoids failures on very old dates but will not shift values that a legacy writer stored under the old calendar. Choose it knowing which engines wrote your Bronze files</td></tr>
+        <tr><td><code>spark.sql.parquet.int96RebaseModeInRead</code> and <code>...InWrite</code></td><td>The same choice for INT96 timestamps, an older Parquet timestamp encoding</td><td>As above</td></tr>
+        <tr><td><code>spark.microsoft.delta.merge.lowShuffle.enabled</code></td><td>Low Shuffle Merge: avoids shuffling rows a MERGE does not change, which speeds up upserts where a small share of rows change and preserves the layout of untouched data</td><td>Matched and unmodified rows are written in separate jobs, which can produce more files; pair it with periodic OPTIMIZE and VACUUM</td></tr>
+        <tr><td><code>spark.sql.files.maxPartitionBytes</code></td><td>Target bytes of file data packed into one input partition on file reads; the Spark default is 128 MB</td><td>Larger values mean fewer, bigger tasks and less scheduling overhead; they do not fix small-file sprawl and do not affect writes</td></tr>
+      </tbody>
+    </table>
+    <p>Both key spellings are in circulation. Apache Spark documentation uses the names above, and the older <code>spark.sql.legacy.parquet.*</code> names appear in earlier material and are still accepted as alternative names in Spark 3.</p>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>Two details need a check in your own tenant. First, the default value of the low shuffle merge property in your runtime: run <code>spark.conf.get("spark.microsoft.delta.merge.lowShuffle.enabled")</code> in a notebook before assuming it is on or off. Second, the import path for a Spark properties file: the migration guide describes uploading a properties file in the Spark properties section, while Add from .yml appears in the Public libraries section for the library file. See <a href="https://learn.microsoft.com/fabric/data-engineering/environment-workspace-migration">Migrate libraries and properties to a default environment</a> and <a href="https://learn.microsoft.com/fabric/data-engineering/environment-manage-compute">Compute management in Fabric environments</a>. If the import dialog rejects the flat form, enter the properties manually or use the Git form.</p></div>
+    <h3 id="resource-profiles">Resource profiles per layer</h3>
+    <p>Fabric Spark also provides resource profiles that preset Delta write behavior for a workload shape, selected with <code>spark.fabric.resourceProfile</code> in the Environment or at run time. A runtime setting takes precedence over the environment.</p>
+    <table>
+      <thead><tr><th>Profile</th><th>Intent</th><th>Starting point for</th></tr></thead>
+      <tbody>
+        <tr><td><code>writeHeavy</code></td><td>Frequent ingestion and writes, including ETL; the default profile for a workspace unless you change it</td><td>Bronze and Silver</td></tr>
+        <tr><td><code>readHeavyForSpark</code></td><td>Spark workloads that read the same tables often</td><td>Gold when Spark is the main reader</td></tr>
+        <tr><td><code>readHeavyForPBI</code></td><td>Power BI queries over Delta tables, with V-Order enabled</td><td>Gold tables feeding Direct Lake</td></tr>
+        <tr><td><code>custom</code></td><td>A profile you define</td><td>When none of the above fits a measured workload</td></tr>
+      </tbody>
+    </table>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>The resource profile pages differ in profile names and in the exact settings each profile applies, and one article uses profile names with an automatic-update suffix. Confirm names and values in <a href="https://learn.microsoft.com/fabric/data-engineering/configure-resource-profile-configurations">Configure resource profile configurations</a> and <a href="https://learn.microsoft.com/fabric/data-engineering/configure-resource-profiles">Configure resource profiles</a>, and treat the table above as a starting point to measure, not a rule.</p></div>
+
+    <h2 id="libraries">Libraries and publish modes</h2>
+    <p>Each runtime ships built-in libraries. The Environment adds public libraries from PyPI or Conda and custom libraries you build, which is where the shared merge engine and helpers belong. Package them as a wheel, version them, and attach them here so every notebook imports the same code; see <a href="../06-shared-libraries/index.html">Shared Libraries</a>.</p>
+    <table>
+      <thead><tr><th>Publish mode</th><th>Publish time</th><th>Session start</th><th>Use for</th></tr></thead>
+      <tbody>
+        <tr><td>Quick</td><td>About 5 seconds</td><td>Libraries install when the session starts</td><td>Rapid iteration in development</td></tr>
+        <tr><td>Full</td><td>Typically 3 to 6 minutes</td><td>Adds about 1 to 3 minutes for dependency deployment; a custom live pool attached to the environment brings starts back to seconds</td><td>Pipelines, schedules and shared workloads, because it builds a stable, reproducible snapshot</td></tr>
+      </tbody>
+    </table>
+    <div class="callout warning"><p class="callout-title">Do not install libraries inline in scheduled runs</p><p>Inline <code>%pip install</code> is disabled by default for runs started from a pipeline or API, is not retained across runs and lets dependency versions drift between runs. Put the library in the Environment and use Full publish mode instead.</p></div>
+
+    <h2 id="attach-rules">Attaching and inheriting</h2>
+    <p>A notebook or Spark job definition can attach an Environment directly, or use Workspace default. With Set default environment off, Workspace default means the workspace-level Spark settings; with it on, Workspace default means the chosen environment item.</p>
+<figure class="diagram">
+<svg class="dg" viewBox="0 0 900 330" role="img" aria-label="Which configuration a session uses: the environment attached to the item, otherwise the workspace default environment if one is set, otherwise the workspace Spark settings; session-level overrides apply last">
+<defs>
+<marker id="fig-env-2-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+<marker id="fig-env-2-a-green" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+</defs>
+<rect class="box plain" x="12" y="20" width="130" height="64" rx="10"/>
+<text class="t-b" x="77" y="47.5" text-anchor="middle">Run starts</text>
+<text class="t-s" x="77" y="64.5" text-anchor="middle">notebook or job</text>
+<rect class="box purple" x="176" y="20" width="190" height="64" rx="10"/>
+<text class="t-b" x="271" y="47.5" text-anchor="middle">Environment attached</text>
+<text class="t-s" x="271" y="64.5" text-anchor="middle">to this item?</text>
+<rect class="box purple" x="420" y="20" width="190" height="64" rx="10"/>
+<text class="t-b" x="515" y="47.5" text-anchor="middle">Default environment</text>
+<text class="t-s" x="515" y="64.5" text-anchor="middle">turned on?</text>
+<rect class="box green" x="176" y="140" width="190" height="56" rx="10"/>
+<text class="t-b" x="271" y="172" text-anchor="middle">That environment</text>
+<rect class="box green" x="410" y="140" width="210" height="56" rx="10"/>
+<text class="t-b" x="515" y="163.5" text-anchor="middle">Workspace default</text>
+<text class="t-s" x="515" y="180.5" text-anchor="middle">environment item</text>
+<rect class="box gray" x="664" y="20" width="224" height="64" rx="10"/>
+<text class="t-b" x="776" y="47.5" text-anchor="middle">Workspace Spark settings</text>
+<text class="t-s" x="776" y="64.5" text-anchor="middle">pool and properties</text>
+<rect class="box blue" x="176" y="250" width="712" height="56" rx="10"/>
+<text class="t-b" x="532" y="273.5" text-anchor="middle">Session starts with the resolved configuration</text>
+<text class="t-s" x="532" y="290.5" text-anchor="middle">then %%configure and spark.conf.set can override it for that session only</text>
+<path class="ln" d="M142 52H176" marker-end="url(#fig-env-2-a)"/>
+<path class="ln" d="M366 52H420" marker-end="url(#fig-env-2-a)"/>
+<rect class="pill-bg" x="380.1" y="33.5" width="25.9" height="16"/>
+<text class="t-s" x="393" y="46" text-anchor="middle">no</text>
+<path class="ln" d="M610 52H664" marker-end="url(#fig-env-2-a)"/>
+<rect class="pill-bg" x="624.1" y="33.5" width="25.9" height="16"/>
+<text class="t-s" x="637" y="46" text-anchor="middle">no</text>
+<path class="ln green" d="M271 84V140" marker-end="url(#fig-env-2-a-green)"/>
+<rect class="pill-bg" x="255.1" y="104.5" width="31.8" height="16"/>
+<text class="t-s" x="271" y="117" text-anchor="middle">yes</text>
+<path class="ln green" d="M515 84V140" marker-end="url(#fig-env-2-a-green)"/>
+<rect class="pill-bg" x="499.1" y="104.5" width="31.8" height="16"/>
+<text class="t-s" x="515" y="117" text-anchor="middle">yes</text>
+<path class="ln" d="M271 196V250" marker-end="url(#fig-env-2-a)"/>
+<path class="ln" d="M515 196V250" marker-end="url(#fig-env-2-a)"/>
+<path class="ln" d="M776 84V250" marker-end="url(#fig-env-2-a)"/>
+</svg>
+<figcaption><b>Which configuration a session gets.</b> Resolution goes from the most specific setting to the least specific. Session-level commands such as %%configure change the session that is starting and nothing else.</figcaption>
+</figure>
+    <table>
+      <thead><tr><th>Rule</th><th>Consequence</th></tr></thead>
+      <tbody>
+        <tr><td>Switching an attached environment during an active session</td><td>Takes effect only from the next session</td></tr>
+        <tr><td>Attaching an environment from another workspace</td><td>Both workspaces must have the same capacity and the same network security settings; otherwise the session fails to start</td></tr>
+        <tr><td>Compute settings of a borrowed environment</td><td>Ignored; the pool and compute come from the current workspace</td></tr>
+        <tr><td>Sharing an environment</td><td>Recipients get Read permission by default, enough to attach it; grant Read on attached environments when you share notebooks</td></tr>
+        <tr><td>Deleting an environment</td><td>Permanent; attached items must be reconfigured, and a default environment must be changed first</td></tr>
+      </tbody>
+    </table>
+    <p>In a strict isolation design, give every layer workspace its own environment and set it as default. Borrowing one environment across layer workspaces looks economical but binds layers together through capacity and network settings, which is the coupling the layer split exists to remove.</p>
+
+    <h2 id="git-and-deployment">Git and deployment pipelines</h2>
+<figure class="diagram">
+<svg class="dg" viewBox="0 0 900 300" role="img" aria-label="The Environment item is synced from Git into the development workspace, published there, then deployed to test and production by a deployment pipeline, where its published state is kept">
+<defs>
+<marker id="fig-env-3-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+<marker id="fig-env-3-a-teal" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar teal" d="M0 0L10 5L0 10z"/></marker>
+</defs>
+<rect class="box gray" x="12" y="72" width="112" height="64" rx="10"/>
+<text class="t-b" x="68" y="91" text-anchor="middle">Git repo</text>
+<text class="t-s" x="68" y="108" text-anchor="middle">Spark compute,</text>
+<text class="t-s" x="68" y="125" text-anchor="middle">libraries</text>
+<rect class="zone" x="158" y="30" width="232" height="150" rx="12"/>
+<text class="t-h" x="172" y="49">DEV_SALES_SLV</text>
+<rect class="box blue" x="174" y="72" width="200" height="64" rx="10"/>
+<text class="t-b" x="274" y="99.5" text-anchor="middle">ENV_SALES_SLV_Spark</text>
+<text class="t-s" x="274" y="116.5" text-anchor="middle">staging, then published</text>
+<rect class="zone" x="412" y="30" width="232" height="150" rx="12"/>
+<text class="t-h" x="426" y="49">TST_SALES_SLV</text>
+<rect class="box blue" x="428" y="72" width="200" height="64" rx="10"/>
+<text class="t-b" x="528" y="99.5" text-anchor="middle">ENV_SALES_SLV_Spark</text>
+<text class="t-s" x="528" y="116.5" text-anchor="middle">published on deploy</text>
+<rect class="zone" x="666" y="30" width="232" height="150" rx="12"/>
+<text class="t-h" x="680" y="49">PRD_SALES_SLV</text>
+<rect class="box blue" x="682" y="72" width="200" height="64" rx="10"/>
+<text class="t-b" x="782" y="99.5" text-anchor="middle">ENV_SALES_SLV_Spark</text>
+<text class="t-s" x="782" y="116.5" text-anchor="middle">published on deploy</text>
+<path class="ln" d="M124 104H174" marker-end="url(#fig-env-3-a)"/>
+<path class="ln teal" d="M374 104H428" marker-end="url(#fig-env-3-a-teal)"/>
+<path class="ln teal" d="M628 104H682" marker-end="url(#fig-env-3-a-teal)"/>
+<text class="t-s" x="162" y="208">Git sync lands in staging.</text>
+<text class="t-s" x="162" y="228">Publish after every sync.</text>
+<text class="t-s" x="416" y="208">Keeps the published state.</text>
+<text class="t-s" x="416" y="228">No extra publish.</text>
+<text class="t-s" x="670" y="208">Keeps the published state.</text>
+<text class="t-s" x="670" y="228">No extra publish.</text>
+<rect class="box orange" x="158" y="252" width="740" height="34" rx="10"/>
+<text class="t-s" x="528" y="273" text-anchor="middle">Custom pool IDs are workspace-scoped: remap or drop them after a sync or deployment</text>
+</svg>
+<figcaption><b>Environment across stages.</b> Git changes land in the staging state and need a publish. Deployment pipelines carry the published configuration onward without another publish. Custom pool references are workspace-scoped and do not carry over.</figcaption>
+</figure>
+    <table>
+      <thead><tr><th>Topic</th><th>Behavior</th></tr></thead>
+      <tbody>
+        <tr><td>What Git tracks</td><td>Libraries (public as a YAML representation, custom with their source files) and the Spark compute section including runtime and properties. Resources are not included</td></tr>
+        <tr><td>Git sync</td><td>Lands in the staging state and does not take effect until published; publish after every sync, or call the Environment publish API</td></tr>
+        <tr><td>Deployment pipelines</td><td>Deploy the environment's contents to the next stage; the published state is preserved, so no extra publish is needed</td></tr>
+        <tr><td>Custom pools</td><td>Pool references are workspace-scoped. After a sync, update or remove the pool ID; in a deployment pipeline a custom pool is not supported and the compute section is set to defaults</td></tr>
+        <tr><td>Size</td><td>Each Git commit is limited to 150 MB, so very large custom libraries cannot go through Git</td></tr>
+      </tbody>
+    </table>
+    <p>For the full promotion mechanics see <a href="../07-deployment/index.html">Deployment Pipelines and Promotion</a> and <a href="../05-github-integration/index.html">GitHub Integration</a>.</p>
+
+    <h2 id="verify-environment">Verify the environment</h2>
+    <p>Run a short cell at the top of a smoke-test notebook in each environment and stage. It prints the Spark version and fails if any expected property is missing or different.</p>
+<pre data-title="Environment verification cell"><code class="language-python"># Run in a notebook that uses the environment. Fails loudly if a property did not apply.
+EXPECTED = {
+    "spark.sql.parquet.datetimeRebaseModeInRead": "CORRECTED",
+    "spark.sql.parquet.datetimeRebaseModeInWrite": "CORRECTED",
+    "spark.sql.parquet.int96RebaseModeInRead": "CORRECTED",
+    "spark.sql.parquet.int96RebaseModeInWrite": "CORRECTED",
+    "spark.microsoft.delta.merge.lowShuffle.enabled": "true",
+    "spark.sql.files.maxPartitionBytes": "512m",
+}
+
+print("Spark version:", spark.version)
+mismatch = {}
+for key, want in EXPECTED.items():
+    got = spark.conf.get(key, "&lt;unset&gt;")
+    print(f"{key} = {got}")
+    if str(got).lower() != want.lower():
+        mismatch[key] = got
+
+assert not mismatch, f"Environment properties not applied: {mismatch}"</code></pre>
+    <table>
+      <thead><tr><th>Symptom</th><th>Likely cause</th><th>Fix</th></tr></thead>
+      <tbody>
+        <tr><td>Properties are not applied</td><td>Changes saved but not published, or default environment not turned on</td><td>Publish; check Set default environment in the workspace Spark settings</td></tr>
+        <tr><td>Publish fails</td><td>A library or compute setting is incompatible with the selected runtime</td><td>Remove or update the incompatible item, then publish again</td></tr>
+        <tr><td>Session fails to start with a borrowed environment</td><td>Capacity or network security settings differ between the two workspaces</td><td>Create an environment in the current workspace</td></tr>
+        <tr><td>Slow session start after publish</td><td>Full publish mode installs dependencies at start</td><td>Attach a custom live pool, or reduce the library list</td></tr>
+        <tr><td>Library import works interactively but not in a pipeline run</td><td>Library was installed inline</td><td>Add it to the environment and publish in Full mode</td></tr>
+      </tbody>
+    </table>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p>
+      <ul>
+        <li>One Environment per layer workspace, set as the workspace default, replaces setup snippets in notebooks.</li>
+        <li>Pin the runtime on purpose, prefer a general availability runtime for production, and test casts and merges before changing it.</li>
+        <li>Publish in Full mode for anything scheduled; never install libraries inline in pipeline runs.</li>
+        <li>Verify the default values you depend on, such as low shuffle merge, with <code>spark.conf.get</code> instead of assuming them.</li>
+        <li>Git syncs land in staging and need a publish; deployment pipelines keep the published state but not custom pool references.</li>
+      </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/create-and-use-environment">Create, configure, and use an environment in Fabric</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/environment-manage-compute">Compute management in Fabric environments</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/environment-manage-library">Library management in Fabric environments</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/environment-manage-resources">Manage the resources in a Fabric environment</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/environment-git-and-deployment-pipeline">Fabric environment Git integration and deployment pipeline</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/environment-workspace-migration">Migrate libraries and properties to a default environment</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/runtime">Apache Spark runtime in Fabric</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/lifecycle">Apache Spark runtime lifecycle in Fabric</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/runtime-1-3">Runtime 1.3 in Fabric</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/runtime-2-0">Runtime 2.0 in Fabric</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/configure-resource-profiles">Configure resource profiles in Microsoft Fabric</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/workspace-admin-settings">Workspace administration settings</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

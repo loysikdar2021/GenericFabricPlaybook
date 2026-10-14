@@ -1,0 +1,63 @@
+{
+  "id": "03-medallion-architecture",
+  "number": "03",
+  "title": "Medallion Architecture",
+  "short": "Medallion Architecture",
+  "summary": "A strictly isolated Bronze, Silver, Gold, Consumption and Delivery workspace design on Fabric, with naming standards, reusable load and MERGE code, notebook guidance and Environment setup.",
+  "category": "data-engineering",
+  "level": "Intermediate",
+  "audience": "Data engineers, solution architects, platform and security teams",
+  "readingTime": "120 min",
+  "pages": [
+    {
+      "file": "index.html",
+      "title": "Overview",
+      "description": "What the medallion workspace design solves, when to use it, how the pages fit together and an implementation checklist."
+    },
+    {
+      "file": "architecture.html",
+      "title": "Layers and strict isolation",
+      "description": "The five layers, why each gets its own workspace, the cost of isolation, the options compared and the security controls that apply."
+    },
+    {
+      "file": "workspace-pattern.html",
+      "title": "Workspace pattern and naming",
+      "description": "Workspace and item inventory per layer, naming conventions, abbreviations, capacity placement and a promotion summary."
+    },
+    {
+      "file": "notebooks.html",
+      "title": "Fabric notebooks",
+      "description": "Notebook capabilities, use cases, sizing and structure guidance, orchestration, monitoring hooks and the verified hard limits."
+    },
+    {
+      "file": "environment.html",
+      "title": "The Environment item",
+      "description": "Set up one Environment per workspace: Spark properties, resource profiles, libraries, publish modes and workspace defaults."
+    },
+    {
+      "file": "bronze-to-silver.html",
+      "title": "Bronze to Silver",
+      "description": "Shortcuts into Silver, notebook setup, choosing a load pattern and the reusable full-load function."
+    },
+    {
+      "file": "incremental-merge.html",
+      "title": "Incremental loads and MERGE",
+      "description": "Watermarks and primary keys, the reusable incremental MERGE utility, delete handling and failure modes."
+    },
+    {
+      "file": "silver-to-gold.html",
+      "title": "Silver to Gold",
+      "description": "Full loads in Spark SQL and PySpark, plus a config-driven incremental MERGE engine with built-in reconciliation."
+    },
+    {
+      "file": "consumption-delivery.html",
+      "title": "Consumption and delivery",
+      "description": "Warehouse load from Gold shortcuts, semantic models and Direct Lake, an AI/ML lakehouse and publishing to the Delivery layer."
+    },
+    {
+      "file": "appendix.html",
+      "title": "Appendix: loader internals",
+      "description": "Generic full-load loaders with filters and transforms, and a line-by-line explanation of the Silver and Gold merge engines."
+    }
+  ]
+}

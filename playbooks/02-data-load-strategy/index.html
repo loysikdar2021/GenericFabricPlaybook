@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Overview · Data Load Strategy</title>
+<meta name="description" content="A table-by-table framework for choosing full or incremental loads, change tracking, MERGE patterns and Fabric tools across Bronze, Silver and Gold layers.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="02-data-load-strategy" data-page="index.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 02 · Data Engineering</p>
+      <h1>Data Load Strategy</h1>
+      <p class="lede">A table-by-table framework for deciding how data enters and moves through a Fabric medallion lakehouse: when a destructive full reload is the right answer, when you need incremental loads, how to detect changes at the source, and which Fabric tool should do the work at each layer.</p>
+      <ul class="chips"><li><b>Audience</b> data engineers, architects</li><li><b>Level</b> intermediate</li><li><b>Reading time</b> 80 min</li><li><b>Pages</b> 8</li></ul>
+    </header>
+
+    <h2 id="purpose">Purpose and scope</h2>
+    <p>How you load data decides three things you will live with for years: how fresh the data is, how much capacity the platform burns to keep it fresh, and how many ways the pipeline can quietly go wrong. A full reload is simple and self-healing but cost grows with table size. An incremental load is cheap per run but is only as correct as the change signal behind it. Most platforms need both, chosen per table.</p>
+    <p>This playbook gives you the decision logic and the implementation patterns for each medallion layer: Bronze (raw history), Silver (conformed current state) and Gold (business-ready models). It covers full versus incremental loads, change tracking (high-watermark, log-based CDC, mirroring, Copy job incremental modes, Delta change data feed), Delta <code>MERGE</code> upserts, slowly changing dimensions, delete handling, aggregate refresh, the way Direct Lake reacts to your write patterns, and a tool choice matrix for pipelines, Copy job, Dataflows Gen2, Spark and T-SQL.</p>
+    <p>It is a framework, not a rulebook. The medallion pattern is flexible, and the right answer depends on data volume, source capabilities, latency requirements, team skills and capacity budget. Each decision table in this playbook marks a recommended default and names the conditions under which you should depart from it.</p>
+
+    <h2 id="when-to-use">When to use this playbook</h2>
+    <div class="pros-cons">
+      <div class="pros"><h4>Use it when you are</h4><ul><li>Designing ingestion for a new lakehouse or warehouse</li><li>Deciding between a nightly rebuild and incremental processing for a growing table</li><li>Debugging missing deletes, duplicate rows or drifting aggregates</li><li>Choosing between pipelines, Copy job, Dataflows Gen2, notebooks or mirroring</li><li>Preparing Gold tables for Direct Lake</li></ul></div>
+      <div class="cons"><h4>Look elsewhere when you need</h4><ul><li>Workspace and layer layout, which the <a href="../03-medallion-architecture/index.html">medallion architecture playbook</a> covers</li><li>Physical layout of Delta tables, covered in the <a href="../08-delta-partitioning/index.html">Delta partitioning playbook</a></li><li>Metadata-driven orchestration at scale, covered in the <a href="../10-control-table-pipelines/index.html">control-table playbook</a></li><li>Sub-second streaming, which belongs in Real-Time Intelligence and Eventstreams</li></ul></div>
+    </div>
+
+    <h2 id="audience">Audience and prerequisites</h2>
+    <dl class="kv">
+      <dt>Primary readers</dt><dd>Data engineers and architects who own ingestion and transformation, and the analytics engineers who consume Gold tables.</dd>
+      <dt>You should know</dt><dd>What a Fabric lakehouse and a Delta table are, how Bronze, Silver and Gold layers divide responsibilities, and basic PySpark or Spark SQL.</dd>
+      <dt>Environment</dt><dd>A Fabric capacity, a lakehouse per layer (for example <code>LH_SALES_BRZ</code>, <code>LH_SALES_SLV</code>, <code>LH_SALES_GLD</code>) and a notebook runtime that supports Delta <code>MERGE</code>. Check the runtime your workspace uses; code on this site works on Spark runtimes 1.3 and 2.0 unless a page says otherwise.</dd>
+      <dt>Example domain</dt><dd>A fictional retailer, Contoso: <code>customers</code>, <code>orders</code>, <code>order_lines</code> and <code>products</code> tables in a <code>SALES</code> domain.</dd>
+    </dl>
+
+    <h2 id="strategy-picture">The strategy in one picture</h2>
+    <p>Every hop in the medallion flow has a default pattern. Departures from the default are deliberate, per-table decisions that the following pages walk through.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 248" role="img" aria-label="Default load pattern at each hop: extract changes from the source, copy files into a landing zone, append to Bronze, MERGE into Silver, replace affected slices in Gold, and keep writes append-friendly for Direct Lake">
+        <defs>
+          <marker id="fig-index-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box gray" x="10" y="40" width="108" height="96" rx="10"/>
+        <text class="t-h" x="64" y="64" text-anchor="middle">Sources</text>
+        <text class="t-s" x="64" y="86" text-anchor="middle">databases, APIs</text>
+        <text class="t-s" x="64" y="102" text-anchor="middle">files, SaaS apps</text>
+        <rect class="box gray" x="164" y="40" width="108" height="96" rx="10"/>
+        <text class="t-h" x="218" y="64" text-anchor="middle">Landing zone</text>
+        <text class="t-s" x="218" y="86" text-anchor="middle">raw files</text>
+        <text class="t-s" x="218" y="102" text-anchor="middle">full or delta</text>
+        <rect class="box bronze" x="318" y="40" width="108" height="96" rx="10"/>
+        <text class="t-h" x="372" y="64" text-anchor="middle">Bronze</text>
+        <text class="t-s" x="372" y="86" text-anchor="middle">Delta, append</text>
+        <text class="t-s" x="372" y="102" text-anchor="middle">CDF enabled</text>
+        <rect class="box silver" x="472" y="40" width="108" height="96" rx="10"/>
+        <text class="t-h" x="526" y="64" text-anchor="middle">Silver</text>
+        <text class="t-s" x="526" y="86" text-anchor="middle">current state</text>
+        <text class="t-s" x="526" y="102" text-anchor="middle">conformed Delta</text>
+        <rect class="box gold" x="626" y="40" width="108" height="96" rx="10"/>
+        <text class="t-h" x="680" y="64" text-anchor="middle">Gold</text>
+        <text class="t-s" x="680" y="86" text-anchor="middle">business grain</text>
+        <text class="t-s" x="680" y="102" text-anchor="middle">star schema</text>
+        <rect class="box blue" x="780" y="40" width="108" height="96" rx="10"/>
+        <text class="t-h" x="834" y="64" text-anchor="middle">Consumption</text>
+        <text class="t-s" x="834" y="86" text-anchor="middle">Direct Lake</text>
+        <text class="t-s" x="834" y="102" text-anchor="middle">Warehouse, SQL</text>
+        <path class="ln" d="M118 90H162" marker-end="url(#fig-index-1-a)"/>
+        <path class="ln" d="M272 90H316" marker-end="url(#fig-index-1-a)"/>
+        <path class="ln" d="M426 90H470" marker-end="url(#fig-index-1-a)"/>
+        <path class="ln" d="M580 90H624" marker-end="url(#fig-index-1-a)"/>
+        <path class="ln" d="M734 90H778" marker-end="url(#fig-index-1-a)"/>
+        <text class="t-s" x="140" y="82" text-anchor="middle">pull</text>
+        <text class="t-s" x="294" y="82" text-anchor="middle">append</text>
+        <text class="t-s" x="448" y="82" text-anchor="middle">MERGE</text>
+        <text class="t-s" x="602" y="82" text-anchor="middle">model</text>
+        <text class="t-s" x="756" y="82" text-anchor="middle">frame</text>
+        <text class="t-s" x="10" y="164">Default load pattern at each stage</text>
+        <path class="ln thin dash" d="M64 136V176" marker-end="url(#fig-index-1-a)"/>
+        <path class="ln thin dash" d="M218 136V176" marker-end="url(#fig-index-1-a)"/>
+        <path class="ln thin dash" d="M372 136V176" marker-end="url(#fig-index-1-a)"/>
+        <path class="ln thin dash" d="M526 136V176" marker-end="url(#fig-index-1-a)"/>
+        <path class="ln thin dash" d="M680 136V176" marker-end="url(#fig-index-1-a)"/>
+        <path class="ln thin dash" d="M834 136V176" marker-end="url(#fig-index-1-a)"/>
+        <rect class="box green" x="10" y="180" width="108" height="52" rx="8"/>
+        <text class="t-b" x="64" y="203" text-anchor="middle">Extract delta</text>
+        <text class="t-s" x="64" y="220" text-anchor="middle">CDC or watermark</text>
+        <rect class="box green" x="164" y="180" width="108" height="52" rx="8"/>
+        <text class="t-b" x="218" y="203" text-anchor="middle">Copy as is</text>
+        <text class="t-s" x="218" y="220" text-anchor="middle">file per batch</text>
+        <rect class="box green" x="318" y="180" width="108" height="52" rx="8"/>
+        <text class="t-b" x="372" y="203" text-anchor="middle">Append</text>
+        <text class="t-s" x="372" y="220" text-anchor="middle">never update</text>
+        <rect class="box accent" x="472" y="180" width="108" height="52" rx="8"/>
+        <text class="t-b t-w" x="526" y="203" text-anchor="middle">MERGE</text>
+        <text class="t-s t-w" x="526" y="220" text-anchor="middle">dedupe, upsert</text>
+        <rect class="box green" x="626" y="180" width="108" height="52" rx="8"/>
+        <text class="t-b" x="680" y="203" text-anchor="middle">Replace slices</text>
+        <text class="t-s" x="680" y="220" text-anchor="middle">or merge deltas</text>
+        <rect class="box green" x="780" y="180" width="108" height="52" rx="8"/>
+        <text class="t-b" x="834" y="203" text-anchor="middle">No overwrite</text>
+        <text class="t-s" x="834" y="220" text-anchor="middle">of big tables</text>
+      </svg>
+      <figcaption><b>Default pattern per hop.</b> Silver is highlighted because it is where most correctness decisions live: deduplication, upserts and delete handling all happen in the Bronze-to-Silver step.</figcaption>
+    </figure>
+
+    <h2 id="principles">Six principles behind the framework</h2>
+    <ol class="steps">
+      <li><strong>Ask the source first</strong><p>The first design question is not "how do we build it" but "what change information does the source give us": log-based CDC, a reliable modified-timestamp or row version, or nothing but snapshots. If you skip this, you discover missing deletes in production.</p></li>
+      <li><strong>Bronze keeps what was delivered</strong><p>Append every delivery, whether it was a full extract or a delta, and tag it with a batch id and load type. Bronze is how you rebuild Silver and Gold when logic changes. A Bronze table that was updated in place cannot do that.</p></li>
+      <li><strong>Reconcile in Silver, not Bronze</strong><p>The Bronze-to-Silver step knows whether a batch is a delta or a complete snapshot, and applies <code>MERGE</code>, SCD2 and delete logic accordingly. Putting reconciliation in Bronze couples your archive to one interpretation of the data.</p></li>
+      <li><strong>Re-derive the smallest slice that is still correct</strong><p>In Gold, incremental does not have to mean clever arithmetic. Recomputing the affected dates or partitions from Silver and replacing just those is usually simpler, safer and fast enough.</p></li>
+      <li><strong>Make every load restartable</strong><p>Advance watermarks only after the write commits, make <code>MERGE</code> keys unique, and design so that re-running a batch produces the same result. Failures then cost a retry, not a repair.</p></li>
+      <li><strong>Decide per table, not per platform</strong><p>A 5,000-row country table does not justify an incremental pipeline. A billion-row fact table does not survive a nightly full reload. A healthy platform mixes patterns and records the choice for each table.</p></li>
+    </ol>
+
+    <h2 id="defaults">Default patterns at a glance</h2>
+    <table>
+      <thead><tr><th>Layer</th><th>Default load pattern</th><th>Depart from the default when</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Bronze</strong></td><td>Append every delivery, files or Delta, tagged with batch metadata</td><td>Tiny, non-historical lookup data can be replaced; transient staging tables need no history</td></tr>
+        <tr><td><strong>Silver</strong></td><td><code>MERGE</code> upsert from the new Bronze batch; SCD2 for history-bearing dimensions</td><td>The table is small and fast to rebuild, history is not required, or business logic changed and must be re-applied to all history</td></tr>
+        <tr><td><strong>Gold</strong></td><td>Replace the affected partitions or periods; full recalculation for small or complex-logic marts</td><td>Measures are purely additive and volumes are large enough to justify merging deltas</td></tr>
+        <tr><td><strong>Serving</strong></td><td>Append-friendly writes so Direct Lake can frame incrementally</td><td>The model is small enough that a cold reload after an overwrite is unnoticeable</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="outcomes">What you will be able to do</h2>
+    <ul class="checklist">
+      <li>Classify every table as full-load or incremental using explicit thresholds rather than habit.</li>
+      <li>Select a change tracking mechanism from what the source exposes, and know what each one cannot see.</li>
+      <li>Implement append-only Bronze with batch metadata, including the mixed full-and-incremental feed case.</li>
+      <li>Write idempotent Delta <code>MERGE</code> upserts, an SCD Type 2 dimension and delete handling that matches the change signal.</li>
+      <li>Refresh Gold aggregates without drift, and avoid write patterns that force Direct Lake into cold reloads.</li>
+      <li>Choose between data pipelines, Copy job, Dataflows Gen2, Spark notebooks, T-SQL, mirroring and materialized lake views for each task.</li>
+    </ul>
+
+    <h2 id="map">Map of this playbook</h2>
+    <table>
+      <thead><tr><th>Page</th><th>What it answers</th></tr></thead>
+      <tbody>
+        <tr><td><a href="load-strategy.html">Full vs incremental loads</a></td><td>Is this table small and quiet enough for a full reload? What does each approach cost?</td></tr>
+        <tr><td><a href="change-tracking.html">Change tracking options</a></td><td>How do I find out what changed at the source, and what can each mechanism not detect?</td></tr>
+        <tr><td><a href="bronze.html">Bronze layer patterns</a></td><td>Files or Delta? How do I land mixed full and incremental feeds without losing history?</td></tr>
+        <tr><td><a href="silver.html">Silver: MERGE, SCD2 and deletes</a></td><td>How do I upsert safely, keep dimension history and propagate deletes?</td></tr>
+        <tr><td><a href="gold-direct-lake.html">Gold layer and Direct Lake</a></td><td>How do I refresh aggregates, and what does Direct Lake need from my writes?</td></tr>
+        <tr><td><a href="tooling.html">Choosing the right tool</a></td><td>Which Fabric item should perform each load?</td></tr>
+        <tr><td><a href="cheat-sheet.html">Decision matrix cheat sheet</a></td><td>The whole framework on one page, plus operations checks and a checklist.</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="related">How this fits with the other playbooks</h2>
+    <ul>
+      <li><a href="../03-medallion-architecture/index.html">Medallion Architecture</a> defines the layers and workspace boundaries this playbook loads into.</li>
+      <li><a href="../08-delta-partitioning/index.html">Delta Lake Partitioning Strategy</a> covers the physical table layout that <code>replaceWhere</code>, <code>OPTIMIZE</code> and Direct Lake all depend on.</li>
+      <li><a href="../10-control-table-pipelines/index.html">Control-Table-Driven Pipelines</a> shows how to keep per-table load patterns and watermarks in metadata instead of hard-coding them.</li>
+      <li><a href="../04-cross-workspace-orchestration/index.html">Cross-Workspace Pipeline Orchestration</a> sequences the load jobs described here across layer workspaces.</li>
+    </ul>
+    <p>See also the <a href="../../glossary.html">glossary</a> for terms such as high-watermark, CDC and framing, and the <a href="../../reference-architecture.html">reference architecture</a> for where loading fits in the whole platform.</p>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p><ul>
+      <li>Pick the load pattern per table and per layer, and write the decision down next to the table.</li>
+      <li>Start every incremental design by asking what change signal the source provides.</li>
+      <li>Keep Bronze append-only, and do reconciliation, deduplication and delete handling in Silver.</li>
+      <li>In Gold, replace the affected slice instead of inventing incremental arithmetic, unless measures are purely additive.</li>
+      <li>Avoid write patterns that make Direct Lake reload everything, and verify what your tool actually writes.</li>
+    </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/decision-guide-data-movement">Microsoft Fabric decision guide: choose a data movement strategy</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/what-is-copy-job">What is Copy job in Data Factory</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/fundamentals/direct-lake-overview">Direct Lake overview</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/fundamentals/table-maintenance-optimization">Cross-workload table maintenance and optimization</a></li>
+        <li><a href="https://docs.delta.io/delta-update/">Delta Lake: table deletes, updates and merges</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Supported items and rules · Deployment Pipelines</title>
+<meta name="description" content="Which Fabric items Git and deployment pipelines support, which rule types apply to which item, and two worked scenarios: a notebook&#x27;s default lakehouse and re-pointing a semantic model.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="07-deployment" data-page="deployment-rules.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 07 · Deployment Pipelines</p>
+      <h1>Supported items and deployment rules</h1>
+      <p class="lede">Support for lifecycle management is uneven across item types, and deployment rules cover only a handful of them. This page gives the support matrix, explains how rules behave, and walks the two scenarios every layered platform hits: notebooks that read another layer's lakehouse, and semantic models that must read the target stage's data.</p>
+    </header>
+<h2 id="supported-items">Supported items and lifecycle features</h2>
+<p>The matrix lists the items a data platform typically promotes. Git integration and deployment pipelines have separate support lists, and several Power BI items are still in preview in both. Rules exist for five item types only.</p>
+<table>
+<thead><tr><th>Item</th><th>Git integration</th><th>Deployment pipelines</th><th>Deployment rule</th><th>Notes</th></tr></thead>
+<tbody>
+<tr><td colspan="5"><strong>Data Engineering</strong></td></tr>
+<tr><td>Lakehouse</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="no">No</td><td>Metadata and shortcuts only; tables and files are never versioned or overwritten.</td></tr>
+<tr><td>Environment</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="no">No</td><td>Deploy it before the notebooks that attach to it. Custom Spark pools are not carried over.</td></tr>
+<tr><td>Notebook</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="yes">Default lakehouse</td><td>Cell outputs are not versioned. Frozen-cell status is not preserved by a deployment.</td></tr>
+<tr><td>Spark job definition</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="no">No</td><td>Check the attached lakehouse after each deploy.</td></tr>
+<tr><td colspan="5"><strong>Data Factory</strong></td></tr>
+<tr><td>Data pipeline</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="no">No</td><td>Per-stage connections and item references need a variable library or parameters.</td></tr>
+<tr><td>Dataflow Gen2</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="no">No</td><td>No autobinding; destinations are absolute references.</td></tr>
+<tr><td>Copy job</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="no">No</td><td></td></tr>
+<tr><td>Mirrored database</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="yes">Data source</td><td></td></tr>
+<tr><td colspan="5"><strong>Data Warehouse</strong></td></tr>
+<tr><td>Warehouse</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="no">No</td><td>Schema is deployed, data is not. Connection strings are not rewritten.</td></tr>
+<tr><td colspan="5"><strong>Power BI</strong></td></tr>
+<tr><td>Semantic model</td><td class="maybe"><span class="badge preview">Preview</span></td><td class="maybe"><span class="badge preview">Preview</span></td><td class="yes">Data source, parameter</td><td>Must use the enhanced metadata format. Push datasets and live connections to Analysis Services are excluded.</td></tr>
+<tr><td>Report</td><td class="maybe"><span class="badge preview">Preview</span></td><td class="maybe"><span class="badge preview">Preview</span></td><td class="no">No</td><td>Follows its semantic model through autobinding.</td></tr>
+<tr><td>Paginated report</td><td class="maybe"><span class="badge preview">Preview</span></td><td class="maybe"><span class="badge preview">Preview</span></td><td class="yes">Data source</td><td>Not for Power Query Online sources. A report deployed with a rule cannot be opened in Report Builder.</td></tr>
+<tr><td>Dataflow Gen1</td><td class="no">Not listed</td><td class="maybe"><span class="badge preview">Preview</span></td><td class="yes">Data source, parameter</td><td>Dataflow Gen1 rules do not cover other dataflows as sources.</td></tr>
+<tr><td colspan="5"><strong>CI/CD</strong></td></tr>
+<tr><td>Variable library</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="maybe">Not a rule target</td><td>Per-stage behaviour comes from value sets; see <a href="../09-variable-libraries/index.html">Variable libraries</a>.</td></tr>
+<tr><td>Eventstream, Eventhouse, KQL database and queryset, Real-Time Dashboard, Activator</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="no">No</td><td>Some connections need reconfiguring after deployment.</td></tr>
+</tbody>
+</table>
+<div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>This list changes constantly and preview labels move. Check the <a href="https://learn.microsoft.com/fabric/cicd/deployment-pipelines/intro-to-deployment-pipelines#supported-items">deployment pipelines supported items</a> and the <a href="https://learn.microsoft.com/fabric/cicd/git-integration/intro-to-git-integration#supported-items">Git integration supported items</a> before every design review. An item that is not on the list is not copied, and items such as datamarts that appear in older material are absent from it.</p></div>
+<p>Two more lifecycle features sit next to the matrix. <strong>Variable libraries</strong> are the Fabric-native way to give pipelines, notebooks and shortcuts per-stage values. <strong>Deployment plans</strong> (preview) fix the order of items in a deployment and can run actions before or after an item; see the <a href="manual-deploy.html#execute">manual deployment</a> page.</p>
+
+<h2 id="rules">Deployment rules</h2>
+<p>A rule overrides one property of one item when it is deployed into a stage. Without rules, a deployed item keeps whatever the source stage had, including connections to DEV.</p>
+<figure class="diagram">
+<svg class="dg" viewBox="0 0 900 282" role="img" aria-label="A deployment rule is defined on the target stage and rewrites one property of the item when it is deployed into that stage; the item shows as Different until the next deployment applies the rule">
+<defs>
+<marker id="fig-dr-1-a-teal" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar teal" d="M0 0L10 5L0 10z"/></marker>
+<marker id="fig-dr-1-a-purple" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar purple" d="M0 0L10 5L0 10z"/></marker>
+<marker id="fig-dr-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+</defs>
+<rect class="zone blue" x="10" y="14" width="250" height="134" rx="12"/>
+<text class="t-b" x="24" y="33">Source stage · DEV</text>
+<rect class="zone green" x="640" y="14" width="250" height="134" rx="12"/>
+<text class="t-b" x="654" y="33">Target stage · TST</text>
+<rect class="box blue" x="30" y="66" width="210" height="60" rx="10"/>
+<text class="t-b" x="135" y="91.5" text-anchor="middle">SM_SALES_GLD</text>
+<text class="t-s" x="135" y="108.5" text-anchor="middle">Server: dev-sql-endpoint</text>
+<rect class="box green" x="660" y="66" width="210" height="60" rx="10"/>
+<text class="t-b" x="765" y="91.5" text-anchor="middle">SM_SALES_GLD</text>
+<text class="t-s" x="765" y="108.5" text-anchor="middle">Server: tst-sql-endpoint</text>
+<rect class="box purple" x="330" y="18" width="240" height="44" rx="10"/>
+<text class="t-b" x="450" y="36.5" text-anchor="middle">Rule on the TST stage</text>
+<text class="t-s" x="450" y="51.5" text-anchor="middle">dev-sql-endpoint → tst-sql-endpoint</text>
+<path class="ln teal thick" d="M240 96H660" marker-end="url(#fig-dr-1-a-teal)"/>
+<rect class="pill-bg" x="328.2" y="77.5" width="47.6" height="16"/>
+<text class="t-s" x="352" y="90" text-anchor="middle">deploy</text>
+<path class="ln purple" d="M450 62V96" marker-end="url(#fig-dr-1-a-purple)"/>
+<rect class="pill-bg" x="465.5" y="71.5" width="113" height="16"/>
+<text class="t-s" x="522" y="84" text-anchor="middle">applied at deploy</text>
+<text class="t-b" x="10" y="176">Lifecycle of a rule</text>
+<rect class="box orange" x="10" y="192" width="190" height="56" rx="10"/>
+<text class="t-s" x="105" y="216" text-anchor="middle">Create the rule</text>
+<text class="t-s" x="105" y="232" text-anchor="middle">on the target stage</text>
+<rect class="box" x="235" y="192" width="190" height="56" rx="10"/>
+<text class="t-s" x="330" y="216" text-anchor="middle">Compare shows</text>
+<text class="t-s" x="330" y="232" text-anchor="middle">Different</text>
+<rect class="box" x="460" y="192" width="190" height="56" rx="10"/>
+<text class="t-s" x="555" y="216" text-anchor="middle">Deploy applies</text>
+<text class="t-s" x="555" y="232" text-anchor="middle">the rule</text>
+<rect class="box green" x="685" y="192" width="190" height="56" rx="10"/>
+<text class="t-s" x="780" y="216" text-anchor="middle">Compare shows</text>
+<text class="t-s" x="780" y="232" text-anchor="middle">Same as source</text>
+<path class="ln" d="M200 220H235" marker-end="url(#fig-dr-1-a)"/>
+<path class="ln" d="M425 220H460" marker-end="url(#fig-dr-1-a)"/>
+<path class="ln" d="M650 220H685" marker-end="url(#fig-dr-1-a)"/>
+<circle class="dot" cx="14" cy="188" r="10"/>
+<text class="t-b t-w" x="14" y="192" text-anchor="middle">1</text>
+<circle class="dot" cx="239" cy="188" r="10"/>
+<text class="t-b t-w" x="239" y="192" text-anchor="middle">2</text>
+<circle class="dot" cx="464" cy="188" r="10"/>
+<text class="t-b t-w" x="464" y="192" text-anchor="middle">3</text>
+<circle class="dot" cx="689" cy="188" r="10"/>
+<text class="t-b t-w" x="689" y="192" text-anchor="middle">4</text>
+</svg>
+<figcaption><b>How a deployment rule works.</b> The rule belongs to the target stage and to one item, and only runs during a deployment into that stage. Until you deploy, compare keeps showing the item as different because the rule has not been applied.</figcaption>
+</figure>
+<h3 id="rule-types">Rule types and the items that support them</h3>
+<table>
+<thead><tr><th>Item</th><th>Data source rule</th><th>Parameter rule</th><th>Default lakehouse rule</th></tr></thead>
+<tbody>
+<tr><td>Dataflow Gen1</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="no">No</td></tr>
+<tr><td>Semantic model</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="no">No</td></tr>
+<tr><td>Paginated report</td><td class="yes">Yes</td><td class="no">No</td><td class="no">No</td></tr>
+<tr><td>Mirrored database</td><td class="yes">Yes</td><td class="no">No</td><td class="no">No</td></tr>
+<tr><td>Notebook</td><td class="no">No</td><td class="no">No</td><td class="yes">Yes</td></tr>
+</tbody>
+</table>
+<ul>
+<li><strong>Data source rule.</strong> Replaces a data source's details (for example server and database) with another of the same type. You cannot change the type, and one data source cannot appear in more than one rule. The list of data sources is taken from the source stage.</li>
+<li><strong>Parameter rule.</strong> Sets a parameter's value on each deployment. Parameters that drive a connection must be of type <code>Text</code>.</li>
+<li><strong>Default lakehouse rule.</strong> Notebooks only. Chooses the lakehouse the notebook is attached to in the target stage.</li>
+</ul>
+<h3 id="rule-behaviour">How rules behave</h3>
+<ul>
+<li>Create rules on the <strong>target</strong> stage, never on the first stage, and only as the <strong>owner</strong> of the item. The rule pane is greyed out for anyone else.</li>
+<li>Rules take effect only at the next deployment into that stage. Until then the item shows as <em>Different</em> in compare, and compare already reflects the rule.</li>
+<li>A rule is valid only while its parameter or data source still exists in the source item. Renaming or removing it makes the deployment fail until you fix or delete the rule.</li>
+<li>Deleting an item deletes its rules, and unassigning a stage workspace discards that stage's rules. Neither can be restored; keep the values in the appendix template so you can recreate them.</li>
+<li>Rules take precedence over autobinding.</li>
+<li>Data source rules are supported for a list of source types, including Azure SQL, SQL Server, Azure Synapse, Analysis Services, OData, Oracle, SAP HANA (import mode only), SharePoint and Teradata. For other sources use a parameter.</li>
+<li>Not supported: data source rules on semantic models that use Dataflow Gen1 as source, on parametrized data sources, or on models that combine native query and DirectQuery.</li>
+</ul>
+
+<h2 id="prepare">Prepare the target-stage values</h2>
+<p>Collect the values for each target stage before you open the rule pane. The <a href="appendix.html">appendix</a> contains a notebook that lists them for every workspace and a template to record them.</p>
+<table>
+<thead><tr><th>Rule</th><th>Values to collect</th><th>Where to read them</th></tr></thead>
+<tbody>
+<tr><td>Notebook default lakehouse</td><td>Lakehouse ID, lakehouse name, workspace ID of the target lakehouse</td><td>The item URL <code>https://app.fabric.microsoft.com/groups/&lt;workspace-id&gt;/lakehouses/&lt;lakehouse-id&gt;</code>, or the Items REST API</td></tr>
+<tr><td>Semantic model on a warehouse</td><td>SQL connection string (server) and the database value in the same form the source stage uses</td><td>Warehouse settings, or <em>Get Warehouse</em> (<code>properties.connectionString</code>)</td></tr>
+<tr><td>Semantic model on a lakehouse SQL endpoint</td><td>SQL connection string and SQL endpoint ID</td><td><em>Get Lakehouse</em> (<code>properties.sqlEndpointProperties.connectionString</code> and <code>.id</code>)</td></tr>
+<tr><td>Parameter rule</td><td>Parameter name and the target-stage value</td><td>Semantic model parameters</td></tr>
+</tbody>
+</table>
+
+<h2 id="scenario-notebook">Scenario 1: a notebook's default lakehouse</h2>
+<p>A Gold notebook <code>NB_SALES_GLD_Load</code> in <code>DEV_SALES_GLD</code> uses <code>LH_SALES_SLV_Core</code> in <code>DEV_SALES_SLV</code> as its default lakehouse. After deployment to <code>TST_SALES_GLD</code> it must use <code>LH_SALES_SLV_Core</code> in <code>TST_SALES_SLV</code>. A default lakehouse in the notebook's own workspace is autobound; this one is in another layer's workspace, so you need a rule.</p>
+<figure class="diagram">
+<svg class="dg" viewBox="0 0 900 290" role="img" aria-label="Without a rule the notebook deployed to TST_SALES_GLD keeps the default lakehouse in DEV_SALES_SLV; with a default lakehouse rule on the TST stage it is attached to the lakehouse in TST_SALES_SLV">
+<defs>
+<marker id="fig-dr-2-a-red" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar red" d="M0 0L10 5L0 10z"/></marker>
+<marker id="fig-dr-2-a-gray" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar gray" d="M0 0L10 5L0 10z"/></marker>
+<marker id="fig-dr-2-a-green" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+</defs>
+<rect class="zone red" x="10" y="12" width="430" height="266" rx="12"/>
+<text class="t-b" x="24" y="31">Without a rule</text>
+<rect class="zone green" x="460" y="12" width="430" height="266" rx="12"/>
+<text class="t-b" x="474" y="31">With a default lakehouse rule on TST</text>
+<rect class="box teal" x="130" y="52" width="190" height="52" rx="10"/>
+<text class="t-b" x="225" y="73.5" text-anchor="middle">NB_SALES_GLD_Load</text>
+<text class="t-s" x="225" y="90.5" text-anchor="middle">in TST_SALES_GLD</text>
+<rect class="box gray" x="30" y="168" width="180" height="52" rx="10"/>
+<text class="t-b" x="120" y="189.5" text-anchor="middle">LH_SALES_SLV_Core</text>
+<text class="t-s" x="120" y="206.5" text-anchor="middle">in DEV_SALES_SLV</text>
+<rect class="box blue" x="240" y="168" width="180" height="52" rx="10"/>
+<text class="t-b" x="330" y="189.5" text-anchor="middle">LH_SALES_SLV_Core</text>
+<text class="t-s" x="330" y="206.5" text-anchor="middle">in TST_SALES_SLV</text>
+<path class="ln red thick" d="M185 104V136H120V168" marker-end="url(#fig-dr-2-a-red)"/>
+<rect class="pill-bg" x="69.4" y="117.5" width="101.1" height="16"/>
+<text class="t-s" x="120" y="130" text-anchor="middle">still reads DEV</text>
+<path class="ln gray dash thin" d="M265 104V136H330V168" marker-end="url(#fig-dr-2-a-gray)"/>
+<rect class="box teal" x="580" y="52" width="190" height="52" rx="10"/>
+<text class="t-b" x="675" y="73.5" text-anchor="middle">NB_SALES_GLD_Load</text>
+<text class="t-s" x="675" y="90.5" text-anchor="middle">in TST_SALES_GLD</text>
+<rect class="box gray" x="480" y="168" width="180" height="52" rx="10"/>
+<text class="t-b" x="570" y="189.5" text-anchor="middle">LH_SALES_SLV_Core</text>
+<text class="t-s" x="570" y="206.5" text-anchor="middle">in DEV_SALES_SLV</text>
+<rect class="box blue" x="690" y="168" width="180" height="52" rx="10"/>
+<text class="t-b" x="780" y="189.5" text-anchor="middle">LH_SALES_SLV_Core</text>
+<text class="t-s" x="780" y="206.5" text-anchor="middle">in TST_SALES_SLV</text>
+<path class="ln green thick" d="M715 104V136H780V168" marker-end="url(#fig-dr-2-a-green)"/>
+<rect class="pill-bg" x="723.5" y="117.5" width="113" height="16"/>
+<text class="t-s" x="780" y="130" text-anchor="middle">rule sets default</text>
+<path class="ln gray dash thin" d="M635 104V136H570V168" marker-end="url(#fig-dr-2-a-gray)"/>
+<text class="t-s" x="24" y="250">Nothing rebinds a lakehouse in another workspace.</text>
+<text class="t-s" x="474" y="250">To: lakehouse ID, name and workspace ID of the TST lakehouse.</text>
+</svg>
+<figcaption><b>Scenario 1: a notebook's default lakehouse across stages.</b> The default lakehouse here lives in another layer's workspace, so autobinding cannot help. The rule maps it explicitly and is the only thing that changes between the two panels.</figcaption>
+</figure>
+<ol class="steps">
+<li><strong>Open the TST stage and select Deployment rules</strong><p>Use the stage you are deploying into, and be signed in as the notebook owner. Create the rule on TST, not on DEV.</p></li>
+<li><strong>Select the notebook</strong><p>Only item types that support rules are listed. Use search if the list is long.</p></li>
+<li><strong>Add a default lakehouse rule</strong><p>Open the <strong>Default lakehouse</strong> tile. In <strong>From</strong> pick the source-stage lakehouse. In <strong>To</strong> choose the target lakehouse from the list, <em>Same with source lakehouse</em> to keep the source setting, <em>N/A</em> to remove the default, or <em>Other</em> to enter it by hand.</p></li>
+<li><strong>If you choose Other, provide the IDs</strong><p>The lakehouse ID is required, together with the lakehouse name and its workspace ID. If the list is empty even though the lakehouse exists, community reports describe selecting <em>Other</em> as the workaround.</p></li>
+<li><strong>Save, then deploy the notebook</strong><p>The rule applies at the deployment. The notebook shows <em>Different</em> until you deploy.</p></li>
+<li><strong>Verify</strong><p>Open the deployed notebook, check the attached lakehouse in the explorer pane, and run a cell that reads a table. Then repeat the rule on the PRD stage with the PRD values.</p></li>
+</ol>
+
+<h2 id="scenario-model">Scenario 2: re-pointing a semantic model</h2>
+<p>A semantic model <code>SM_SALES_GLD</code> in DEV reads <code>WH_SALES_CNSM</code> in <code>DEV_SALES_CNSM_WH</code>. In TST it must read the TST warehouse, and in PRD the PRD warehouse. What you can do depends on how the model reads its data.</p>
+<h3 id="direct-lake">Direct Lake models</h3>
+<p>A Direct Lake model does not autobind: after deployment it stays bound to the lakehouse or warehouse of the source stage. The choice of rule depends on the Direct Lake variant.</p>
+<figure class="diagram">
+<svg class="dg" viewBox="0 0 900 300" role="img" aria-label="Decision path for re-pointing a semantic model: import or DirectQuery and Direct Lake on a SQL analytics endpoint support a data source rule; Direct Lake on OneLake does not and needs a parameterized expression, a rebind after deployment or a scripted release">
+<defs>
+<marker id="fig-dr-3-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+<marker id="fig-dr-3-a-green" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+<marker id="fig-dr-3-a-red" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar red" d="M0 0L10 5L0 10z"/></marker>
+</defs>
+<rect class="box purple" x="14" y="104" width="200" height="92" rx="46"/>
+<text class="t-b" x="114" y="145.5" text-anchor="middle">What does the</text>
+<text class="t-s" x="114" y="162.5" text-anchor="middle">model read?</text>
+<rect class="box" x="300" y="24" width="220" height="64" rx="10"/>
+<text class="t-b" x="410" y="52" text-anchor="middle">Import or DirectQuery</text>
+<text class="t-s" x="410" y="68" text-anchor="middle">SQL endpoint or warehouse</text>
+<rect class="box" x="300" y="118" width="220" height="64" rx="10"/>
+<text class="t-b" x="410" y="146" text-anchor="middle">Direct Lake on SQL</text>
+<text class="t-s" x="410" y="162" text-anchor="middle">SQL analytics endpoint</text>
+<rect class="box" x="300" y="212" width="220" height="64" rx="10"/>
+<text class="t-b" x="410" y="240" text-anchor="middle">Direct Lake on OneLake</text>
+<text class="t-s" x="410" y="256" text-anchor="middle">tables read from OneLake</text>
+<rect class="box green" x="626" y="24" width="260" height="64" rx="10"/>
+<text class="t-b" x="756" y="52" text-anchor="middle">Data source rule</text>
+<text class="t-s" x="756" y="68" text-anchor="middle">Server and Database</text>
+<rect class="box green" x="626" y="118" width="260" height="64" rx="10"/>
+<text class="t-b" x="756" y="146" text-anchor="middle">Data source rule</text>
+<text class="t-s" x="756" y="162" text-anchor="middle">Server and endpoint ID or name</text>
+<rect class="box orange" x="626" y="212" width="260" height="64" rx="10"/>
+<text class="t-b" x="756" y="240" text-anchor="middle">No data source rule</text>
+<text class="t-s" x="756" y="256" text-anchor="middle">parameter, rebind or script</text>
+<path class="ln" d="M214 150H257V56H300" marker-end="url(#fig-dr-3-a)"/>
+<path class="ln" d="M214 150H257H257H300" marker-end="url(#fig-dr-3-a)"/>
+<path class="ln" d="M214 150H257V244H300" marker-end="url(#fig-dr-3-a)"/>
+<path class="ln green" d="M520 56H626" marker-end="url(#fig-dr-3-a-green)"/>
+<rect class="pill-bg" x="540.3" y="39.5" width="65.5" height="16"/>
+<text class="t-s" x="573" y="52" text-anchor="middle">supported</text>
+<path class="ln green" d="M520 150H626" marker-end="url(#fig-dr-3-a-green)"/>
+<rect class="pill-bg" x="540.3" y="133.5" width="65.5" height="16"/>
+<text class="t-s" x="573" y="146" text-anchor="middle">supported</text>
+<path class="ln red" d="M520 244H626" marker-end="url(#fig-dr-3-a-red)"/>
+<rect class="pill-bg" x="528.4" y="227.5" width="89.2" height="16"/>
+<text class="t-s" x="573" y="240" text-anchor="middle">not supported</text>
+</svg>
+<figcaption><b>Which rule can re-point this semantic model?.</b> Check the storage mode of the tables first. The rule applies to the connection the model uses, and Direct Lake on OneLake has no SQL connection for the rule to edit.</figcaption>
+</figure>
+<table>
+<thead><tr><th>Model reads</th><th>Rule support</th><th>What to do</th></tr></thead>
+<tbody>
+<tr><td>Import or DirectQuery over a warehouse or lakehouse SQL endpoint</td><td class="yes">Data source rule</td><td>Follow the steps below.</td></tr>
+<tr><td>Direct Lake on the SQL analytics endpoint</td><td class="yes">Data source rule</td><td>Follow the steps below. The connection expression of the model must reference the SQL endpoint by ID for editing and refresh in the authoring tools.</td></tr>
+<tr><td>Direct Lake on OneLake</td><td class="no">No data source rule</td><td>Drive the connection from Text parameters and use parameter rules, or rebind after each deployment, or release with a script.</td></tr>
+</tbody>
+</table>
+<h3 id="model-steps">Data source rule for a SQL-based model</h3>
+<ol class="steps">
+<li><strong>Open the TST stage and select Deployment rules</strong><p>Select the semantic model (you must own it) and expand <strong>Data source rules</strong>.</p></li>
+<li><strong>Add a rule for the data source</strong><p>The list shows the data sources of the model as they exist in the source stage, as a server and a database. Pick the one to change.</p></li>
+<li><strong>Choose Other and enter the TST values</strong><p>Server is the SQL connection string of the TST warehouse or lakehouse endpoint. Database must be in the same form the source shows: copy the form (GUID or name) that you see in the source value rather than guessing.</p></li>
+<li><strong>Save, then deploy the model</strong><p>The rule is defined but applies only at the next deployment.</p></li>
+<li><strong>Set credentials and refresh</strong><p>Data source credentials are not copied by a deployment. Set them on the TST model, make sure the identity the model uses can read the TST source, then refresh.</p></li>
+<li><strong>Verify</strong><p>Open the model settings and read the data source, refresh once, and open a report that uses the model. Repeat on the PRD stage with the PRD values.</p></li>
+</ol>
+<h3 id="onelake-options">Direct Lake on OneLake</h3>
+<table>
+<thead><tr><th>Option</th><th>How it works</th><th>Trade-off</th></tr></thead>
+<tbody>
+<tr><td>Parameterized expression with parameter rules</td><td>The connection expression is built from Text parameters; a parameter rule per stage sets them at deploy time.</td><td>Needs the model authored this way, and a parameter rule per stage.</td></tr>
+<tr><td>Rebind after deployment</td><td>A post-deployment step re-points the model at the target lakehouse, for example with semantic link labs, TMDL or an XMLA script.</td><td>One more step per layer to run and to forget.</td></tr>
+<tr><td>Scripted release</td><td>A code-first release (for example the fabric-cicd library) rewrites the binding when it publishes.</td><td>Leaves the pipeline UI; see <a href="automation-and-limits.html">Automation and limits</a>.</td></tr>
+</tbody>
+</table>
+<pre data-title="Notebook cell: rebind a Direct Lake on OneLake model after deployment"><code class="language-python">import sempy_labs.directlake as directlake
+
+directlake.update_direct_lake_model_connection(
+    dataset="SM_SALES_GLD",
+    workspace="TST_SALES_CNSM_SM",
+    source="LH_SALES_GLD",
+    source_type="Lakehouse",
+    source_workspace="TST_SALES_GLD",
+    use_sql_endpoint=False,  # Direct Lake on OneLake
+)</code></pre>
+<div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>Direct Lake rule behaviour is variant-specific: the <a href="https://learn.microsoft.com/fabric/fundamentals/direct-lake-overview">Direct Lake overview</a> lists deployment pipeline rules as supported for Direct Lake on SQL endpoints and not supported for Direct Lake on OneLake. The semantic link labs function is a community library, so confirm parameter names against the version you install, and confirm the parameterized-expression option on a test pipeline before you standardize on it.</p></div>
+
+<h2 id="which-mechanism">Rule, variable library or parameter?</h2>
+<table>
+<thead><tr><th>Need</th><th>Use</th><th>Reason</th></tr></thead>
+<tbody>
+<tr><td>Notebook default lakehouse in another workspace</td><td>Deployment rule</td><td>Purpose-built; takes precedence over autobinding</td></tr>
+<tr><td>Semantic model source (SQL-based or Direct Lake on SQL)</td><td>Data source rule</td><td>Supported and applied by the pipeline</td></tr>
+<tr><td>Direct Lake on OneLake</td><td>Parameter rule, or post-deploy rebind</td><td>No data source rule exists</td></tr>
+<tr><td>Data pipeline connections and item references</td><td>Variable library</td><td>No rule type exists for pipelines</td></tr>
+<tr><td>Shortcut targets that differ per stage</td><td>Variable library</td><td>Shortcut definitions accept variables</td></tr>
+<tr><td>Flags, paths, thresholds used in code</td><td>Variable library</td><td>Value sets per stage, readable from notebooks</td></tr>
+</tbody>
+</table>
+
+<h2 id="rule-problems">When rules do not behave</h2>
+<table>
+<thead><tr><th>Symptom</th><th>Cause</th><th>Fix</th></tr></thead>
+<tbody>
+<tr><td>Rule options are greyed out</td><td>You are not the owner of the item, or the item has no data source or parameter the rule could target</td><td>Take over the item (ownership) or ask the owner; check that the model really has the data source</td></tr>
+<tr><td>I configured a rule but nothing changed</td><td>Rules apply only when the item is deployed into the stage</td><td>Deploy the item; afterwards it should no longer show as different</td></tr>
+<tr><td>A previously working deployment fails with broken rules</td><td>The source model was republished and a parameter was renamed or removed, or a data source changed</td><td>Open the rule pane, find the marked rule, fix or delete it, redeploy</td></tr>
+<tr><td>Saving a data source rule fails</td><td>The model uses a function connected to a data source, or the data source is parametrized</td><td>Use a parameter rule for parametrized sources</td></tr>
+<tr><td>Rules disappeared</td><td>The stage workspace was unassigned and reassigned, or the item was deleted</td><td>Recreate them from your recorded values</td></tr>
+</tbody>
+</table>
+
+<div class="takeaways"><p class="tk-title">Key takeaways</p>
+<ul>
+<li>Rules exist for notebooks (default lakehouse), semantic models, Dataflow Gen1, paginated reports and mirrored databases only.</li>
+<li>Create rules on the target stage as the item owner; they apply at the next deployment, so deploy, verify and keep the values recorded.</li>
+<li>A default lakehouse in another workspace needs a rule; one in the same workspace is autobound.</li>
+<li>Direct Lake on SQL endpoints supports a data source rule; Direct Lake on OneLake does not, so plan a parameter, a rebind or a scripted release.</li>
+<li>Everything the rules do not cover, notably data pipelines, belongs in a variable library.</li>
+</ul></div>
+
+<section class="refs">
+<h2 id="refs">References</h2>
+<ul>
+<li><a href="https://learn.microsoft.com/fabric/cicd/deployment-pipelines/create-rules">Create deployment rules</a></li>
+<li><a href="https://learn.microsoft.com/fabric/cicd/deployment-pipelines/intro-to-deployment-pipelines">Overview of deployment pipelines (supported items)</a></li>
+<li><a href="https://learn.microsoft.com/fabric/cicd/git-integration/intro-to-git-integration">Overview of Git integration (supported items)</a></li>
+<li><a href="https://learn.microsoft.com/fabric/data-engineering/notebook-source-control-deployment">Notebook source control and deployment</a></li>
+<li><a href="https://learn.microsoft.com/fabric/fundamentals/direct-lake-overview">Direct Lake overview</a></li>
+<li><a href="https://learn.microsoft.com/fabric/cicd/troubleshoot-cicd">Troubleshoot the Fabric lifecycle management tools</a></li>
+</ul>
+</section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

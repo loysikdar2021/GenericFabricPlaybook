@@ -1,0 +1,22 @@
+{
+  "id": "05-github-integration",
+  "number": "05",
+  "title": "GitHub Integration and Branching",
+  "short": "GitHub Integration",
+  "summary": "Connect Fabric workspaces to GitHub safely, run GitHub Flow with feature workspaces, harden the repository with rulesets, and automate deployment with service principals and OIDC.",
+  "category": "alm",
+  "level": "Intermediate",
+  "audience": "Platform leads, DevOps and data engineers, Fabric workspace admins, GitHub organization owners",
+  "readingTime": "110 min",
+  "pages": [
+    { "file": "index.html", "title": "Overview and ALM map", "description": "What Fabric Git integration with GitHub gives you, when to use it, the end-to-end change flow and how the pages of this playbook fit together." },
+    { "file": "foundations.html", "title": "Prerequisites and authentication", "description": "Tenant settings, capacity, workspace and GitHub permissions, token types for the Git connection, GitHub Enterprise Cloud support and the two-tier identity model." },
+    { "file": "repository-design.html", "title": "Repository and workspace layout", "description": "How workspace items map to repository folders, item folder anatomy, one repository versus many, recommended layout and the limits that shape it." },
+    { "file": "connect-safely.html", "title": "Connecting safely", "description": "Preflight safeguards, the first-sync decision, step-by-step connection of each workspace, the baseline commit and the folder-change hazard." },
+    { "file": "sync-and-items.html", "title": "Sync model and supported items", "description": "Commit, update, undo and conflict handling, branch operations, known quirks, how to read the supported-item list and the general limitations." },
+    { "file": "branching-workflow.html", "title": "GitHub Flow for Fabric", "description": "Main as source of truth, feature branches, branch-out workspaces, why data is not copied, the pull request process and cleanup." },
+    { "file": "security-hardening.html", "title": "Access model and repository hardening", "description": "Teams, roles and least privilege, Entra ID and SSO, rulesets versus branch protection, the recommended main ruleset and optional scanning." },
+    { "file": "service-principals-automation.html", "title": "Service principals and Actions", "description": "Service principal setup, secret scopes, environments with required reviewers, OIDC federation, GitHub Actions workflows and fabric-cicd." },
+    { "file": "operations-rollback.html", "title": "Operations, rollback and checklist", "description": "The unified secure ALM view, auditing, troubleshooting, rollback with git revert or reset, restoring in Fabric and the readiness checklist." }
+  ]
+}

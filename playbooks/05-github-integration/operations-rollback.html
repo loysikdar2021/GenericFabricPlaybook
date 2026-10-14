@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Operations, rollback and checklist · GitHub Integration</title>
+<meta name="description" content="The unified secure ALM picture, rolling back with git revert or reset and restoring in Fabric, running the setup day to day, troubleshooting, and a go-live checklist.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="05-github-integration" data-page="operations-rollback.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+
+    <header class="page-header">
+      <p class="eyebrow">Playbook 05 · GitHub Integration</p>
+      <h1>Operations, rollback and checklist</h1>
+      <p class="lede">Everything so far builds the road. This page covers driving on it: how the pieces fit together, how to undo a bad change without making things worse, what to review regularly, what to check when something breaks, and what must be true before you go live.</p>
+      <ul class="chips"><li><b>Audience</b> everyone who runs or supports the setup</li><li><b>Use it for</b> incidents, reviews, troubleshooting, go-live</li></ul>
+    </header>
+
+    <h2 id="unified">The whole picture</h2>
+    <p>The diagram below combines the workflow, the controls and the automation from the previous pages. Read it left to right along the top, then down to the promotion row.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 880 392" role="img" aria-label="Secure ALM overview: a feature workspace commits to a feature branch, a pull request merges it into the protected main branch, main updates the DEV workspace and also triggers a GitHub Actions deployment to TST and then PRD after approval; bands above and below show identity, guardrails and audit; a rollback box hangs off PRD">
+        <defs>
+          <marker id="fig-or-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-or-1-r" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar red" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="band" x="20" y="16" width="840" height="40" rx="10"/>
+        <text class="t-b" x="440" y="41" text-anchor="middle">Identity: Entra ID groups, single sign-on, service principals, OIDC federation</text>
+        <rect class="box blue" x="40" y="84" width="140" height="64" rx="10"/>
+        <text class="t-b" x="110" y="110" text-anchor="middle">Feature workspace</text>
+        <text class="t-s" x="110" y="128" text-anchor="middle">branch out, develop</text>
+        <rect class="box purple" x="210" y="84" width="140" height="64" rx="10"/>
+        <text class="t-b" x="280" y="110" text-anchor="middle">Feature branch</text>
+        <text class="t-s" x="280" y="128" text-anchor="middle">small commits</text>
+        <rect class="box purple" x="380" y="84" width="140" height="64" rx="10"/>
+        <text class="t-b" x="450" y="110" text-anchor="middle">Pull request</text>
+        <text class="t-s" x="450" y="128" text-anchor="middle">review and checks</text>
+        <rect class="box purple" x="550" y="84" width="140" height="64" rx="10"/>
+        <text class="t-b" x="620" y="110" text-anchor="middle">main</text>
+        <text class="t-s" x="620" y="128" text-anchor="middle">protected by ruleset</text>
+        <rect class="box blue" x="720" y="84" width="140" height="64" rx="10"/>
+        <text class="t-b" x="790" y="110" text-anchor="middle">DEV workspace</text>
+        <text class="t-s" x="790" y="128" text-anchor="middle">update only</text>
+        <path class="ln" d="M182 116H208" marker-start="url(#fig-or-1-a)" marker-end="url(#fig-or-1-a)"/>
+        <path class="ln" d="M352 116H378" marker-end="url(#fig-or-1-a)"/>
+        <path class="ln" d="M522 116H548" marker-end="url(#fig-or-1-a)"/>
+        <path class="ln" d="M692 116H718" marker-end="url(#fig-or-1-a)"/>
+        <rect class="box teal" x="550" y="196" width="140" height="64" rx="10"/>
+        <text class="t-b" x="620" y="222" text-anchor="middle">GitHub Actions</text>
+        <text class="t-s" x="620" y="240" text-anchor="middle">OIDC, no secrets</text>
+        <rect class="box blue" x="380" y="196" width="140" height="64" rx="10"/>
+        <text class="t-b" x="450" y="222" text-anchor="middle">TST workspace</text>
+        <text class="t-s" x="450" y="240" text-anchor="middle">automatic</text>
+        <rect class="box blue" x="210" y="196" width="140" height="64" rx="10"/>
+        <text class="t-b" x="280" y="222" text-anchor="middle">PRD workspace</text>
+        <text class="t-s" x="280" y="240" text-anchor="middle">after approval</text>
+        <rect class="box red dashed" x="20" y="196" width="160" height="64" rx="10"/>
+        <text class="t-b" x="100" y="222" text-anchor="middle">Rollback</text>
+        <text class="t-s" x="100" y="240" text-anchor="middle">revert, then redeploy</text>
+        <path class="ln" d="M620 150V194" marker-end="url(#fig-or-1-a)"/>
+        <path class="ln" d="M548 228H522" marker-end="url(#fig-or-1-a)"/>
+        <path class="ln" d="M378 228H352" marker-end="url(#fig-or-1-a)"/>
+        <path class="ln dash red" d="M208 228H182" marker-end="url(#fig-or-1-r)"/>
+        <rect class="box orange" x="20" y="288" width="840" height="40" rx="10"/>
+        <text class="t-b" x="440" y="313" text-anchor="middle">Guardrails: ruleset on main, code owners, required checks, environment reviewers</text>
+        <rect class="band" x="20" y="336" width="840" height="40" rx="10"/>
+        <text class="t-b" x="440" y="361" text-anchor="middle">Audit: GitHub audit log, Fabric monitoring hub and activity log, access reviews</text>
+      </svg>
+      <ul class="legend"><li><i class="blue"></i>Fabric workspaces</li><li><i class="purple"></i>GitHub repository</li><li><i class="teal"></i>Automation</li><li><i class="orange"></i>Controls</li><li><i class="red"></i>Recovery</li></ul>
+      <figcaption><b>Two paths from main.</b> DEV is updated from Git because DEV is where developers work; TST and PRD are deployed by a pipeline that proves its identity with OIDC and waits for approval before production.</figcaption>
+    </figure>
+    <table>
+      <thead><tr><th>Part of the picture</th><th>Where it is covered</th></tr></thead>
+      <tbody>
+        <tr><td>Tenant settings, tokens, the two identity tiers</td><td><a href="foundations.html">Prerequisites and authentication</a></td></tr>
+        <tr><td>Repository and folder layout, dependencies</td><td><a href="repository-design.html">Repository and workspace layout</a></td></tr>
+        <tr><td>First connection and baseline commit</td><td><a href="connect-safely.html">Connecting safely</a></td></tr>
+        <tr><td>Commit, update, conflicts, supported items</td><td><a href="sync-and-items.html">Sync model and supported items</a></td></tr>
+        <tr><td>Branches, feature workspaces, pull requests</td><td><a href="branching-workflow.html">GitHub Flow for Fabric</a></td></tr>
+        <tr><td>Teams, SSO, rulesets, hardening</td><td><a href="security-hardening.html">Access model and repository hardening</a></td></tr>
+        <tr><td>Service principals, OIDC, environments, workflows</td><td><a href="service-principals-automation.html">Service principals and Actions</a></td></tr>
+        <tr><td>Folder-level review ownership</td><td><a href="../17-pr-notifications-codeowners/index.html">CODEOWNERS and pull-request notifications</a></td></tr>
+        <tr><td>Promotion to TST and PRD</td><td><a href="../07-deployment/index.html">Deployment playbook</a> and its <a href="../14-deployment-checklist/index.html">checklist</a></td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="rollback">Rolling back a bad change</h2>
+    <p>Version control makes a bad change recoverable, but only if you pick the right tool. The deciding question is whether anyone else has already pulled the commit.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 880 330" role="img" aria-label="Decision tree: if the change was merged to main, revert it; otherwise if someone else uses the branch, revert; if nobody else does, reset and force push with lease is allowed on that feature branch; resetting main is never allowed because the ruleset blocks force pushes">
+        <defs>
+          <marker id="fig-or-2-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box purple" x="20" y="40" width="260" height="56" rx="28"/>
+        <text class="t-b" x="150" y="73" text-anchor="middle">Was it merged to main?</text>
+        <rect class="box purple" x="20" y="150" width="260" height="56" rx="28"/>
+        <text class="t-b" x="150" y="183" text-anchor="middle">Does anyone else use the branch?</text>
+        <rect class="box green" x="380" y="30" width="260" height="76" rx="10"/>
+        <text class="t-b" x="510" y="58" text-anchor="middle">Revert</text>
+        <text class="t-s" x="510" y="78" text-anchor="middle">a new commit undoes the change</text>
+        <text class="t-s" x="510" y="94" text-anchor="middle">history is kept</text>
+        <rect class="box orange" x="380" y="224" width="260" height="76" rx="10"/>
+        <text class="t-b" x="510" y="252" text-anchor="middle">Reset and force push</text>
+        <text class="t-s" x="510" y="272" text-anchor="middle">with --force-with-lease</text>
+        <text class="t-s" x="510" y="288" text-anchor="middle">private feature branch only</text>
+        <rect class="box red dashed" x="680" y="224" width="180" height="76" rx="10"/>
+        <text class="t-b" x="770" y="252" text-anchor="middle">Never on main</text>
+        <text class="t-s" x="770" y="272" text-anchor="middle">the ruleset blocks</text>
+        <text class="t-s" x="770" y="288" text-anchor="middle">force pushes</text>
+        <path class="ln" d="M282 68H378" marker-end="url(#fig-or-2-a)"/>
+        <text class="t-s c-green" x="330" y="60" text-anchor="middle">yes</text>
+        <path class="ln" d="M150 98V148" marker-end="url(#fig-or-2-a)"/>
+        <text class="t-s c-red" x="160" y="128">no</text>
+        <path class="ln" d="M282 170H510V108" marker-end="url(#fig-or-2-a)"/>
+        <text class="t-s c-green" x="330" y="162" text-anchor="middle">yes</text>
+        <path class="ln" d="M150 208V262H378" marker-end="url(#fig-or-2-a)"/>
+        <text class="t-s c-red" x="160" y="238">no</text>
+      </svg>
+      <figcaption><b>Default to revert.</b> Reset exists for the narrow case where the history is yours alone; everywhere else, undoing by adding a commit is both safer and easier to audit.</figcaption>
+    </figure>
+    <h3 id="revert-vs-reset">git revert versus git reset</h3>
+    <table>
+      <thead><tr><th></th><th>git revert</th><th>git reset --hard</th></tr></thead>
+      <tbody>
+        <tr><td><strong>What it does</strong></td><td>Adds a new commit that applies the inverse of an earlier one.</td><td>Moves the branch pointer back and discards the commits after it.</td></tr>
+        <tr><td><strong>History</strong></td><td>Preserved. The mistake and its undo are both visible.</td><td>Rewritten. The discarded commits disappear from the branch.</td></tr>
+        <tr><td><strong>Shared branches</strong></td><td>Safe.</td><td>Dangerous. Everyone who pulled the old commits now has a diverged copy.</td></tr>
+        <tr><td><strong>Needs a force push</strong></td><td>No.</td><td>Yes.</td></tr>
+        <tr><td><strong>Allowed on main</strong></td><td>Yes, through a pull request.</td><td>No. The ruleset blocks force pushes.</td></tr>
+        <tr><td><strong>Effect on Fabric</strong></td><td>The branch moves forward, so a normal <em>Update</em> applies it.</td><td>The workspace's last synced commit may no longer exist on the branch; behaviour is not something to rely on.</td></tr>
+      </tbody>
+    </table>
+
+    <h3 id="revert">Method 1: revert (the default)</h3>
+    <p>Because <code>main</code> is protected, the revert travels the same road as any other change.</p>
+    <ol class="steps">
+      <li><strong>Find the change.</strong><p>Open the merged pull request that introduced the problem. If it was squash-merged it is a single commit; if it was merged with a merge commit, you will revert that merge commit.</p></li>
+      <li><strong>Create the revert.</strong><p>On the merged pull request choose <strong>Revert</strong>. GitHub creates a branch and opens a new pull request containing the inverse change. Or do it locally, as below.</p></li>
+      <li><strong>Review and merge it</strong> under the normal rules. If the incident demands speed, ask the reviewers for a fast-track review rather than asking an administrator to bypass the ruleset.</li>
+    </ol>
+<pre data-title="Revert locally, through a branch"><code class="language-bash"># start from a current main
+git switch main
+git pull origin main
+git switch -c revert/1234-orders-load
+
+# find the commit
+git log --oneline -n 15
+
+# squash or rebase merge: an ordinary commit
+git revert &lt;commit-sha&gt;
+
+# merge commit: name the parent to keep (1 is the main side)
+git revert -m 1 &lt;merge-commit-sha&gt;
+
+# several commits: oldest^..newest reverts them newest first
+git revert &lt;oldest-sha&gt;^..&lt;newest-sha&gt;
+
+# publish the branch and open a pull request into main
+git push -u origin revert/1234-orders-load</code></pre>
+    <h3 id="restore-item">Restoring one item from an earlier commit</h3>
+    <p>Often only one notebook or pipeline needs to go back. Restore that folder from a known-good commit onto a new branch, and send it through review as a normal change. This works for a changed item and for one that was deleted.</p>
+<pre data-title="Restore a single item folder"><code class="language-bash">git switch -c restore/1234-churn-notebook main
+git restore --source=&lt;good-sha&gt; -- SALES_GLD/NB_SALES_GLD_ChurnScore.Notebook
+git add SALES_GLD
+git commit -m "Restore ChurnScore notebook from &lt;good-sha&gt;"
+git push -u origin restore/1234-churn-notebook</code></pre>
+    <h3 id="reset">Method 2: reset (private branches only)</h3>
+    <p>Reset suits one case: a feature branch that only you use, where you want to throw away the last few commits and start over from a good one. It rewrites history, so it needs a force push, and the ruleset will not allow that on <code>main</code>.</p>
+<pre data-title="Reset a private feature branch"><code class="language-bash">git switch feature/1234-add-churn-model
+git log --oneline
+# discard every commit after the good one, and any uncommitted changes
+git reset --hard &lt;good-sha&gt;
+# overwrite the remote branch, but only if nobody added commits to it
+git push --force-with-lease origin feature/1234-add-churn-model</code></pre>
+    <ul>
+      <li><strong>Prefer <code>--force-with-lease</code> to <code>--force</code>.</strong> It refuses to overwrite commits you have not seen.</li>
+      <li><strong>Hard reset discards uncommitted work</strong> in your clone. Check <code>git status</code> first.</li>
+      <li><strong>The feature workspace.</strong> A workspace connected to the rewritten branch is now pointing at history that no longer exists. Because feature workspaces are disposable, the clean fix is to start again: delete it and branch out from the corrected branch, or switch it to a fresh branch. Uncommitted changes in a workspace are not a Git matter at all: use <em>Undo</em> in the source control pane.</li>
+    </ul>
+    <div class="callout warning"><p class="callout-title">Never reset a branch that a shared workspace follows</p><p>The DEV workspace follows <code>main</code>, and any shared feature workspace follows its branch. Rewriting either leaves people and workspaces on commits that are no longer in the branch. This is the practical reason the ruleset blocks force pushes on <code>main</code>.</p></div>
+
+    <h3 id="restore-fabric">Restoring in Fabric after the branch is fixed</h3>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 880 250" role="img" aria-label="Six steps to roll back production: detect, revert pull request, merge, update DEV, redeploy TST then PRD, and verify; notes under each step say what to watch for">
+        <defs>
+          <marker id="fig-or-3-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box red" x="20" y="44" width="125" height="60" rx="10"/>
+        <text class="t-b" x="82" y="70" text-anchor="middle">1 Detect</text>
+        <text class="t-s" x="82" y="88" text-anchor="middle">alert or report</text>
+        <rect class="box purple" x="163" y="44" width="125" height="60" rx="10"/>
+        <text class="t-b" x="225" y="70" text-anchor="middle">2 Revert PR</text>
+        <text class="t-s" x="225" y="88" text-anchor="middle">GitHub Revert</text>
+        <rect class="box purple" x="306" y="44" width="125" height="60" rx="10"/>
+        <text class="t-b" x="368" y="70" text-anchor="middle">3 Merge</text>
+        <text class="t-s" x="368" y="88" text-anchor="middle">fast-track review</text>
+        <rect class="box blue" x="449" y="44" width="125" height="60" rx="10"/>
+        <text class="t-b" x="511" y="70" text-anchor="middle">4 Update DEV</text>
+        <text class="t-s" x="511" y="88" text-anchor="middle">Update all</text>
+        <rect class="box teal" x="592" y="44" width="125" height="60" rx="10"/>
+        <text class="t-b" x="654" y="70" text-anchor="middle">5 Redeploy</text>
+        <text class="t-s" x="654" y="88" text-anchor="middle">TST, then PRD</text>
+        <rect class="box green" x="735" y="44" width="125" height="60" rx="10"/>
+        <text class="t-b" x="797" y="70" text-anchor="middle">6 Verify</text>
+        <text class="t-s" x="797" y="88" text-anchor="middle">data and reports</text>
+        <path class="ln" d="M147 74H161" marker-end="url(#fig-or-3-a)"/>
+        <path class="ln" d="M290 74H304" marker-end="url(#fig-or-3-a)"/>
+        <path class="ln" d="M433 74H447" marker-end="url(#fig-or-3-a)"/>
+        <path class="ln" d="M576 74H590" marker-end="url(#fig-or-3-a)"/>
+        <path class="ln" d="M719 74H733" marker-end="url(#fig-or-3-a)"/>
+        <path class="ln dash thin" d="M82 106V136"/>
+        <path class="ln dash thin" d="M225 106V136"/>
+        <path class="ln dash thin" d="M368 106V136"/>
+        <path class="ln dash thin" d="M511 106V136"/>
+        <path class="ln dash thin" d="M654 106V136"/>
+        <path class="ln dash thin" d="M797 106V136"/>
+        <rect class="box plain" x="20" y="138" width="125" height="84" rx="8"/>
+        <text class="t-s" x="82" y="162" text-anchor="middle">Decide: revert or</text>
+        <text class="t-s" x="82" y="182" text-anchor="middle">fix forward. Data</text>
+        <text class="t-s" x="82" y="202" text-anchor="middle">is not rolled back</text>
+        <rect class="box plain" x="163" y="138" width="125" height="84" rx="8"/>
+        <text class="t-s" x="225" y="162" text-anchor="middle">Revert the merged</text>
+        <text class="t-s" x="225" y="182" text-anchor="middle">pull request, or</text>
+        <text class="t-s" x="225" y="202" text-anchor="middle">restore one item</text>
+        <rect class="box plain" x="306" y="138" width="125" height="84" rx="8"/>
+        <text class="t-s" x="368" y="162" text-anchor="middle">Normal ruleset and</text>
+        <text class="t-s" x="368" y="182" text-anchor="middle">code owners apply.</text>
+        <text class="t-s" x="368" y="202" text-anchor="middle">No force push.</text>
+        <rect class="box plain" x="449" y="138" width="125" height="84" rx="8"/>
+        <text class="t-s" x="511" y="162" text-anchor="middle">Read the Updates</text>
+        <text class="t-s" x="511" y="182" text-anchor="middle">list first. Added</text>
+        <text class="t-s" x="511" y="202" text-anchor="middle">items get deleted.</text>
+        <rect class="box plain" x="592" y="138" width="125" height="84" rx="8"/>
+        <text class="t-s" x="654" y="162" text-anchor="middle">The workflow runs.</text>
+        <text class="t-s" x="654" y="182" text-anchor="middle">PRD still waits</text>
+        <text class="t-s" x="654" y="202" text-anchor="middle">for approval.</text>
+        <rect class="box plain" x="735" y="138" width="125" height="84" rx="8"/>
+        <text class="t-s" x="797" y="162" text-anchor="middle">Check items, runs</text>
+        <text class="t-s" x="797" y="182" text-anchor="middle">and shortcuts. Add</text>
+        <text class="t-s" x="797" y="202" text-anchor="middle">a regression test.</text>
+      </svg>
+      <figcaption><b>Rollback is a normal release.</b> It goes through the same pull request, the same deployment and the same approval as any other change, only faster.</figcaption>
+    </figure>
+    <p>Once the branch is correct, bring Fabric to match:</p>
+    <ol>
+      <li>Open the Fabric workspace connected to the branch, then <strong>Source control</strong>, then the <strong>Updates</strong> tab. Fabric detects that the branch moved and lists the items that will change.</li>
+      <li><strong>Read the list.</strong> Items the reverted change added will be deleted from the workspace; items it removed will be created again.</li>
+      <li>Choose <strong>Update all</strong>, then confirm every item shows <em>Synced</em>.</li>
+      <li>For TST and PRD, let the deployment workflow run for the reverted commit. The workspace is not rolled back until the pipeline has deployed the corrected definitions.</li>
+    </ol>
+    <div class="callout important"><p class="callout-title">Code rolls back; data does not</p><p>Reverting definitions does not undo data changes. A notebook that already rewrote a table, or a schema change that already ran, is still done after the revert. Plan data recovery separately, for example with Delta table restore, and decide up front whether an incident is a revert or a fix-forward.</p></div>
+    <div class="callout warning"><p class="callout-title">Restored items are new items</p><p>An item that an update re-creates gets a new object ID, and a re-created lakehouse or warehouse is empty. If the item is still within the recycle bin retention window, restoring it from the workspace recycle bin keeps its original ID and its data; use that route for data-bearing items, and delete the re-created duplicate if both exist. Check the current recycle bin retention on Microsoft Learn.</p></div>
+
+    <h2 id="operations">Running it day to day</h2>
+    <h3 id="monitoring">Auditing and monitoring</h3>
+    <ul>
+      <li><strong>GitHub.</strong> Review the audit log for changes to repository settings, team membership, rulesets, environments and secrets, and for any use of a bypass.</li>
+      <li><strong>Fabric.</strong> Use the monitoring hub for run history and the activity log for who did what, including calls made by the service principals.</li>
+      <li><strong>Entra ID.</strong> Watch sign-in logs for the service principals: unexpected locations or failures are the earliest sign of a misused or broken credential.</li>
+      <li><strong>Together.</strong> A change should be traceable from a Fabric item version to a commit, to a pull request, to a reviewer, to a deployment run. If any link is missing, find out why.</li>
+    </ul>
+    <h3 id="cadence">Recurring tasks</h3>
+    <table>
+      <thead><tr><th>Cadence</th><th>Task</th><th>Owner</th></tr></thead>
+      <tbody>
+        <tr><td>Weekly</td><td>Review failed workflow runs and stuck approvals; remove merged branches and finished feature workspaces.</td><td>Platform team</td></tr>
+        <tr><td>Monthly</td><td>Review uses of ruleset bypass and administrator environment bypass; bump pinned actions and library versions; check the supported-item list for items your design needs.</td><td>Platform and security</td></tr>
+        <tr><td>Quarterly</td><td>Access review of admin, maintainer and automation groups; audit federated credentials, service principal workspace roles, and token and secret expiry.</td><td>Security and workspace owners</td></tr>
+        <tr><td>Each release</td><td>Run the <a href="../14-deployment-checklist/index.html">deployment checklist</a>; confirm the approvers for PRD.</td><td>Release manager</td></tr>
+      </tbody>
+    </table>
+    <h3 id="testing">Testing as a gate</h3>
+    <ul>
+      <li><strong>Unit tests</strong> for helper code used by notebooks run in <code>pr-validation</code> with a test framework such as pytest, and the result is a required status check.</li>
+      <li><strong>Data quality checks</strong> run against test data in TST after each deployment. Add a test job between <code>deploy-tst</code> and <code>deploy-prd</code> so PRD is only offered for approval when the checks pass.</li>
+      <li><strong>Regression tests</strong> are added with every fix, so the same incident cannot recur silently.</li>
+    </ul>
+    <h3 id="scale">Scaling to many repositories</h3>
+    <ul>
+      <li>Define the baseline once in an organization-level ruleset and apply it to every Fabric repository.</li>
+      <li>Package the deployment steps as a reusable workflow that each repository calls, so every team deploys the same way and a fix lands everywhere at once.</li>
+      <li>Keep a template repository with the standard layout, <code>CODEOWNERS</code>, workflows and pull-request template, and create new repositories from it.</li>
+      <li>Keep one service principal per environment per repository group, not one shared by everything.</li>
+    </ul>
+
+    <h2 id="troubleshooting">Troubleshooting</h2>
+    <table>
+      <thead><tr><th>Symptom</th><th>Likely cause</th><th>What to do</th></tr></thead>
+      <tbody>
+        <tr><td>Commit from Fabric is rejected</td><td>A ruleset on the connected branch requires pull requests, or the token cannot write to the repository.</td><td>Commit to a feature branch, not <code>main</code>. Check the token's repository access and its SSO authorization.</td></tr>
+        <tr><td>Update required never clears</td><td>New commits keep arriving, or an item is in conflict.</td><td>Run <strong>Update all</strong>; if an item stays in conflict, resolve it as described on the <a href="sync-and-items.html#conflicts">sync page</a>.</td></tr>
+        <tr><td>Pull request cannot merge: "required status check is expected"</td><td>The check name in the ruleset does not match the workflow job name, or the workflow never ran.</td><td>Use the exact job name (<code>validate</code>) and make sure the workflow triggers on pull requests to <code>main</code>.</td></tr>
+        <tr><td>Merge button blocked for reviewers who have Write</td><td>The ruleset has <em>Restrict updates</em> enabled without a bypass for them.</td><td>Disable it, or route merges through a named bypass actor. See <a href="security-hardening.html#ruleset-setup">ruleset setup</a>.</td></tr>
+        <tr><td><code>azure/login</code> fails with no matching federated identity record</td><td>The credential's subject does not match the job: wrong repository, environment name or branch.</td><td>Compare the subject in the job's error with the credential. Environment name and case must match.</td></tr>
+        <tr><td><code>azure/login</code> fails: no subscriptions found</td><td>The service principal has no Azure subscription access.</td><td>Set <code>allow-no-subscriptions: true</code>.</td></tr>
+        <tr><td>Fabric API returns unauthorized or forbidden for the service principal</td><td>The tenant setting is off or not scoped to its group, or the principal lacks a workspace role, or the API does not support service principals.</td><td>Check each in that order, then the API reference page.</td></tr>
+        <tr><td>Deployment job waits forever</td><td>The environment's required reviewers have not approved, or no one on the list can.</td><td>Approve from the run page; fix the reviewer list.</td></tr>
+        <tr><td>An item disappeared from a workspace after deployment</td><td>Orphan cleanup removed an item that is not in the repository.</td><td>Restore it from the repository or recycle bin; exclude data-bearing items from cleanup.</td></tr>
+        <tr><td>The connection works for a person but not for automation</td><td>The GitHub token belongs to a person who left, expired, or is not authorized for SSO.</td><td>Re-create the connection with a fresh fine-grained token, and prefer designs that do not depend on it.</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="checklist">Go-live checklist</h2>
+    <h3 id="check-foundation">Foundation</h3>
+    <ul class="checklist">
+      <li>Fabric tenant settings for Git integration are enabled for the right groups, and the service principal API setting is scoped to the automation group.</li>
+      <li>The GitHub organization enforces single sign-on and two-factor authentication, with teams synced from Entra ID groups.</li>
+      <li>A token policy exists, developers use fine-grained tokens, and the owner of each Fabric GitHub connection is documented.</li>
+    </ul>
+    <h3 id="check-repository">Repository</h3>
+    <ul class="checklist">
+      <li>The folder layout matches the workspace layout, and each connected folder was empty or intentionally non-empty before the first sync.</li>
+      <li>The baseline is committed to <code>main</code>, and the safety-net clone is in place until the baseline is proven.</li>
+      <li>The ruleset on <code>main</code> is active: pull request, approvals, stale approvals dismissed, conversations resolved, code owners, no force push, no deletion.</li>
+      <li><code>CODEOWNERS</code> covers every item folder and <code>.github/</code>; the owning teams have Write access.</li>
+      <li>Feature branches are not covered by pull-request rules, so Fabric can commit to them.</li>
+    </ul>
+    <h3 id="check-automation">Automation</h3>
+    <ul class="checklist">
+      <li>One service principal per environment, in the automation group, with the lowest workspace role that works.</li>
+      <li>Federated credentials are bound to environment subjects, and no client secret exists.</li>
+      <li>Environments <code>tst</code> and <code>prd</code> exist with required reviewers, prevent self-review, and deployment branches limited to <code>main</code>.</li>
+      <li>Workflows declare minimal <code>permissions</code>, pin actions to commit SHAs, and the validation job is a required status check.</li>
+      <li>A TST deployment has succeeded end to end, and a deliberate rollback has been rehearsed there.</li>
+    </ul>
+    <h3 id="check-operations">Operations</h3>
+    <ul class="checklist">
+      <li>The recurring review calendar exists with named owners.</li>
+      <li>Developers know the workflow: branch out, small commits, pull request, delete the feature workspace afterwards.</li>
+      <li>The rollback procedure, including who approves a fast-track revert, is written down where the on-call team will find it.</li>
+    </ul>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p><ul>
+      <li>One picture: developers work in feature workspaces, GitHub enforces review on <code>main</code>, DEV follows main, and a pipeline with OIDC and approvals promotes to TST and PRD.</li>
+      <li>Revert by default, through a pull request. Reset only on private feature branches, with <code>--force-with-lease</code>.</li>
+      <li>Rolling back code is not rolling back data. Read the Updates list before applying it, and expect restored items to be new, empty items unless you use the recycle bin.</li>
+      <li>Schedule the boring reviews: bypass use, access, expiry, versions. Most failures are drift.</li>
+      <li>Rehearse a rollback in TST before you need it in PRD.</li>
+    </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/fabric/cicd/git-integration/git-integration-process">Basic concepts in Git integration</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/cicd/git-integration/conflict-resolution">Resolve conflicts with Git integration</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/cicd/best-practices-cicd">Best practices for lifecycle management in Fabric</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/cicd/troubleshoot-cicd">Troubleshoot Fabric lifecycle management issues</a></li>
+        <li><a href="https://git-scm.com/docs/git-revert">git-revert documentation</a></li>
+        <li><a href="https://git-scm.com/docs/git-reset">git-reset documentation</a></li>
+        <li><a href="https://git-scm.com/docs/git-restore">git-restore documentation</a></li>
+        <li><a href="https://docs.github.com/pull-requests/collaborating-with-pull-requests/incorporating-changes-from-a-pull-request/reverting-a-pull-request">Reverting a pull request</a></li>
+        <li><a href="https://docs.github.com/organizations/keeping-your-organization-secure/managing-security-settings-for-your-organization/reviewing-the-audit-log-for-your-organization">Reviewing the audit log for your organization</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

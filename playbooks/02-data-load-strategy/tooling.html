@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Choosing the right tool · Data Load Strategy</title>
+<meta name="description" content="Which Fabric item should perform each load: pipelines and Copy activity, Copy job, Dataflow Gen2, Spark notebooks, Warehouse T-SQL, mirroring and materialized lake views, with a decision flow and a tool choice matrix.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="02-data-load-strategy" data-page="tooling.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 02 · Data Load Strategy</p>
+      <h1>Choosing the right tool</h1>
+      <p class="lede">Fabric offers several items that can load data. They overlap, so the choice is rarely about capability alone: it is about the layer, the volume, the change-tracking source, the team's skills and how much of the state you want to own.</p>
+    </header>
+
+    <h2 id="landscape">The landscape</h2>
+    <p>Think of the tools in two groups. One group moves data from a source into the lake with little or no transformation. The other transforms data that is already in the lake. A data pipeline sits above both as the orchestrator. Using each tool for its own job, rather than stretching one tool across everything, is what keeps pipelines maintainable.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 326" role="img" aria-label="A data pipeline orchestrates two groups of tools: tools that move data in, namely Copy job, Copy activity, mirroring and Eventstreams, and tools that transform data, namely Dataflow Gen2, Spark notebooks, Warehouse T-SQL and materialized lake views">
+        <defs>
+          <marker id="fig-tool-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box purple" x="20" y="14" width="860" height="46" rx="10"/>
+        <text class="t-b" x="450" y="42" text-anchor="middle">Data pipeline: schedules, dependencies, parameters, retries, alerts</text>
+        <path class="ln" d="M230 60V86" marker-end="url(#fig-tool-1-a)"/>
+        <text class="t-s" x="240" y="78">orchestrates</text>
+        <path class="ln" d="M670 60V86" marker-end="url(#fig-tool-1-a)"/>
+        <text class="t-s" x="680" y="78">orchestrates</text>
+
+        <rect class="zone teal" x="20" y="90" width="420" height="222" rx="12"/>
+        <text class="t-h" x="36" y="112">Move data in: landing and Bronze</text>
+        <rect class="box teal" x="36" y="124" width="192" height="72" rx="8"/>
+        <text class="t-b" x="132" y="154" text-anchor="middle">Copy job</text>
+        <text class="t-s" x="132" y="174" text-anchor="middle">wizard, incremental copy</text>
+        <rect class="box teal" x="236" y="124" width="192" height="72" rx="8"/>
+        <text class="t-b" x="332" y="154" text-anchor="middle">Copy activity</text>
+        <text class="t-s" x="332" y="174" text-anchor="middle">pipeline-native movement</text>
+        <rect class="box teal" x="36" y="214" width="192" height="72" rx="8"/>
+        <text class="t-b" x="132" y="244" text-anchor="middle">Mirroring</text>
+        <text class="t-s" x="132" y="264" text-anchor="middle">continuous database replica</text>
+        <rect class="box teal" x="236" y="214" width="192" height="72" rx="8"/>
+        <text class="t-b" x="332" y="244" text-anchor="middle">Eventstreams</text>
+        <text class="t-s" x="332" y="264" text-anchor="middle">events, no-code routing</text>
+
+        <rect class="zone blue" x="460" y="90" width="420" height="222" rx="12"/>
+        <text class="t-h" x="476" y="112">Transform data: Bronze to Silver to Gold</text>
+        <rect class="box blue" x="476" y="124" width="192" height="72" rx="8"/>
+        <text class="t-b" x="572" y="154" text-anchor="middle">Dataflow Gen2</text>
+        <text class="t-s" x="572" y="174" text-anchor="middle">Power Query, low-code</text>
+        <rect class="box blue" x="676" y="124" width="192" height="72" rx="8"/>
+        <text class="t-b" x="772" y="154" text-anchor="middle">Spark notebook</text>
+        <text class="t-s" x="772" y="174" text-anchor="middle">code: MERGE, SCD2, tests</text>
+        <rect class="box blue" x="476" y="214" width="192" height="72" rx="8"/>
+        <text class="t-b" x="572" y="244" text-anchor="middle">Warehouse T-SQL</text>
+        <text class="t-s" x="572" y="264" text-anchor="middle">procedures, MERGE, CTAS</text>
+        <rect class="box blue" x="676" y="214" width="192" height="72" rx="8"/>
+        <text class="t-b" x="772" y="244" text-anchor="middle">Materialized lake views</text>
+        <text class="t-s" x="772" y="264" text-anchor="middle">declarative SQL, auto refresh</text>
+      </svg>
+      <figcaption><b>Two jobs, one orchestrator.</b> Movement tools bring data in, transformation tools reshape it, and a pipeline decides when each runs and in what order.</figcaption>
+    </figure>
+
+    <table>
+      <thead><tr><th>Tool</th><th>Authoring</th><th>Best at</th><th>Transformation</th><th>Where change-tracking state lives</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Data pipeline</strong></td><td>Canvas</td><td>Orchestration: sequencing, parameters, retries, alerts</td><td>Orchestrates other items</td><td>You: control table plus Lookup activities</td></tr>
+        <tr><td><strong>Copy activity</strong></td><td>Canvas, wizard</td><td>High-throughput movement from 50+ sources</td><td>Lightweight: type conversion, column mapping, file merge or split</td><td>You (watermark query, dated folders)</td></tr>
+        <tr><td><strong>Copy job</strong></td><td>Wizard, canvas</td><td>Incremental copy and replication without building a pipeline</td><td>Lightweight</td><td>The job (watermark or CDC, see <a href="change-tracking.html#copy-job">Change tracking</a>)</td></tr>
+        <tr><td><strong>Mirroring</strong></td><td>Configuration</td><td>Continuous replica of a supported database into OneLake</td><td>None</td><td>The service</td></tr>
+        <tr><td><strong>Dataflow Gen2</strong></td><td>Power Query</td><td>Low-code transformation from 150+ connectors</td><td>Low to high: 300+ functions</td><td>The dataflow (bucket maximum values)</td></tr>
+        <tr><td><strong>Spark notebook</strong></td><td>Code</td><td>Complex logic, MERGE, SCD2, very large volumes</td><td>Low to high: anything Spark can do</td><td>You (control table, checkpoint, change-feed version)</td></tr>
+        <tr><td><strong>Warehouse T-SQL</strong></td><td>SQL</td><td>Set-based Gold when the Gold layer is a Warehouse</td><td>Full T-SQL</td><td>You</td></tr>
+        <tr><td><strong>Materialized lake views</strong></td><td>SQL (PySpark in preview)</td><td>Declarative, dependency-aware Silver and Gold transformations</td><td>Spark SQL queries</td><td>The service (Delta commits, change data feed)</td></tr>
+      </tbody>
+    </table>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>Connector counts, authoring options and feature maturity change frequently. The <a href="https://learn.microsoft.com/fabric/fundamentals/decision-guide-pipeline-dataflow-spark">Fabric decision guide for copy activity, Copy job, dataflow, Eventstream and Spark</a> and the <a href="https://learn.microsoft.com/fabric/data-factory/decision-guide-data-movement">data movement decision guide</a> are the current references; treat the figures above as a snapshot.</p></div>
+
+    <h2 id="pipelines">Data pipelines and Copy activity</h2>
+    <div class="pros-cons">
+      <div class="pros"><h4>Strengths</h4><ul>
+        <li>The orchestration engine: sequence notebooks, dataflows, Copy activities and stored procedures with dependencies, parameters, retries and alerts</li>
+        <li>Copy activity is built for high-throughput, metadata-driven movement with minimal transformation</li>
+        <li>The natural first choice for landing raw files from a wide range of sources into Bronze</li>
+      </ul></div>
+      <div class="cons"><h4>Weaknesses</h4><ul>
+        <li>Copy activity transformation is limited to type conversion, column mapping and file handling, which is not enough for Silver and Gold business logic</li>
+        <li>Incremental state is yours to design (control table, Lookup activity)</li>
+        <li>Row-level merge logic stays outside the tool unless you use the Upsert table action</li>
+      </ul></div>
+    </div>
+
+    <h3 id="table-actions">Lakehouse table actions</h3>
+    <p>When the Copy activity writes to a Lakehouse table, the <strong>table action</strong> decides the load pattern. This is where a pipeline can implement Bronze loads directly, with no notebook.</p>
+    <table>
+      <thead><tr><th>Table action</th><th>What it does</th><th>Fits</th><th>Caution</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Append</strong></td><td>Adds rows to the table</td><td>Incremental Bronze, one batch per run</td><td>Not idempotent: a retried run appends twice unless you guard it</td></tr>
+        <tr><td><strong>Overwrite</strong></td><td>Replaces the data and the schema with the new values; previous versions remain in the Delta log</td><td>Small full-load tables, Bronze full snapshots</td><td>Replaces every file, which is the worst case for Direct Lake on large tables</td></tr>
+        <tr><td><strong>Upsert</strong></td><td>Inserts new rows and updates existing ones, matched on the key columns you choose</td><td>Simple Silver-style tables with a reliable key</td><td>Partition columns cannot overlap key columns; no delete handling and no history, so it is not SCD2</td></tr>
+      </tbody>
+    </table>
+    <p>The Copy activity also writes Lakehouse tables with V-Order applied by default, with an option to turn it off. Remember that the default for Spark in new workspaces is the opposite (see <a href="gold-direct-lake.html#direct-lake-layout">Gold and Direct Lake</a>), so a table written by Copy and a table written by Spark can differ in file layout even when both are intended for Direct Lake. Partitioning can be enabled on the destination too, but follow the <a href="../08-delta-partitioning/index.html">partitioning guidance</a> before you do.</p>
+
+    <h3 id="orchestration">Orchestration patterns</h3>
+    <p>A pipeline run is the natural unit of a load: it owns the batch identifier, passes it to every step, and decides what happens on failure. A typical structure per source or domain is a Lookup of the last committed watermark, a Copy activity to the landing zone, a notebook activity that loads Bronze and then Silver, a notebook or stored procedure for Gold, and a final step that stores the new watermark and refreshes the semantic model.</p>
+<pre data-title="Pipeline expressions · passing state between activities"><code class="language-json">// Notebook activity, base parameters
+{
+  "batch_id": "@activity('Lookup_NextBatch').output.firstRow.next_batch_id",
+  "load_type": "@pipeline().parameters.load_type"
+}
+
+// Downstream activity reading the notebook's exit value
+@activity('Run_Silver_Orders').output.result.exitValue</code></pre>
+<pre data-title="PySpark · notebook returns a result to the pipeline"><code class="language-python">import json
+
+# Parameters cell: overwritten by the pipeline's base parameters
+batch_id = 0
+load_type = "incremental"
+
+# ... load and MERGE ...
+
+notebookutils.notebook.exit(json.dumps({"batch_id": batch_id, "rows_merged": rows_merged}))</code></pre>
+    <p>Prefer a <strong>metadata-driven</strong> pipeline for many similar tables: a control table lists each source, target, load type and key columns, and a ForEach activity applies one parameterized pattern to every row. Adding a table then becomes a data change, not a new pipeline. The <a href="../10-control-table-pipelines/index.html">control-table pipelines playbook</a> covers this design in depth.</p>
+
+    <h2 id="copy-job">Copy job</h2>
+    <p>Copy job is a wizard-driven item for repeatable copies: choose the source tables, the destination and a mode (full, or incremental through a watermark column or native change data capture), then schedule it. It keeps the incremental state for you, which removes the Lookup, query and update activities from the pipeline you would otherwise build.</p>
+    <div class="pros-cons">
+      <div class="pros"><h4>Use it when</h4><ul>
+        <li>You need incremental copy or replication of many tables with minimal build effort</li>
+        <li>The source has native CDC and you want the initial full load followed by incremental loads in one job</li>
+        <li>The people maintaining it are analysts or integrators rather than Spark engineers</li>
+      </ul></div>
+      <div class="cons"><h4>Look elsewhere when</h4><ul>
+        <li>The load needs custom orchestration around it (conditional logic, custom retries, downstream triggers) beyond what a job offers on its own</li>
+        <li>Rows must be cleansed, deduplicated or modeled during the load</li>
+        <li>You need behavior that the documented incremental modes do not cover, such as hard-delete detection with a watermark</li>
+      </ul></div>
+    </div>
+    <p>Copy job output normally lands in Bronze or the landing zone; the Silver MERGE still belongs in Spark or a materialized lake view. The incremental modes, their limits and preview items are covered in <a href="change-tracking.html#copy-job">Change tracking</a>.</p>
+
+    <h2 id="dataflows">Dataflows Gen2</h2>
+    <div class="pros-cons">
+      <div class="pros"><h4>Strengths</h4><ul>
+        <li>Low-code Power Query authoring with 300+ transformation functions and 150+ connectors</li>
+        <li>Productive for analysts and data engineers who know Power Query and need transformation logic quickly</li>
+        <li>Built-in incremental refresh with automatic bucketing, so common date-driven patterns need no code</li>
+      </ul></div>
+      <div class="cons"><h4>Weaknesses</h4><ul>
+        <li>Rarely the right choice at terabyte scale, where tuned Spark code usually performs better</li>
+        <li>Visual development integrates less easily with code review, testing and CI/CD than notebooks</li>
+        <li>Incremental refresh has restrictions that matter for lakehouse loads (below)</li>
+      </ul></div>
+    </div>
+    <h3 id="dataflow-incremental">How Dataflow Gen2 incremental refresh behaves</h3>
+    <p>You pick a date or datetime column, how far back to extract, a bucket size, and a column whose maximum value signals change. At each run the dataflow compares maximum values per bucket, fetches only changed buckets, and for each one <strong>deletes the bucket's rows in the destination and inserts the fresh rows</strong>. Data outside the bucket range is untouched. That is the affected-slice pattern from the <a href="gold-direct-lake.html#slice-recompute">Gold page</a>, implemented as a feature.</p>
+    <table>
+      <thead><tr><th>Constraint</th><th>Why it matters</th></tr></thead>
+      <tbody>
+        <tr><td>Destination must be Fabric Lakehouse, Fabric Warehouse or Azure SQL Database for native support</td><td>Other destinations need a second query that reloads from staged data in full</td></tr>
+        <tr><td>Update method is replace only, with a fixed destination schema</td><td>No merge semantics; schema drift must be handled deliberately</td></tr>
+        <tr><td>The source query should fully fold, and needs a Date, DateTime or DateTimeZone column</td><td>Without folding the dataflow can pull unfiltered data and lose the benefit</td></tr>
+        <tr><td>Up to 50 buckets per query and 150 per dataflow; at most 10 concurrent bucket evaluations for a Lakehouse destination</td><td>Choose bucket size and window together</td></tr>
+        <tr><td>Other writers (for example Spark) can interfere, and <code>OPTIMIZE</code> or <code>REORG TABLE</code> are not supported on tables that use incremental refresh</td><td>Give the table a single writer, and plan compaction differently</td></tr>
+        <tr><td>Converting a table that already holds overlapping data to incremental refresh is not supported</td><td>Load history first, with a filter that stops before the earliest incremental bucket</td></tr>
+        <tr><td>Using one column for both filtering and change detection can duplicate rows if data moves between buckets</td><td>Use a stable event date to bucket, and a separate modified timestamp to detect change</td></tr>
+      </tbody>
+    </table>
+    <div class="callout warning"><p class="callout-title">Single-writer rule</p><p>A Dataflow Gen2 destination table with incremental refresh should be written by that dataflow only. A Spark job that also writes to it, or a maintenance job that compacts it, can corrupt the dataflow's bookkeeping or be unsupported outright.</p></div>
+
+    <h2 id="spark">Spark notebooks</h2>
+    <div class="pros-cons">
+      <div class="pros"><h4>Strengths</h4><ul>
+        <li>Maximum power, flexibility and scale: the right place for Delta <code>MERGE</code>, SCD Type 2, delete handling and heavy aggregation</li>
+        <li>Code-first: version control, review, automated tests and CI/CD fit naturally</li>
+        <li>Direct access to Delta features: change data feed, <code>replaceWhere</code>, Structured Streaming with checkpoints</li>
+        <li>Parameterizable and callable from pipelines, with exit values for hand-offs</li>
+      </ul></div>
+      <div class="cons"><h4>Weaknesses</h4><ul>
+        <li>Requires Python, Scala or Spark SQL skills, a steeper curve than low-code options</li>
+        <li>You own the state, idempotency and error handling, so shared frameworks and standards matter</li>
+        <li>Session startup and capacity use are overkill for tiny tables</li>
+      </ul></div>
+    </div>
+    <p>For this playbook, Spark is the default for Bronze-file-to-Delta loads, Silver <code>MERGE</code> and SCD2, and Gold slice recomputes. Environment and notebook structure conventions are covered in <a href="../03-medallion-architecture/index.html">the medallion architecture playbook</a>.</p>
+
+    <h2 id="warehouse">Warehouse T-SQL and T-SQL notebooks</h2>
+    <p>If the Gold layer is a Fabric Warehouse, set-based T-SQL is often the simplest and most performant tool: stored procedures that load dimensions and facts, <code>MERGE</code> for upserts, and CTAS for rebuilds. Fabric Warehouse supports <code>MERGE</code>, including <code>WHEN NOT MATCHED BY SOURCE</code>, and multi-statement transactions. A period-scoped refresh is simply a delete and insert for the same range in one transaction.</p>
+<pre data-title="T-SQL · Warehouse stored procedure: replace a date range"><code class="language-sql">CREATE PROCEDURE gold.usp_refresh_daily_sales
+    @from_date DATE,
+    @to_date   DATE        -- exclusive
+AS
+BEGIN
+    BEGIN TRANSACTION;
+
+    DELETE FROM gold.daily_sales
+    WHERE order_date &gt;= @from_date AND order_date &lt; @to_date;
+
+    INSERT INTO gold.daily_sales (order_date, region, revenue, units)
+    SELECT order_date, region, SUM(line_amount), SUM(quantity)
+    FROM   silver_lh.silver.order_lines          -- cross-item three-part name
+    WHERE  order_date &gt;= @from_date AND order_date &lt; @to_date
+    GROUP BY order_date, region;
+
+    COMMIT TRANSACTION;
+END;</code></pre>
+    <ul>
+      <li><strong>Parameters.</strong> Call procedures from a pipeline so dates and batch identifiers arrive as parameters. T-SQL notebooks are convenient for interactive work and scheduled SQL, but their documentation lists limitations, such as no parameter cell and no service principal or workspace identity support.</li>
+      <li><strong>Concurrency.</strong> Warehouse tables are protected by snapshot isolation with conflicts detected at the table level, so avoid running concurrent <code>UPDATE</code>, <code>DELETE</code> or <code>MERGE</code> statements against the same table.</li>
+      <li><strong>Reading the lake.</strong> A Warehouse reads Lakehouse tables through the SQL analytics endpoint, which updates asynchronously. If a procedure must see Silver data written moments earlier, make sure the endpoint has caught up before it runs.</li>
+    </ul>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>T-SQL notebook limitations are listed in <a href="https://learn.microsoft.com/fabric/data-engineering/author-tsql-notebook">Author and run T-SQL notebooks</a> and have been shrinking over time. Check the current list, the <a href="https://learn.microsoft.com/sql/t-sql/statements/merge-transact-sql?view=fabric">MERGE reference for Fabric</a>, and the SQL analytics endpoint metadata-sync guidance before you depend on any of them.</p></div>
+
+    <h2 id="mlv">Materialized lake views</h2>
+    <p>A materialized lake view (MLV) is a declarative way to build a Silver or Gold table. You write the SQL query once; Fabric persists the result as a Delta table, tracks dependencies between views, orders refreshes and enforces data quality rules. It turns a hand-built chain of notebooks into a dependency graph that refreshes itself.</p>
+    <p>On each scheduled refresh the engine picks one of three strategies:</p>
+    <dl class="kv">
+      <dt>No refresh</dt><dd>No new Delta commits on the sources, so the run is skipped and costs nothing.</dd>
+      <dt>Incremental</dt><dd>Only changed data is processed. Requires change data feed (CDF) enabled on every source table or view, and a query that uses only supported constructs.</dd>
+      <dt>Full</dt><dd>The whole view is recomputed. Used when CDF is missing, when the query uses unsupported constructs, when changes cannot be applied incrementally, or when a full recompute is cheaper.</dd>
+    </dl>
+<pre data-title="Spark SQL · Gold aggregate as a materialized lake view"><code class="language-sql">ALTER TABLE silver.order_lines
+  SET TBLPROPERTIES (delta.enableChangeDataFeed = true);
+
+CREATE MATERIALIZED LAKE VIEW IF NOT EXISTS gold.daily_sales
+(
+  CONSTRAINT valid_units CHECK (units &gt;= 0) ON MISMATCH DROP
+)
+TBLPROPERTIES (delta.enableChangeDataFeed = true)
+AS
+SELECT order_date,
+       region,
+       SUM(line_amount) AS revenue,
+       SUM(quantity)    AS units,
+       COUNT(*)         AS line_count
+FROM silver.order_lines
+GROUP BY order_date, region;</code></pre>
+    <h3 id="mlv-incremental">What incremental refresh supports</h3>
+    <table>
+      <thead><tr><th>Construct</th><th>Incremental?</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td>Filters, projections, deterministic built-in functions</td><td class="yes">Yes</td><td><code>rand()</code>, <code>uuid()</code> and <code>current_timestamp()</code> are not supported</td></tr>
+        <tr><td>Inner joins, <code>UNION ALL</code>, CTEs</td><td class="yes">Yes</td><td>Subqueries and CTEs must use only supported clauses</td></tr>
+        <tr><td>Left outer and left semi joins</td><td class="maybe">Conditionally</td><td>Only when the right-hand table does not change in the cycle; otherwise full refresh</td></tr>
+        <tr><td><code>SUM</code>, <code>MIN</code>, <code>MAX</code>, <code>COUNT</code> (no <code>DISTINCT</code>) with <code>GROUP BY</code></td><td class="yes">Yes</td><td>No partitioning requirement</td></tr>
+        <tr><td>Other aggregates such as <code>AVG</code></td><td class="maybe">Conditionally</td><td>Every source must be partitioned, with the partition column in the <code>GROUP BY</code></td></tr>
+        <tr><td><code>DISTINCT</code>, window functions</td><td class="no">No</td><td>Forces a full refresh; fine for small views, costly for large ones</td></tr>
+        <tr><td>Source rows that are updated or deleted</td><td class="maybe">Needs a refresh hint</td><td>Append-only sources work directly; for updates and deletes the view must declare row identity or Fabric falls back to a full refresh</td></tr>
+        <tr><td>Non-Delta sources, PySpark-authored views</td><td class="no">No</td><td>Always a full refresh</td></tr>
+      </tbody>
+    </table>
+    <div class="pros-cons">
+      <div class="pros"><h4>MLVs fit</h4><ul>
+        <li>Stateless SQL transformations: joins, filters, projections and additive aggregates</li>
+        <li>Multi-stage medallion chains where dependency ordering and data quality constraints matter</li>
+        <li>Teams that prefer SQL and want Fabric to own refresh logic and monitoring</li>
+      </ul></div>
+      <div class="cons"><h4>MLVs do not fit</h4><ul>
+        <li>Stateful logic: SCD Type 2 history, hard-delete handling against a snapshot, custom watermarks</li>
+        <li>Non-SQL work: API calls, machine-learning inference, complex Python</li>
+        <li>Sub-second streaming freshness, where Real-Time Intelligence is the better fit</li>
+      </ul></div>
+    </div>
+    <p>Because the refresh engine decides the strategy, check the run history to see which one was used. A view that silently falls back to full refresh on every run is a design smell: look for <code>DISTINCT</code>, a window function, a missing CDF property on one source, or updates and deletes without a refresh hint. A manual full refresh is also available (<code>REFRESH MATERIALIZED LAKE VIEW ... FULL</code>) for troubleshooting or after a correction.</p>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>SQL authoring of materialized lake views is documented without a preview label on the overview page, while PySpark authoring is marked Preview and always performs a full refresh. Supported constructs, refresh hints and file-ingesting views are still evolving. Check <a href="https://learn.microsoft.com/fabric/data-engineering/materialized-lake-views/overview-materialized-lake-view">the overview</a> and <a href="https://learn.microsoft.com/fabric/data-engineering/materialized-lake-views/refresh-materialized-lake-view">optimal refresh</a> before standardizing on them.</p></div>
+
+    <h2 id="other">Other options that remove or reduce a load</h2>
+    <table>
+      <thead><tr><th>Option</th><th>What it does</th><th>Consider when</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Mirroring</strong></td><td>Continuously replicates a supported operational database into OneLake as Delta, managed by Fabric</td><td>You want a current-state copy with low latency and no pipeline to maintain; history is still your job (see <a href="change-tracking.html#cdc">Change tracking</a>)</td></tr>
+        <tr><td><strong>Shortcuts</strong></td><td>Reference data in another location in place, with no copy</td><td>The data already sits in OneLake or a supported store and does not need reshaping</td></tr>
+        <tr><td><strong>Eventstreams</strong></td><td>No-code ingestion, transformation and routing of event data</td><td>Messages and events arrive continuously and must be forwarded without managing schedules</td></tr>
+        <tr><td><strong>Spark Structured Streaming</strong></td><td>Incremental, exactly-once processing with checkpoints, including <code>availableNow</code> micro-batch runs</td><td>You want incremental semantics from a notebook without hand-written watermarks (see <a href="change-tracking.html#cdf">Change tracking</a>)</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="matrix">Tool choice matrix</h2>
+    <p>Use the matrix as a starting point for each task in the medallion flow. The primary column is the default; the alternative applies when the primary does not fit the team, volume or source.</p>
+    <table>
+      <thead><tr><th>Task</th><th>Primary</th><th>Alternative</th><th>Rationale and key considerations</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Raw ingestion to the landing zone (files)</strong></td><td>Data pipeline with Copy activity</td><td>Copy job; Spark for sources without a connector; Eventstreams for events</td><td>Optimized for high-scale, low-code movement from many sources. Preserve the batch folder convention.</td></tr>
+        <tr><td><strong>Incremental replication of source tables</strong></td><td>Copy job</td><td>Mirroring for supported databases; pipeline with a watermark query</td><td>Copy job and mirroring keep the incremental state for you. Pick by whether you need history and where the data must land.</td></tr>
+        <tr><td><strong>Bronze files to Bronze Delta</strong></td><td>Spark notebook</td><td>Copy activity to a Lakehouse table (Append); Dataflow Gen2 for small, simple files</td><td>Spark controls metadata columns, idempotency and schema evolution. Copy activity is enough when no metadata beyond the batch is needed.</td></tr>
+        <tr><td><strong>Bronze to Silver: cleansing, <code>MERGE</code>, SCD2, deletes</strong></td><td>Spark notebook</td><td>Dataflow Gen2 for simple cleansing; materialized lake view for stateless transformations</td><td>Spark offers the performance and flexibility for <code>MERGE</code>, SCD2 and guarded deletes on large data.</td></tr>
+        <tr><td><strong>Silver to Gold aggregation (Lakehouse)</strong></td><td>Spark notebook (slice recompute) or materialized lake view</td><td>Dataflow Gen2 for simple aggregates</td><td>Use an MLV when the query is declarative and incrementally supported; use Spark for non-additive measures and custom slice logic.</td></tr>
+        <tr><td><strong>Silver to Gold (Warehouse)</strong></td><td>Warehouse stored procedures (T-SQL)</td><td>Spark writing to Lakehouse tables read by the model</td><td>Set-based T-SQL is performant and familiar; mind table-level write conflicts.</td></tr>
+        <tr><td><strong>End-to-end orchestration</strong></td><td>Data pipeline</td><td>None</td><td>Pipelines schedule and sequence notebooks, dataflows, Copy activities and procedures, and are where the batch identifier lives.</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="choose-flow">A decision flow for the tool</h2>
+    <p>The flow reflects the matrix: first decide whether the step moves or transforms data, then walk down the questions until one answers yes. The fall-through at the bottom of each column is the safe default for that kind of step.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 468" role="img" aria-label="Decision flow for choosing a tool: for steps that move data, choose mirroring for a live replica, Copy job for wizard-based incremental copy, otherwise Copy activity; for steps that transform data, choose materialized lake views for stateless SQL, Spark notebooks for MERGE, SCD2 or large volume, Warehouse T-SQL when the target is a Warehouse, otherwise Dataflow Gen2">
+        <defs>
+          <marker id="fig-tool-2-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box blue" x="330" y="12" width="240" height="40" rx="8"/>
+        <text class="t-b" x="450" y="37" text-anchor="middle">What does this step do?</text>
+        <path class="ln" d="M450 52V74H127V96" marker-end="url(#fig-tool-2-a)"/>
+        <path class="ln" d="M450 52V74H567V96" marker-end="url(#fig-tool-2-a)"/>
+
+        <rect class="box gray" x="20" y="96" width="215" height="36" rx="8"/>
+        <text class="t-b" x="127" y="119" text-anchor="middle">Moves data unchanged</text>
+        <rect class="box gray" x="460" y="96" width="215" height="36" rx="8"/>
+        <text class="t-b" x="567" y="119" text-anchor="middle">Transforms data</text>
+
+        <path class="ln" d="M127 132V150" marker-end="url(#fig-tool-2-a)"/>
+        <rect class="box gray" x="20" y="150" width="215" height="50" rx="8"/>
+        <text class="t-s" x="127" y="172" text-anchor="middle">Live replica of a supported</text>
+        <text class="t-s" x="127" y="188" text-anchor="middle">database wanted?</text>
+        <path class="ln" d="M235 175H273" marker-end="url(#fig-tool-2-a)"/>
+        <text class="t-s" x="243" y="169">yes</text>
+        <rect class="box teal" x="275" y="150" width="165" height="50" rx="8"/>
+        <text class="t-b" x="357" y="181" text-anchor="middle">Mirroring</text>
+        <path class="ln" d="M127 200V232" marker-end="url(#fig-tool-2-a)"/>
+        <text class="t-s" x="135" y="220">no</text>
+
+        <rect class="box gray" x="20" y="232" width="215" height="50" rx="8"/>
+        <text class="t-s" x="127" y="254" text-anchor="middle">Incremental copy by wizard,</text>
+        <text class="t-s" x="127" y="270" text-anchor="middle">no custom orchestration?</text>
+        <path class="ln" d="M235 257H273" marker-end="url(#fig-tool-2-a)"/>
+        <text class="t-s" x="243" y="251">yes</text>
+        <rect class="box teal" x="275" y="232" width="165" height="50" rx="8"/>
+        <text class="t-b" x="357" y="263" text-anchor="middle">Copy job</text>
+        <path class="ln" d="M127 282V314" marker-end="url(#fig-tool-2-a)"/>
+        <text class="t-s" x="135" y="302">no</text>
+        <rect class="box teal" x="20" y="314" width="215" height="50" rx="8"/>
+        <text class="t-b" x="127" y="335" text-anchor="middle">Copy activity</text>
+        <text class="t-s" x="127" y="353" text-anchor="middle">in a pipeline</text>
+
+        <path class="ln" d="M567 132V150" marker-end="url(#fig-tool-2-a)"/>
+        <rect class="box gray" x="460" y="150" width="215" height="50" rx="8"/>
+        <text class="t-s" x="567" y="172" text-anchor="middle">Stateless SQL over Delta,</text>
+        <text class="t-s" x="567" y="188" text-anchor="middle">refreshed on a schedule?</text>
+        <path class="ln" d="M675 175H713" marker-end="url(#fig-tool-2-a)"/>
+        <text class="t-s" x="683" y="169">yes</text>
+        <rect class="box purple" x="715" y="150" width="165" height="50" rx="8"/>
+        <text class="t-b" x="797" y="170" text-anchor="middle">Materialized</text>
+        <text class="t-b" x="797" y="188" text-anchor="middle">lake view</text>
+        <path class="ln" d="M567 200V232" marker-end="url(#fig-tool-2-a)"/>
+        <text class="t-s" x="575" y="220">no</text>
+
+        <rect class="box gray" x="460" y="232" width="215" height="50" rx="8"/>
+        <text class="t-s" x="567" y="254" text-anchor="middle">MERGE, SCD2, custom code,</text>
+        <text class="t-s" x="567" y="270" text-anchor="middle">tests or very large volume?</text>
+        <path class="ln" d="M675 257H713" marker-end="url(#fig-tool-2-a)"/>
+        <text class="t-s" x="683" y="251">yes</text>
+        <rect class="box purple" x="715" y="232" width="165" height="50" rx="8"/>
+        <text class="t-b" x="797" y="263" text-anchor="middle">Spark notebook</text>
+        <path class="ln" d="M567 282V314" marker-end="url(#fig-tool-2-a)"/>
+        <text class="t-s" x="575" y="302">no</text>
+
+        <rect class="box gray" x="460" y="314" width="215" height="50" rx="8"/>
+        <text class="t-s" x="567" y="336" text-anchor="middle">Warehouse is the target and</text>
+        <text class="t-s" x="567" y="352" text-anchor="middle">the team writes T-SQL?</text>
+        <path class="ln" d="M675 339H713" marker-end="url(#fig-tool-2-a)"/>
+        <text class="t-s" x="683" y="333">yes</text>
+        <rect class="box purple" x="715" y="314" width="165" height="50" rx="8"/>
+        <text class="t-b" x="797" y="345" text-anchor="middle">Warehouse T-SQL</text>
+        <path class="ln" d="M567 364V396" marker-end="url(#fig-tool-2-a)"/>
+        <text class="t-s" x="575" y="384">no</text>
+        <rect class="box purple" x="460" y="396" width="215" height="50" rx="8"/>
+        <text class="t-b" x="567" y="417" text-anchor="middle">Dataflow Gen2</text>
+        <text class="t-s" x="567" y="435" text-anchor="middle">low to medium volume</text>
+      </svg>
+      <figcaption><b>Move or transform, then the first question answered yes wins.</b> Teal outcomes move data and purple outcomes transform it. A data pipeline orchestrates whichever you land on.</figcaption>
+    </figure>
+
+    <h2 id="selection">Selection criteria beyond capability</h2>
+    <table>
+      <thead><tr><th>Criterion</th><th>Question to ask</th><th>Leans toward</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Team skills</strong></td><td>Who will maintain this at 2 a.m.?</td><td>Power Query team: Dataflow Gen2. SQL team: Warehouse T-SQL or MLV. Python or Spark team: notebooks.</td></tr>
+        <tr><td><strong>Volume and growth</strong></td><td>Does the table reach hundreds of millions of rows or terabytes?</td><td>Spark, or a Spark-backed managed feature, rather than Dataflow Gen2</td></tr>
+        <tr><td><strong>Change-tracking source</strong></td><td>Do you have CDC, a trustworthy watermark, or neither?</td><td>CDC: Copy job, mirroring or Eventstreams. Watermark: pipeline or Copy job. Neither: full load or snapshot comparison in Spark.</td></tr>
+        <tr><td><strong>Logic complexity</strong></td><td>Is it a query, or a procedure with state?</td><td>Query: MLV. State (history, deletes, guards): Spark.</td></tr>
+        <tr><td><strong>Engineering practices</strong></td><td>Do you need code review, unit tests, CI/CD and environment promotion?</td><td>Notebooks and SQL under source control; visual tools need more process around them</td></tr>
+        <tr><td><strong>Observability</strong></td><td>Where will you see lineage, run history and failures?</td><td>Pipelines and MLV lineage views give run-level monitoring; notebooks need your own logging to a control table</td></tr>
+        <tr><td><strong>Downstream engine</strong></td><td>Will Direct Lake, SQL endpoint or Warehouse consume the table?</td><td>Pick a tool whose writes preserve file layout (append, slice replace); avoid full overwrite of large Gold tables</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="anti-patterns">Common anti-patterns</h2>
+    <table>
+      <thead><tr><th>Anti-pattern</th><th>Why it hurts</th><th>Instead</th></tr></thead>
+      <tbody>
+        <tr><td>Dataflow Gen2 for a multi-terabyte Silver <code>MERGE</code></td><td>Replace-only destination semantics and limited scale</td><td>Spark notebook with Delta <code>MERGE</code></td></tr>
+        <tr><td>Copy activity <code>Overwrite</code> to a large Direct Lake Gold table on every run</td><td>Every file is replaced and every column segment evicted</td><td>Append, or replace only the changed slice from Spark</td></tr>
+        <tr><td>Two tools writing the same Delta table (dataflow plus notebook, or Copy job plus <code>MERGE</code>)</td><td>Conflicts, lost bookkeeping, unsupported maintenance operations</td><td>One owner per table; hand over through a separate staging table</td></tr>
+        <tr><td>One bespoke pipeline per table</td><td>Dozens of near-identical pipelines that drift apart</td><td>Metadata-driven pipeline with ForEach and a control table</td></tr>
+        <tr><td>Materialized lake view over a window-function query on a huge source</td><td>Every refresh is a full refresh</td><td>Rewrite with supported constructs, or recompute slices in Spark</td></tr>
+        <tr><td>Business logic hidden inside a Copy activity query or a mapping</td><td>Untestable, invisible to code review and lineage</td><td>Keep movement dumb and put logic in the transformation layer</td></tr>
+        <tr><td>Wall-clock time as the only watermark, stored in a pipeline variable</td><td>Lost on failure, skewed by clocks and late data</td><td>Durable control table updated only after a successful write (see <a href="change-tracking.html#watermark">Change tracking</a>)</td></tr>
+      </tbody>
+    </table>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p><ul>
+      <li>Separate movement tools from transformation tools, and let a data pipeline orchestrate both.</li>
+      <li>Copy activity and Copy job are for getting data in; Spark, Warehouse T-SQL and materialized lake views are for shaping it.</li>
+      <li>Use Spark for stateful logic (<code>MERGE</code>, SCD2, delete handling, slice recompute); use materialized lake views for stateless SQL with a clear incremental fit.</li>
+      <li>Dataflow Gen2 incremental refresh is bucket replace with fixed schema and a single-writer requirement; it suits moderate volumes, not terabyte tables.</li>
+      <li>Give every Delta table exactly one owning tool, and choose tools whose writes preserve file layout for Direct Lake.</li>
+      <li>Prefer metadata-driven pipelines and durable control tables to per-table pipelines and in-memory state.</li>
+    </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/fabric/fundamentals/decision-guide-pipeline-dataflow-spark">Fabric decision guide: copy activity, Copy job, dataflow, Eventstream or Spark</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/decision-guide-data-movement">Data movement decision guide</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/connector-lakehouse-copy-activity">Configure a lakehouse in a copy activity</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/what-is-copy-job">What is Copy job</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/dataflow-gen2-incremental-refresh">Incremental refresh in Dataflow Gen2</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/materialized-lake-views/overview-materialized-lake-view">What are materialized lake views</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/materialized-lake-views/refresh-materialized-lake-view">Optimal refresh for materialized lake views</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/author-tsql-notebook">T-SQL support in Fabric notebooks</a></li>
+        <li><a href="https://learn.microsoft.com/sql/t-sql/statements/merge-transact-sql?view=fabric">MERGE (Transact-SQL) in Fabric</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/mirroring/overview">Mirroring in Fabric</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

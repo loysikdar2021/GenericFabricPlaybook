@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Control flow and failure handling · Hub and Spoke</title>
+<meta name="description" content="Orchestration patterns for a Fabric hub pipeline: sequential, parallel, conditional and metadata-driven flows, plus retries, timeouts, failure semantics, idempotent re-runs and run conditions.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="04-cross-workspace-orchestration" data-page="control-flow.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 04 · Hub and spoke</p>
+      <h1>Control flow and failure handling</h1>
+      <p class="lede">How the hub decides what runs, in what order, how often and what happens when something fails. The page builds from dependency connectors to metadata-driven fan-out, then covers retries, failure semantics, idempotent re-runs and run conditions for cases where a central master is the wrong tool.</p>
+    </header>
+
+    <h2 id="dependency-model">The dependency model</h2>
+    <p>A hub pipeline is a graph of activities joined by connectors. Each activity has four output paths, and which one fires decides what runs next.</p>
+    <table>
+      <thead><tr><th>Output path</th><th>Next activity runs when the previous one</th><th>Typical use in a hub</th></tr></thead>
+      <tbody>
+        <tr><td><strong>On success</strong></td><td>succeeded</td><td>Advance to the next stage</td></tr>
+        <tr><td><strong>On fail</strong></td><td>failed</td><td>Log the failure, notify, fail the hub with a clear message</td></tr>
+        <tr><td><strong>On completion</strong></td><td>finished, whether it succeeded or failed</td><td>Best-effort steps such as notifications that must never block the flow</td></tr>
+        <tr><td><strong>On skip</strong></td><td>was skipped because something upstream did not run</td><td>Rarely needed; used to shape pipeline status (see below)</td></tr>
+      </tbody>
+    </table>
+    <p>Three rules cover most surprises:</p>
+    <ul>
+      <li><strong>No incoming connector means "start now".</strong> Every activity without one starts when the run starts, all in parallel.</li>
+      <li><strong>Several incoming connectors mean "all of them".</strong> An activity with three On success connectors waits for all three. This is your fan-in.</li>
+      <li><strong>One path fires per activity per run.</strong> In the Azure Data Factory documentation of the same engine, an On completion path cannot coexist with On success or On fail paths from the same activity.</li>
+    </ul>
+
+    <h2 id="sequential">Sequential execution</h2>
+    <p>The foundation of a medallion flow: Silver must not start until Bronze has finished successfully. In a hub it is expressed by connecting the On success output of one Invoke pipeline activity to the next, with <em>Wait on completion</em> enabled on each. Without the wait, "success" would mean only that the child was started (see <a href="invoke-pipeline.html#wait">Wait on completion</a>).</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 250" role="img" aria-label="A sequential hub flow logs the start, invokes Bronze, Silver and Gold in order on success, logs success at the end, and sends any failed invocation to a single failure handler that logs and then fails the pipeline">
+        <defs>
+          <marker id="fig-cf-1-ag" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-cf-1-ar" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar red" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box blue" x="20" y="50" width="100" height="60" rx="8"/>
+        <text class="t-b" x="70" y="76" text-anchor="middle">Log start</text>
+        <text class="t-s" x="70" y="94" text-anchor="middle">insert row</text>
+        <rect class="box teal" x="180" y="50" width="140" height="60" rx="8"/>
+        <text class="t-b" x="250" y="76" text-anchor="middle">Invoke Bronze</text>
+        <text class="t-s" x="250" y="94" text-anchor="middle">wait on completion</text>
+        <rect class="box teal" x="380" y="50" width="140" height="60" rx="8"/>
+        <text class="t-b" x="450" y="76" text-anchor="middle">Invoke Silver</text>
+        <text class="t-s" x="450" y="94" text-anchor="middle">wait on completion</text>
+        <rect class="box teal" x="580" y="50" width="140" height="60" rx="8"/>
+        <text class="t-b" x="650" y="76" text-anchor="middle">Invoke Gold</text>
+        <text class="t-s" x="650" y="94" text-anchor="middle">wait on completion</text>
+        <rect class="box green" x="780" y="50" width="100" height="60" rx="8"/>
+        <text class="t-b" x="830" y="76" text-anchor="middle">Log success</text>
+        <text class="t-s" x="830" y="94" text-anchor="middle">insert row</text>
+        <path class="ln green thick" d="M120 80H178" marker-end="url(#fig-cf-1-ag)"/>
+        <path class="ln green thick" d="M320 80H378" marker-end="url(#fig-cf-1-ag)"/>
+        <path class="ln green thick" d="M520 80H578" marker-end="url(#fig-cf-1-ag)"/>
+        <path class="ln green thick" d="M720 80H778" marker-end="url(#fig-cf-1-ag)"/>
+        <text class="t-s c-green" x="149" y="72" text-anchor="middle">success</text>
+        <text class="t-s c-green" x="349" y="72" text-anchor="middle">success</text>
+        <text class="t-s c-green" x="549" y="72" text-anchor="middle">success</text>
+        <text class="t-s c-green" x="749" y="72" text-anchor="middle">success</text>
+        <rect class="box red" x="350" y="170" width="200" height="56" rx="8"/>
+        <text class="t-b" x="450" y="196" text-anchor="middle">Log failure, then Fail</text>
+        <text class="t-s" x="450" y="214" text-anchor="middle">pipeline ends as failed</text>
+        <path class="ln red" d="M250 110V140H400V168" marker-end="url(#fig-cf-1-ar)"/>
+        <path class="ln red" d="M450 110V168" marker-end="url(#fig-cf-1-ar)"/>
+        <path class="ln red" d="M650 110V140H500V168" marker-end="url(#fig-cf-1-ar)"/>
+        <text class="t-s c-red" x="262" y="132">fail</text>
+        <text class="t-s c-red" x="458" y="132">fail</text>
+        <text class="t-s c-red" x="592" y="132">fail</text>
+      </svg>
+      <figcaption><b>Order by dependency, not by schedule offset.</b> Green connectors carry the happy path; every Invoke has an On fail connector to one shared failure handler, so any stage can stop the run and the log always says where.</figcaption>
+    </figure>
+
+    <h2 id="parallel">Parallel execution: fan-out and fan-in</h2>
+    <p>Independent work should not queue behind itself. Ingesting three domains is the classic case: the three Invoke activities have no dependency on each other, so they start together, and the stage that needs all three has three On success connectors, so it waits for the slowest.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 295" role="img" aria-label="Three ingest invocations start in parallel after the start log and all three connect on success into the Silver invocation, which therefore starts only when the slowest of them has succeeded">
+        <defs>
+          <marker id="fig-cf-2-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-cf-2-ag" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box blue" x="20" y="100" width="110" height="60" rx="8"/>
+        <text class="t-b" x="75" y="126" text-anchor="middle">Log start</text>
+        <text class="t-s" x="75" y="144" text-anchor="middle">fan-out point</text>
+        <rect class="box teal" x="200" y="30" width="170" height="50" rx="8"/>
+        <text class="t-b" x="285" y="52" text-anchor="middle">Invoke SALES ingest</text>
+        <text class="t-s" x="285" y="68" text-anchor="middle">wait on completion</text>
+        <rect class="box teal" x="200" y="105" width="170" height="50" rx="8"/>
+        <text class="t-b" x="285" y="127" text-anchor="middle">Invoke FINANCE ingest</text>
+        <text class="t-s" x="285" y="143" text-anchor="middle">wait on completion</text>
+        <rect class="box teal" x="200" y="180" width="170" height="50" rx="8"/>
+        <text class="t-b" x="285" y="202" text-anchor="middle">Invoke HR ingest</text>
+        <text class="t-s" x="285" y="218" text-anchor="middle">wait on completion</text>
+        <rect class="box teal" x="470" y="100" width="170" height="60" rx="8"/>
+        <text class="t-b" x="555" y="126" text-anchor="middle">Invoke Silver</text>
+        <text class="t-s" x="555" y="144" text-anchor="middle">after all three succeed</text>
+        <rect class="box green" x="740" y="100" width="140" height="60" rx="8"/>
+        <text class="t-b" x="810" y="126" text-anchor="middle">Log success</text>
+        <text class="t-s" x="810" y="144" text-anchor="middle">fan-in complete</text>
+        <path class="ln" d="M130 130H165V55H198" marker-end="url(#fig-cf-2-a)"/>
+        <path class="ln" d="M130 130H198" marker-end="url(#fig-cf-2-a)"/>
+        <path class="ln" d="M130 130H165V205H198" marker-end="url(#fig-cf-2-a)"/>
+        <path class="ln green thick" d="M370 55H420V130H468" marker-end="url(#fig-cf-2-ag)"/>
+        <path class="ln green thick" d="M370 130H468" marker-end="url(#fig-cf-2-ag)"/>
+        <path class="ln green thick" d="M370 205H420V130H468" marker-end="url(#fig-cf-2-ag)"/>
+        <path class="ln green thick" d="M640 130H738" marker-end="url(#fig-cf-2-ag)"/>
+        <text class="t-s" x="555" y="92" text-anchor="middle">join: all must succeed</text>
+        <text class="t-s c-green" x="689" y="122" text-anchor="middle">success</text>
+        <rect class="box gray" x="200" y="248" width="440" height="34" rx="8"/>
+        <text class="t-s" x="420" y="270" text-anchor="middle">Parallel branches share capacity and can throttle each other</text>
+      </svg>
+      <figcaption><b>Fan-out is the absence of a connector; fan-in is several connectors into one activity.</b> The branches finish in any order and the join waits for the last one.</figcaption>
+    </figure>
+    <p>Two design points matter more than the drawing:</p>
+    <ul>
+      <li><strong>Parallelism competes for capacity.</strong> Three spokes that each start a Spark session or a large copy at the same minute can throttle one another, especially when they share a capacity. Parallelize across spokes on separate capacities freely; cap it when they share one.</li>
+      <li><strong>The join needs a failure policy.</strong> If one of three ingests fails, should Silver run on the two that succeeded? The default (On success from all three) says no. If the answer is "yes, for the domains that loaded", use On completion connectors into an If condition that checks each outcome, as in the pattern below.</li>
+    </ul>
+<pre data-title="If condition expression: proceed if at least two of three ingests succeeded"><code class="language-text">@greaterOrEquals(
+  add(
+    add(
+      if(equals(activity('Invoke SALES ingest').status, 'Succeeded'), 1, 0),
+      if(equals(activity('Invoke FINANCE ingest').status, 'Succeeded'), 1, 0)),
+    if(equals(activity('Invoke HR ingest').status, 'Succeeded'), 1, 0)),
+  2)</code></pre>
+
+    <h2 id="conditional">Conditional execution and dynamic parameters</h2>
+    <p>If condition and Switch let the hub choose at run time. The inputs are expressions over parameters, variables, system values and earlier activity outputs.</p>
+    <table>
+      <thead><tr><th>Need</th><th>Activity</th><th>Expression</th></tr></thead>
+      <tbody>
+        <tr><td>Full refresh on one weekday, incremental otherwise</td><td>If condition</td><td><code>@equals(dayOfWeek(utcnow()), 0)</code> (Sunday is 0)</td></tr>
+        <tr><td>Skip the stage when nothing new arrived</td><td>Lookup, then If condition</td><td><code>@greater(activity('LookupNewRows').output.firstRow.new_rows, 0)</code></td></tr>
+        <tr><td>Choose a load mode passed by the caller</td><td>Switch</td><td><code>@pipeline().parameters.loadMode</code> with cases <code>full</code> and <code>incremental</code>, and a default that fails</td></tr>
+        <tr><td>Different spokes per environment</td><td>If condition or variable library</td><td>Prefer a variable library value over an environment name test (see <a href="operations.html#object-ids">the item-ID problem</a>)</td></tr>
+      </tbody>
+    </table>
+
+    <h3 id="dynamic-params">Where parameter values come from</h3>
+    <p>Spoke pipelines should be generic black boxes with no hard-coded server names, paths or tables; the hub supplies the concrete values on every call. The values can come from:</p>
+    <ul>
+      <li><strong>Hub pipeline parameters</strong>, set by the trigger or a manual run (for example <code>runDate</code> when re-running a past window).</li>
+      <li><strong>Hub variables</strong>, set by a Set variable activity earlier in the run and used for values computed once.</li>
+      <li><strong>Lookup outputs</strong>, for metadata-driven calls from a control table.</li>
+      <li><strong>System values and functions</strong>, such as <code>@pipeline().RunId</code> and <code>@utcnow()</code>.</li>
+      <li><strong>Variable library values</strong>, for settings that differ per environment: referenced as library variables in the pipeline and used in dynamic content.</li>
+    </ul>
+    <p>The effect is a clean separation: the spoke's logic never knows its execution context, and the hub owns that context explicitly and visibly.</p>
+
+    <h2 id="foreach">Metadata-driven fan-out with ForEach</h2>
+    <p>Hard-wiring one Invoke activity per spoke does not scale past a handful, and every new spoke needs a hub deployment. The alternative is a control table that lists what to run, a Lookup activity that reads it, and a ForEach that invokes one pipeline per row. This is the pattern behind the <a href="../10-control-table-pipelines/index.html">control-table pipelines playbook</a>, applied to orchestration.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 260" role="img" aria-label="A Lookup reads the orchestration plan table, a ForEach with batch count four invokes four spoke pipelines at a time while the remaining items wait in a queue, and the next stage runs when every item has ended">
+        <defs>
+          <marker id="fig-cf-3-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-cf-3-ag" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box teal" x="20" y="90" width="170" height="70" rx="8"/>
+        <text class="t-b" x="105" y="118" text-anchor="middle">Lookup</text>
+        <text class="t-s" x="105" y="138" text-anchor="middle">ops.orchestration_plan</text>
+        <rect class="zone" x="240" y="30" width="440" height="200" rx="12"/>
+        <text class="t-s" x="254" y="50">ForEach · batch count 4 (maximum 50)</text>
+        <rect class="box teal" x="258" y="70" width="96" height="56" rx="8"/>
+        <text class="t-b" x="306" y="94" text-anchor="middle">Invoke</text>
+        <text class="t-s" x="306" y="112" text-anchor="middle">item 1</text>
+        <rect class="box teal" x="364" y="70" width="96" height="56" rx="8"/>
+        <text class="t-b" x="412" y="94" text-anchor="middle">Invoke</text>
+        <text class="t-s" x="412" y="112" text-anchor="middle">item 2</text>
+        <rect class="box teal" x="470" y="70" width="96" height="56" rx="8"/>
+        <text class="t-b" x="518" y="94" text-anchor="middle">Invoke</text>
+        <text class="t-s" x="518" y="112" text-anchor="middle">item 3</text>
+        <rect class="box teal" x="576" y="70" width="96" height="56" rx="8"/>
+        <text class="t-b" x="624" y="94" text-anchor="middle">Invoke</text>
+        <text class="t-s" x="624" y="112" text-anchor="middle">item 4</text>
+        <rect class="box gray dashed" x="258" y="150" width="414" height="56" rx="8"/>
+        <text class="t-b" x="465" y="174" text-anchor="middle">Queued: items 5 to N</text>
+        <text class="t-s" x="465" y="192" text-anchor="middle">start as slots free up</text>
+        <rect class="box green" x="730" y="90" width="150" height="70" rx="8"/>
+        <text class="t-b" x="805" y="118" text-anchor="middle">Next stage</text>
+        <text class="t-s" x="805" y="138" text-anchor="middle">when every item ends</text>
+        <path class="ln" d="M190 125H238" marker-end="url(#fig-cf-3-a)"/>
+        <path class="ln green thick" d="M680 125H728" marker-end="url(#fig-cf-3-ag)"/>
+        <text class="t-s" x="214" y="116" text-anchor="middle">rows</text>
+        <text class="t-s c-green" x="704" y="116" text-anchor="middle">then</text>
+      </svg>
+      <figcaption><b>Batch count is a ceiling, not a promise.</b> It caps how many iterations run at once; the platform does not guarantee that many will run concurrently. Size it to what your capacity can absorb, not to the maximum.</figcaption>
+    </figure>
+<pre data-title="Warehouse query editor: the orchestration plan table (T-SQL)"><code class="language-sql">CREATE SCHEMA ops;
+
+CREATE TABLE ops.orchestration_plan (
+    plan_name     VARCHAR(100) NOT NULL,  -- for example 'sales_daily'
+    stage         INT          NOT NULL,  -- 1 ingest, 2 conform, 3 model
+    logical_name  VARCHAR(200) NOT NULL,  -- stable name such as 'PL_SALES_BRZ_Ingest'
+    workspace_id  VARCHAR(36)  NOT NULL,  -- differs per environment
+    pipeline_id   VARCHAR(36)  NOT NULL,  -- differs per environment
+    enabled       BIT          NOT NULL
+);
+
+INSERT INTO ops.orchestration_plan VALUES
+ ('sales_daily', 1, 'PL_SALES_BRZ_Ingest', '&lt;workspace-id&gt;', '&lt;pipeline-id&gt;', 1),
+ ('sales_daily', 2, 'PL_SALES_SLV_Conform', '&lt;workspace-id&gt;', '&lt;pipeline-id&gt;', 1);</code></pre>
+<pre data-title="Pipeline expressions for the Lookup, ForEach and inner Invoke"><code class="language-text">Lookup  (query):    SELECT logical_name, workspace_id, pipeline_id
+                    FROM ops.orchestration_plan
+                    WHERE plan_name = '@{pipeline().parameters.planName}'
+                      AND stage = 1 AND enabled = 1
+Lookup  (first row only): off
+ForEach (Items):    @activity('LookupStage1').output.value
+ForEach (Batch count): 4        Sequential: off
+Invoke  (Workspace): @item().workspace_id
+Invoke  (Pipeline):  @item().pipeline_id
+Invoke  (Parameters): batchId = @item().logical_name + the run date key</code></pre>
+    <p>Constraints to design around:</p>
+    <ul>
+      <li>ForEach handles up to 100,000 items with a default parallelism of 20 and a maximum of 50; the Lookup that feeds it is limited to 5,000 rows.</li>
+      <li>A ForEach cannot directly contain another ForEach. When you need a loop inside a loop, put the inner loop in a child pipeline and invoke it from the outer one.</li>
+      <li>Variables are scoped to the pipeline run, not to a ForEach iteration. Setting a variable inside a parallel ForEach produces races; write results to the run log from the child instead.</li>
+      <li>Putting the plan table in a Warehouse or Lakehouse per environment gives you the logical-name-to-ID mapping that also solves part of the <a href="operations.html#object-ids">item-ID problem</a>.</li>
+    </ul>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>Confirm in your tenant that the Invoke activity's Workspace and Pipeline fields accept <code>@item()</code> expressions, and re-check the nesting rule for ForEach, before building a plan-driven hub. <a href="https://learn.microsoft.com/fabric/data-factory/foreach-activity">ForEach activity</a> and <a href="https://learn.microsoft.com/fabric/data-factory/data-factory-limitations">Data Factory limitations</a>.</p></div>
+
+    <h2 id="retries-timeouts">Retries and timeouts</h2>
+    <p>Retry and timeout are per-activity policies on the General tab. For an Invoke pipeline activity they apply to the whole child run, which changes how you should use them.</p>
+    <table>
+      <thead><tr><th>Setting</th><th>Behaviour</th><th>Guidance</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Timeout</strong></td><td>Default 12 hours, in <code>D.HH:MM:SS</code> format</td><td>Set it to the child's SLA plus margin. A hung child that holds the default for half a day blocks every downstream stage and its capacity.</td></tr>
+        <tr><td><strong>Enable retries / Retry</strong></td><td>Number of retries, 1 to 1,000; the default is 1</td><td>Retry transient failures at the leaf activity (Copy, Notebook) first.</td></tr>
+        <tr><td><strong>Retry interval type</strong></td><td><em>Fixed</em> (default, 30 seconds) or <em>Increasing delay</em> (exponential back-off from the interval up to a maximum, default 3,600 seconds, with random jitter)</td><td>Fixed for brief, predictable blips; increasing delay for throttling and outages. Interval fields must be static values, not expressions.</td></tr>
+        <tr><td><strong>Retry conditions</strong> <span class="badge preview">Preview</span></td><td>Retry only when the error message, failure type or error code matches (for example code 429)</td><td>Avoid wasting retries on authentication or permission errors. The retry interval is waited <em>before</em> the condition is evaluated. Supported for specific activity types, including Copy, Notebook, Dataflow and Stored procedure.</td></tr>
+        <tr><td><strong>Secure input / output</strong></td><td>Hide activity input or output from logs</td><td>Turn on wherever parameters carry anything sensitive.</td></tr>
+      </tbody>
+    </table>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 250" role="img" aria-label="Retries multiply: a hub Invoke activity with two retries makes three attempts, and a child Copy with three retries makes four attempts each time, so a persistent failure produces twelve copy attempts before the hub fails">
+        <defs>
+          <marker id="fig-cf-4-ar" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar red" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <text class="t-h" x="20" y="26">Hub Invoke retry = 2, child Copy retry = 3</text>
+        <rect class="zone red" x="20" y="40" width="270" height="130" rx="12"/>
+        <text class="t-s" x="34" y="60">Hub attempt 1</text>
+        <rect class="box red" x="34" y="80" width="52" height="36" rx="6"/>
+        <text class="t-s" x="60" y="102" text-anchor="middle">copy 1</text>
+        <rect class="box red" x="94" y="80" width="52" height="36" rx="6"/>
+        <text class="t-s" x="120" y="102" text-anchor="middle">copy 2</text>
+        <rect class="box red" x="154" y="80" width="52" height="36" rx="6"/>
+        <text class="t-s" x="180" y="102" text-anchor="middle">copy 3</text>
+        <rect class="box red" x="214" y="80" width="52" height="36" rx="6"/>
+        <text class="t-s" x="240" y="102" text-anchor="middle">copy 4</text>
+        <text class="t-s" x="34" y="148">child fails after 4 tries</text>
+        <rect class="zone red" x="320" y="40" width="270" height="130" rx="12"/>
+        <text class="t-s" x="334" y="60">Hub attempt 2</text>
+        <rect class="box red" x="334" y="80" width="52" height="36" rx="6"/>
+        <text class="t-s" x="360" y="102" text-anchor="middle">copy 1</text>
+        <rect class="box red" x="394" y="80" width="52" height="36" rx="6"/>
+        <text class="t-s" x="420" y="102" text-anchor="middle">copy 2</text>
+        <rect class="box red" x="454" y="80" width="52" height="36" rx="6"/>
+        <text class="t-s" x="480" y="102" text-anchor="middle">copy 3</text>
+        <rect class="box red" x="514" y="80" width="52" height="36" rx="6"/>
+        <text class="t-s" x="540" y="102" text-anchor="middle">copy 4</text>
+        <text class="t-s" x="334" y="148">child restarts from the top</text>
+        <rect class="zone red" x="620" y="40" width="260" height="130" rx="12"/>
+        <text class="t-s" x="634" y="60">Hub attempt 3</text>
+        <rect class="box red" x="634" y="80" width="52" height="36" rx="6"/>
+        <text class="t-s" x="660" y="102" text-anchor="middle">copy 1</text>
+        <rect class="box red" x="694" y="80" width="52" height="36" rx="6"/>
+        <text class="t-s" x="720" y="102" text-anchor="middle">copy 2</text>
+        <rect class="box red" x="754" y="80" width="52" height="36" rx="6"/>
+        <text class="t-s" x="780" y="102" text-anchor="middle">copy 3</text>
+        <rect class="box red" x="814" y="80" width="52" height="36" rx="6"/>
+        <text class="t-s" x="840" y="102" text-anchor="middle">copy 4</text>
+        <text class="t-s" x="634" y="148">hub gives up and fails</text>
+        <path class="ln red" d="M290 105H318" marker-end="url(#fig-cf-4-ar)"/>
+        <path class="ln red" d="M590 105H618" marker-end="url(#fig-cf-4-ar)"/>
+        <rect class="box red" x="20" y="190" width="860" height="44" rx="8"/>
+        <text class="t-b" x="450" y="217" text-anchor="middle">Worst case: 3 hub attempts × 4 copy attempts = 12 copy runs before the hub finally fails</text>
+      </svg>
+      <figcaption><b>Retry at one level.</b> Stacked retries multiply attempts and elapsed time, and a retried Invoke re-runs the whole child. Retry transient errors at the leaf, keep the Invoke retry at zero or one, and make every child idempotent so a repeat is harmless.</figcaption>
+    </figure>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>A timeout on an Invoke activity fails the activity, but the documentation does not say whether the running child is cancelled. Set timeouts on the child's own activities as well, and test cancel behaviour in your tenant. <a href="https://learn.microsoft.com/fabric/data-factory/activity-retries">Activity retries</a> and <a href="https://learn.microsoft.com/fabric/data-factory/activity-overview">Activity overview</a>.</p></div>
+
+    <h2 id="failure-handling">Failure handling and pipeline status</h2>
+    <p>How a pipeline ends depends on how you wired its failure paths, and the obvious wiring is wrong. The engine decides pipeline status from the <em>leaf</em> activities: it evaluates every leaf (an activity with no outgoing connectors), looks at the parent instead when a leaf was skipped, and reports success only if everything it evaluates succeeded. The Azure Data Factory documentation of the same engine names three shapes.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 256" role="img" aria-label="Three failure-handling shapes and the pipeline status each produces when the first activity fails: Try-Catch ends succeeded and masks the failure, Do-If-Else ends failed after logging, and Log then Fail ends failed with a custom error">
+        <defs>
+          <marker id="fig-cf-5-ag" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-cf-5-ar" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar red" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="zone" x="10" y="10" width="290" height="236" rx="12"/>
+        <text class="t-h" x="26" y="34">Try-Catch</text>
+        <rect class="box teal" x="26" y="86" width="60" height="44" rx="8"/>
+        <text class="t-b" x="56" y="113" text-anchor="middle">Invoke</text>
+        <rect class="box blue" x="126" y="86" width="60" height="44" rx="8"/>
+        <text class="t-b" x="156" y="113" text-anchor="middle">Log</text>
+        <path class="ln red" d="M86 108H124" marker-end="url(#fig-cf-5-ar)"/>
+        <text class="t-s c-red" x="105" y="100" text-anchor="middle">fail</text>
+        <rect class="box green" x="26" y="170" width="260" height="40" rx="8"/>
+        <text class="t-b" x="156" y="195" text-anchor="middle">Pipeline ends: Succeeded</text>
+        <text class="t-s c-red" x="156" y="230" text-anchor="middle">The failure is masked</text>
+
+        <rect class="zone" x="305" y="10" width="290" height="236" rx="12"/>
+        <text class="t-h" x="321" y="34">Do-If-Else</text>
+        <rect class="box teal" x="321" y="86" width="60" height="44" rx="8"/>
+        <text class="t-b" x="351" y="113" text-anchor="middle">Invoke</text>
+        <rect class="box teal" x="421" y="56" width="60" height="40" rx="8"/>
+        <text class="t-b" x="451" y="80" text-anchor="middle">Next</text>
+        <rect class="box blue" x="421" y="120" width="60" height="40" rx="8"/>
+        <text class="t-b" x="451" y="144" text-anchor="middle">Log</text>
+        <path class="ln green" d="M381 98H401V76H419" marker-end="url(#fig-cf-5-ag)"/>
+        <path class="ln red" d="M381 118H401V140H419" marker-end="url(#fig-cf-5-ar)"/>
+        <text class="t-s c-green" x="403" y="72">ok</text>
+        <text class="t-s c-red" x="405" y="158">fail</text>
+        <rect class="box red" x="321" y="170" width="260" height="40" rx="8"/>
+        <text class="t-b" x="451" y="195" text-anchor="middle">Pipeline ends: Failed</text>
+        <text class="t-s c-green" x="451" y="230" text-anchor="middle">The log runs and the status stays honest</text>
+
+        <rect class="zone" x="600" y="10" width="290" height="236" rx="12"/>
+        <text class="t-h" x="616" y="34">Log, then Fail</text>
+        <rect class="box teal" x="616" y="86" width="60" height="44" rx="8"/>
+        <text class="t-b" x="646" y="113" text-anchor="middle">Invoke</text>
+        <rect class="box blue" x="716" y="86" width="60" height="44" rx="8"/>
+        <text class="t-b" x="746" y="113" text-anchor="middle">Log</text>
+        <rect class="box red" x="816" y="86" width="60" height="44" rx="8"/>
+        <text class="t-b" x="846" y="113" text-anchor="middle">Fail</text>
+        <path class="ln red" d="M676 108H714" marker-end="url(#fig-cf-5-ar)"/>
+        <path class="ln red" d="M776 108H814" marker-end="url(#fig-cf-5-ar)"/>
+        <text class="t-s c-red" x="695" y="100" text-anchor="middle">fail</text>
+        <rect class="box red" x="616" y="170" width="260" height="40" rx="8"/>
+        <text class="t-b" x="746" y="195" text-anchor="middle">Pipeline ends: Failed</text>
+        <text class="t-s c-green" x="746" y="230" text-anchor="middle">Custom error code and message</text>
+      </svg>
+      <figcaption><b>A handled failure can turn the run green.</b> Try-Catch is the right shape inside a spoke for a clean-up step you intend to recover from, and the wrong shape in a hub, where a green run with a failed spoke is the worst outcome.</figcaption>
+    </figure>
+    <p>For the hub, adopt one rule: <strong>define both the On success and On fail paths of every Invoke</strong> (the Do-If-Else shape), and end the failure path with a <strong>Fail activity</strong> when you want a specific error message and code in the run history. Use On completion only for best-effort steps such as notifications. Verify the behaviour with a deliberate failure in the workshop before you trust it.</p>
+    <table>
+      <thead><tr><th>Gate pattern</th><th>How</th><th>Use when</th></tr></thead>
+      <tbody>
+        <tr><td>Strict dependency</td><td>On success connectors, Wait on completion on</td><td>The next stage must not run on partial data (default)</td></tr>
+        <tr><td>Freshness gate</td><td>Lookup against the run log or source, If condition, skip or Fail</td><td>Skip a stage when nothing changed, or stop when an upstream feed is late</td></tr>
+        <tr><td>Skip if already done</td><td>Lookup the log for this <code>batchId</code> and pipeline; skip when status is Succeeded</td><td>Whole-hub re-runs that should not repeat finished stages</td></tr>
+        <tr><td>Readiness wait</td><td>Until activity with Wait and a check, with a bounded timeout</td><td>An external feed whose arrival time varies; always end in a Fail on timeout</td></tr>
+        <tr><td>Manual gate</td><td>Approval activity, which pauses the run and asks designated reviewers to approve or reject</td><td>A human decision before a sensitive stage</td></tr>
+        <tr><td>Best effort</td><td>On completion connector</td><td>Notifications and housekeeping that must never block the main path</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="idempotency">Idempotency and re-runs</h2>
+    <p>In a distributed batch, re-running is routine: a transient fault, a late file, a fixed bug. Design every spoke so that running it twice with the same parameters leaves the same result as running it once. Then a re-run is an operation, not an incident.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 250" role="img" aria-label="First run: Bronze succeeds and Silver fails. Re-run from the failed activity: Bronze is kept and Silver succeeds with the same batch ID without duplicating data. Re-run everything: Bronze reloads the same batch safely only if it is idempotent">
+        <defs>
+          <marker id="fig-cf-6-ag" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-cf-6-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="lane" x="10" y="10" width="880" height="70" rx="8"/>
+        <text class="t-b" x="24" y="50">First run</text>
+        <rect class="box green" x="200" y="23" width="150" height="44" rx="8"/>
+        <text class="t-b" x="275" y="50" text-anchor="middle">Bronze · succeeded</text>
+        <rect class="box red" x="400" y="23" width="150" height="44" rx="8"/>
+        <text class="t-b" x="475" y="50" text-anchor="middle">Silver · failed</text>
+        <path class="ln green" d="M350 45H398" marker-end="url(#fig-cf-6-ag)"/>
+        <text class="t-s" x="580" y="50">Gold never starts</text>
+        <rect class="lane" x="10" y="90" width="880" height="70" rx="8"/>
+        <text class="t-b" x="24" y="130">Re-run failed step</text>
+        <rect class="box gray dashed" x="200" y="103" width="150" height="44" rx="8"/>
+        <text class="t-b" x="275" y="130" text-anchor="middle">Bronze · kept</text>
+        <rect class="box green" x="400" y="103" width="150" height="44" rx="8"/>
+        <text class="t-b" x="475" y="130" text-anchor="middle">Silver · succeeded</text>
+        <path class="ln" d="M350 125H398" marker-end="url(#fig-cf-6-a)"/>
+        <text class="t-s" x="580" y="130">same batchId: overwrites, no duplicates</text>
+        <rect class="lane" x="10" y="170" width="880" height="70" rx="8"/>
+        <text class="t-b" x="24" y="210">Re-run everything</text>
+        <rect class="box green" x="200" y="183" width="150" height="44" rx="8"/>
+        <text class="t-b" x="275" y="210" text-anchor="middle">Bronze · reloaded</text>
+        <rect class="box green" x="400" y="183" width="150" height="44" rx="8"/>
+        <text class="t-b" x="475" y="210" text-anchor="middle">Silver · succeeded</text>
+        <path class="ln green" d="M350 205H398" marker-end="url(#fig-cf-6-ag)"/>
+        <text class="t-s" x="580" y="210">Bronze reloads the same batch (must be idempotent)</text>
+      </svg>
+      <figcaption><b>Re-running is cheap only if the writes are safe.</b> A re-run from the failed step skips what already finished; a re-run of everything repeats every write, so each write must tolerate being repeated.</figcaption>
+    </figure>
+    <table>
+      <thead><tr><th>Technique</th><th>Where</th><th>How it makes a repeat harmless</th></tr></thead>
+      <tbody>
+        <tr><td>Deterministic <code>batchId</code></td><td>Hub to every spoke</td><td>Derived from the logical window, not the run ID, so every repeat targets the same slice.</td></tr>
+        <tr><td>Overwrite the slice</td><td>Copy sink on small tables; partition or window overwrite in Spark</td><td>The repeat replaces the slice instead of appending to it.</td></tr>
+        <tr><td>Merge on a business key</td><td>Silver and Gold loads</td><td>The repeat updates existing rows; see the <a href="../02-data-load-strategy/index.html">data load strategy playbook</a>.</td></tr>
+        <tr><td>Advance watermarks after commit</td><td>Incremental loads</td><td>A failed run leaves the watermark where it was, so the next run covers the gap.</td></tr>
+        <tr><td>Skip-if-done check</td><td>Hub, before an expensive stage</td><td>The log says this <code>batchId</code> already succeeded here, so the stage is skipped.</td></tr>
+      </tbody>
+    </table>
+    <p><strong>Re-run mechanics.</strong> From the Monitoring hub you can re-run a pipeline run. The new Monitoring hub (preview) documents re-running the entire pipeline, only the failed activities, or selected activities. A re-run of an Invoke activity starts a new child run, so plan for the child to start from its first activity again; that is the other reason children must be idempotent. When you re-run a past window, pass the explicit <code>runDate</code> so the <code>batchId</code> matches the original.</p>
+
+    <h2 id="run-conditions">Run conditions: dependencies without a central master</h2>
+    <p>Run conditions let a pipeline declare what it is waiting for before it starts, instead of a hub invoking it. They suit cases where spokes are scheduled by their own teams but still need to respect each other.</p>
+    <table>
+      <thead><tr><th>Type</th><th>Waits for</th><th>Example</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Custom</strong></td><td>One or more upstream pipelines whose runs match a <em>run dimension</em> (processing date, region, batch, tenant) and a connection</td><td>Transform after ingest and validation both finish for the same region and date</td></tr>
+        <tr><td><strong>Data availability</strong></td><td>Required files in OneLake or Azure Data Lake Storage</td><td>Parquet files under an input path before ingestion starts</td></tr>
+        <tr><td><strong>Window coverage</strong></td><td>Upstream interval-based schedule windows that cover the downstream window</td><td>A daily run after all hourly upstream windows succeed</td></tr>
+      </tbody>
+    </table>
+    <div class="callout warning"><p class="callout-title">Preview, with semantics to design around</p><p>Run conditions are in preview. A run dimension value is evaluated once for a downstream pipeline: if the downstream already ran for that value, later upstream runs with the same value do not start it again, so a re-run needs a new dimension value. Cross-workspace dependencies require access to both pipelines, and renaming or moving an upstream pipeline breaks the dependency silently until you review it. <a href="https://learn.microsoft.com/fabric/data-factory/pipeline-run-conditions">Run conditions in Fabric pipelines</a>.</p></div>
+    <table>
+      <thead><tr><th>Question</th><th>Hub-and-spoke invoke</th><th>Run conditions</th></tr></thead>
+      <tbody>
+        <tr><td>Where does the order live?</td><td>One master pipeline, visible in one place</td><td>Spread across each downstream pipeline's settings</td></tr>
+        <tr><td>Who decides failure policy?</td><td>The hub, centrally</td><td>Each downstream pipeline, individually</td></tr>
+        <tr><td>Coupling</td><td>Hub knows every spoke by ID</td><td>Downstream knows its upstream by name and dimension</td></tr>
+        <tr><td>Fit</td><td>Platform-owned batch with an operations team</td><td>Autonomous teams with their own schedules</td></tr>
+      </tbody>
+    </table>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p><ul>
+      <li>Express order with On success connectors and Wait on completion; express "all of these first" with several connectors into one activity.</li>
+      <li>Define both On success and On fail on every Invoke, end failures with a Fail activity, and test that a broken spoke turns the hub red.</li>
+      <li>Retry at the leaf, not at every level. Stacked retries multiply; set timeouts to the SLA, not the 12-hour default.</li>
+      <li>Drive fan-out from a control table and cap the ForEach batch count to what the capacity can absorb.</li>
+      <li>Make every spoke idempotent with a deterministic <code>batchId</code>, so re-running is an operation and not an incident.</li>
+    </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/activity-overview">Activity overview (general settings, control flow activities)</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/activity-retries">Activity retries in Fabric Data Factory</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/foreach-activity">ForEach activity</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/fail-activity">Fail activity</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/expression-language">Expressions and functions for Data Factory in Microsoft Fabric</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/pipeline-run-conditions">Run conditions in Fabric pipelines (preview)</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/monitor-pipeline-runs-new-monitoring-hub">Monitor pipeline runs in the new Monitoring hub (preview)</a></li>
+        <li><a href="https://learn.microsoft.com/azure/data-factory/tutorial-pipeline-failure-error-handling">Errors and conditional execution (Azure Data Factory)</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

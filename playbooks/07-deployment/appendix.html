@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Appendix: IDs and rule values · Deployment Pipelines</title>
+<meta name="description" content="A notebook that inventories lakehouses, warehouses, semantic models and notebooks across workspaces, the queries that return the values for deployment rules, and a template to record them per stage.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="07-deployment" data-page="appendix.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 07 · Deployment Pipelines</p>
+      <h1>Appendix: collecting IDs and rule values</h1>
+      <p class="lede">Deployment rules need workspace IDs, item IDs and SQL connection strings for every target stage. Collecting them by hand from URLs invites typos. This appendix collects them programmatically into a table and gives a template to record what you configured.</p>
+    </header>
+<h2 id="inventory-notebook">Inventory notebook</h2>
+<p>Run this PySpark notebook from a lakehouse you can write to. It lists the workspaces whose names match a pattern, reads the lakehouses, warehouses, semantic models and notebooks in them, adds the SQL endpoint details for lakehouses and warehouses, and writes the result to Delta tables with a prefix.</p>
+<ul>
+<li>The running identity needs at least <strong>Viewer</strong> on each workspace it reads. It sees only workspaces it has access to.</li>
+<li>The notebook obtains a token with <code>notebookutils.credentials.getToken("pbi")</code>. Valid audiences are <code>storage</code>, <code>pbi</code>, <code>keyvault</code> and <code>kusto</code>; arbitrary resource URLs are not accepted. A service principal token obtained this way can have limited scopes, so run the notebook as a user for the broadest view.</li>
+<li>List endpoints are paged. The helper follows <code>continuationToken</code> until the list is complete, and honours <code>Retry-After</code> when throttled.</li>
+</ul>
+<pre data-title="Notebook cell: collect workspace, item and SQL endpoint details"><code class="language-python">import re
+import time
+
+import notebookutils
+import requests
+from pyspark.sql.types import StringType, StructField, StructType
+
+FABRIC_API = "https://api.fabric.microsoft.com/v1"
+WORKSPACE_NAME_PATTERN = r"^(DEV|TST|PRD)_SALES_"   # limit the scan to your platform's workspaces
+TARGET_TYPES = {"Lakehouse", "Warehouse", "SemanticModel", "Notebook"}
+TABLE_PREFIX = "fabric_"
+SAVE_TO_LAKEHOUSE = True                            # needs a default lakehouse attached to this notebook
+
+# Valid audiences: storage, pbi, keyvault, kusto. Never print or store the token.
+HEADERS = {"Authorization": f"Bearer {notebookutils.credentials.getToken('pbi')}"}
+
+
+def get_json(url, params=None, retries=5):
+    """GET with retry on throttling (429) and transient server errors."""
+    for attempt in range(1, retries + 1):
+        resp = requests.get(url, headers=HEADERS, params=params, timeout=60)
+        if resp.status_code == 429 or resp.status_code &gt;= 500:
+            time.sleep(int(resp.headers.get("Retry-After", min(10 * attempt, 60))))
+            continue
+        resp.raise_for_status()
+        return resp.json()
+    raise RuntimeError(f"GET {url} failed after {retries} attempts (last status {resp.status_code})")
+
+
+def get_all(url, params=None):
+    """Follow continuationToken until the list is complete."""
+    rows, params = [], dict(params or {})
+    while True:
+        page = get_json(url, params)
+        rows.extend(page.get("value", []))
+        next_token = page.get("continuationToken")
+        if not next_token:
+            return rows
+        params["continuationToken"] = next_token
+
+
+workspaces = [w for w in get_all(f"{FABRIC_API}/workspaces") if re.search(WORKSPACE_NAME_PATTERN, w["displayName"])]
+print(f"Workspaces matched: {len(workspaces)}")
+
+COLS = ["workspaceName", "workspaceId", "itemType", "itemName", "itemId",
+        "sqlEndpointId", "sqlConnectionString", "sqlProvisioningStatus", "error"]
+records = []
+for ws in workspaces:
+    try:
+        items = get_all(f"{FABRIC_API}/workspaces/{ws['id']}/items")
+    except requests.HTTPError as err:
+        print(f"Skipping {ws['displayName']}: {err}")
+        continue
+    for item in items:
+        if item["type"] not in TARGET_TYPES:
+            continue
+        rec = dict.fromkeys(COLS)
+        rec.update(workspaceName=ws["displayName"], workspaceId=ws["id"], itemType=item["type"],
+                   itemName=item["displayName"], itemId=item["id"])
+        try:
+            if item["type"] == "Lakehouse":
+                props = get_json(f"{FABRIC_API}/workspaces/{ws['id']}/lakehouses/{item['id']}").get("properties", {})
+                sql = props.get("sqlEndpointProperties") or {}
+                rec.update(sqlEndpointId=sql.get("id"), sqlConnectionString=sql.get("connectionString"),
+                           sqlProvisioningStatus=sql.get("provisioningStatus"))
+            elif item["type"] == "Warehouse":
+                props = get_json(f"{FABRIC_API}/workspaces/{ws['id']}/warehouses/{item['id']}").get("properties", {})
+                rec.update(sqlConnectionString=props.get("connectionString"))
+        except requests.HTTPError as err:
+            rec["error"] = str(err)
+        records.append(rec)
+
+schema = StructType([StructField(c, StringType(), True) for c in COLS])   # explicit: avoids NullType inference
+inventory = spark.createDataFrame([tuple(r[c] for c in COLS) for r in records], schema)
+inventory.createOrReplaceTempView("vw_fabric_inventory")
+display(inventory.orderBy("workspaceName", "itemType", "itemName"))
+
+if SAVE_TO_LAKEHOUSE:
+    inventory.write.mode("overwrite").option("overwriteSchema", "true").saveAsTable(f"{TABLE_PREFIX}inventory")
+    print(f"Saved table {TABLE_PREFIX}inventory")</code></pre>
+<div class="callout caution"><p class="callout-title">Treat the output as internal</p><p>The table holds connection strings and IDs for every matched workspace. They are not secrets, but they describe your platform. Keep the table in a lakehouse with restricted access, do not commit notebook outputs to Git, and never add credentials to the notebook.</p></div>
+<p>For a quick interactive look at a single workspace, <code>sempy.fabric.list_items(workspace=...)</code> from semantic link returns a DataFrame of the items in it, and needs at least Viewer access.</p>
+
+<h2 id="rule-queries">Queries for the rule values</h2>
+<p>Run these in a notebook cell with the SQL magic, in the lakehouse that holds <code>fabric_inventory</code>. Replace the workspace names with the target stage workspaces. Dataflow Gen2 creates staging lakehouses and warehouses that you must not use for rules, hence the exclusion.</p>
+<h3 id="q-notebook">Notebook default lakehouse rule</h3>
+<pre data-title="Spark SQL (notebook cell, %%sql): lakehouse values per target workspace"><code class="language-sql">SELECT workspaceName, workspaceId AS lakehouseWorkspaceId, itemId AS lakehouseId, itemName AS lakehouseName
+FROM fabric_inventory
+WHERE itemType = 'Lakehouse'
+  AND workspaceName IN ('TST_SALES_SLV', 'PRD_SALES_SLV')
+  AND itemName NOT LIKE 'StagingLakehouse%'</code></pre>
+<h3 id="q-model-warehouse">Semantic model on a warehouse</h3>
+<pre data-title="Spark SQL (notebook cell, %%sql): server and database values for a warehouse"><code class="language-sql">SELECT workspaceName,
+       sqlConnectionString AS server,
+       itemName            AS databaseName,
+       itemId              AS warehouseId
+FROM fabric_inventory
+WHERE itemType = 'Warehouse'
+  AND workspaceName IN ('TST_SALES_CNSM_WH', 'PRD_SALES_CNSM_WH')
+  AND itemName NOT LIKE 'StagingWarehouse%'</code></pre>
+<p>Use the database value in the same form the source stage shows in the rule's <strong>From</strong> field: the warehouse name, or its ID.</p>
+<h3 id="q-model-lakehouse">Semantic model on a lakehouse SQL endpoint (Direct Lake on SQL)</h3>
+<pre data-title="Spark SQL (notebook cell, %%sql): server and SQL endpoint ID for a lakehouse"><code class="language-sql">SELECT workspaceName,
+       sqlConnectionString AS server,
+       sqlEndpointId       AS databaseId
+FROM fabric_inventory
+WHERE itemType = 'Lakehouse'
+  AND workspaceName IN ('TST_SALES_GLD', 'PRD_SALES_GLD')
+  AND itemName NOT LIKE 'StagingLakehouse%'
+  AND sqlProvisioningStatus = 'Success'</code></pre>
+<div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>Data source rules are supported for Direct Lake on SQL endpoints and not for Direct Lake on OneLake; see <a href="deployment-rules.html#direct-lake">Direct Lake models</a>. Confirm the property names returned by <em>Get Lakehouse</em> and <em>Get Warehouse</em> in the <a href="https://learn.microsoft.com/rest/api/fabric/lakehouse/items/get-lakehouse">Lakehouse REST reference</a> and <a href="https://learn.microsoft.com/rest/api/fabric/warehouse/items/get-warehouse">Warehouse REST reference</a> if the notebook returns empty values.</p></div>
+
+<h2 id="template">Rule settings template</h2>
+<p>Record what you configured for each target stage, so a lost rule (after an unassignment or a deleted item) can be recreated in minutes. Keep one copy per pipeline, with real values stored outside the repository.</p>
+<table>
+<thead><tr><th>Rule</th><th>Setting</th><th>TST value</th><th>PRD value</th></tr></thead>
+<tbody>
+<tr><td rowspan="3">Notebook default lakehouse</td><td>Lakehouse workspace ID</td><td><code>&lt;tst-workspace-id&gt;</code></td><td><code>&lt;prd-workspace-id&gt;</code></td></tr>
+<tr><td>Lakehouse ID</td><td><code>&lt;tst-lakehouse-id&gt;</code></td><td><code>&lt;prd-lakehouse-id&gt;</code></td></tr>
+<tr><td>Lakehouse name</td><td><code>LH_SALES_SLV_Core</code></td><td><code>LH_SALES_SLV_Core</code></td></tr>
+<tr><td rowspan="2">Semantic model on a warehouse (data source rule)</td><td>Server</td><td><code>&lt;tst-warehouse-sql-connection-string&gt;</code></td><td><code>&lt;prd-warehouse-sql-connection-string&gt;</code></td></tr>
+<tr><td>Database</td><td><code>&lt;tst-warehouse-name-or-id&gt;</code></td><td><code>&lt;prd-warehouse-name-or-id&gt;</code></td></tr>
+<tr><td rowspan="2">Semantic model on a lakehouse SQL endpoint (Direct Lake on SQL)</td><td>Server</td><td><code>&lt;tst-lakehouse-sql-connection-string&gt;</code></td><td><code>&lt;prd-lakehouse-sql-connection-string&gt;</code></td></tr>
+<tr><td>Database</td><td><code>&lt;tst-sql-endpoint-id&gt;</code></td><td><code>&lt;prd-sql-endpoint-id&gt;</code></td></tr>
+<tr><td>Parameter rule (Text parameter)</td><td><code>&lt;parameter-name&gt;</code></td><td><code>&lt;tst-value&gt;</code></td><td><code>&lt;prd-value&gt;</code></td></tr>
+</tbody>
+</table>
+<p>Record alongside the values: who owns the item (rules require the owner), the date of the last verification as <code>&lt;date&gt;</code> in your own record, and the deployment note that applied the rule.</p>
+
+<div class="takeaways"><p class="tk-title">Key takeaways</p>
+<ul>
+<li>Collect IDs and connection strings programmatically; paging and throttling matter in tenants with many workspaces.</li>
+<li>Use only the valid <code>notebookutils</code> token audiences, and run the inventory as a user if the service principal view is too narrow.</li>
+<li>Exclude staging items, and enter database values in the form the rule's From field shows.</li>
+<li>Keep a per-stage record of every rule so it can be recreated after an unassignment.</li>
+</ul></div>
+
+<section class="refs">
+<h2 id="refs">References</h2>
+<ul>
+<li><a href="https://learn.microsoft.com/rest/api/fabric/core/workspaces/list-workspaces">Workspaces - List Workspaces (REST)</a></li>
+<li><a href="https://learn.microsoft.com/rest/api/fabric/core/items/list-items">Items - List Items (REST)</a></li>
+<li><a href="https://learn.microsoft.com/rest/api/fabric/lakehouse/items/get-lakehouse">Lakehouse - Get Lakehouse (REST)</a></li>
+<li><a href="https://learn.microsoft.com/rest/api/fabric/warehouse/items/get-warehouse">Warehouse - Get Warehouse (REST)</a></li>
+<li><a href="https://learn.microsoft.com/fabric/data-engineering/notebook-utilities">NotebookUtils for Fabric</a></li>
+<li><a href="https://learn.microsoft.com/fabric/cicd/deployment-pipelines/create-rules">Create deployment rules</a></li>
+</ul>
+</section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fabric layout features · Delta Partitioning</title>
+<meta name="description" content="What V-Order, optimize write, adaptive file size, auto compaction, OPTIMIZE, Z-Order, VACUUM and liquid clustering each do in Fabric, how they combine, and what changes between Runtime 1.3 and 2.0.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="08-delta-partitioning" data-page="fabric-features.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 08 · Delta Partitioning</p>
+      <h1>Fabric layout features</h1>
+      <p class="lede">Partitioning is only one of several layout controls. Fabric adds write-time features, automatic compaction, adaptive file sizing and liquid clustering, and most of the time they do more for you than partition columns can. This page explains what each one does, which combine and what changes with the runtime.</p>
+    </header>
+
+    <h2 id="overview">Three moments, three kinds of feature</h2>
+    <p>Layout features act at different times. Knowing which moment a feature acts at tells you where its cost lands and what it cannot fix.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 290" role="img" aria-label="Layout features grouped by when they act: at write time adaptive target file size, optimize write, V-Order and partitioned writes; right after the commit auto compaction; on a schedule OPTIMIZE, Z-Order, REORG purge and VACUUM">
+        <defs>
+          <marker id="fig-feat-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <text class="t-h" x="10" y="22">At write time</text>
+        <rect class="zone blue" x="10" y="30" width="280" height="250" rx="12"/>
+        <rect class="box blue" x="25" y="48" width="250" height="46" rx="8"/>
+        <text class="t-s" x="150" y="76" text-anchor="middle">Adaptive target file size sets the goal</text>
+        <rect class="box blue" x="25" y="104" width="250" height="46" rx="8"/>
+        <text class="t-s" x="150" y="132" text-anchor="middle">Optimize write bin-packs before writing</text>
+        <rect class="box blue" x="25" y="160" width="250" height="46" rx="8"/>
+        <text class="t-s" x="150" y="188" text-anchor="middle">V-Order rewrites Parquet layout if on</text>
+        <rect class="box blue" x="25" y="216" width="250" height="46" rx="8"/>
+        <text class="t-s" x="150" y="244" text-anchor="middle">Partitioned write: one file per partition</text>
+
+        <text class="t-h" x="310" y="22">Right after the commit</text>
+        <rect class="zone teal" x="310" y="30" width="280" height="250" rx="12"/>
+        <rect class="box teal" x="325" y="48" width="250" height="46" rx="8"/>
+        <text class="t-s" x="450" y="76" text-anchor="middle">Auto compaction checks partition health</text>
+        <rect class="box teal" x="325" y="104" width="250" height="46" rx="8"/>
+        <text class="t-s" x="450" y="132" text-anchor="middle">Runs OPTIMIZE only if files are small</text>
+        <rect class="box teal" x="325" y="160" width="250" height="46" rx="8"/>
+        <text class="t-s" x="450" y="188" text-anchor="middle">Synchronous: adds latency to the write</text>
+        <rect class="box teal" x="325" y="216" width="250" height="46" rx="8"/>
+        <text class="t-s" x="450" y="244" text-anchor="middle">Complements optimize write, not a rival</text>
+
+        <text class="t-h" x="610" y="22">On a schedule</text>
+        <rect class="zone purple" x="610" y="30" width="280" height="250" rx="12"/>
+        <rect class="box purple" x="625" y="48" width="250" height="46" rx="8"/>
+        <text class="t-s" x="750" y="76" text-anchor="middle">OPTIMIZE [VORDER], applies clustering</text>
+        <rect class="box purple" x="625" y="104" width="250" height="46" rx="8"/>
+        <text class="t-s" x="750" y="132" text-anchor="middle">ZORDER BY on partitioned tables</text>
+        <rect class="box purple" x="625" y="160" width="250" height="46" rx="8"/>
+        <text class="t-s" x="750" y="188" text-anchor="middle">REORG ... PURGE for deletion vectors</text>
+        <rect class="box purple" x="625" y="216" width="250" height="46" rx="8"/>
+        <text class="t-s" x="750" y="244" text-anchor="middle">VACUUM removes unreferenced files</text>
+
+        <path class="ln" d="M290 155H308" marker-end="url(#fig-feat-1-a)"/>
+        <path class="ln" d="M590 155H608" marker-end="url(#fig-feat-1-a)"/>
+      </svg>
+      <figcaption><b>Cheapest first.</b> Prevent small files at write time, let auto compaction repair them right after the commit, and keep scheduled jobs for the work that needs a window: clustering, Z-Order, purging and cleanup.</figcaption>
+    </figure>
+
+    <h2 id="v-order">V-Order and resource profiles</h2>
+    <p>V-Order is a write-time optimization for Parquet files. It reorganizes row-group distribution, encoding and compression to improve read efficiency across Fabric engines, and it pays off most in read-heavy patterns such as dashboards and repeated scans. Files remain open-source Parquet, and Delta features such as Z-Order stay compatible. The usual trade-off is slower writes, often around 15 percent on average.</p>
+    <p><strong>V-Order is disabled by default in new workspaces.</strong> New workspaces use the <code>writeHeavy</code> resource profile, which favors ingestion. Enable V-Order deliberately for tables that Direct Lake reads; it is not needed for Spark or SQL analytics endpoint performance alone.</p>
+    <table>
+      <thead><tr><th>Resource profile</th><th>Target workload</th><th>V-Order</th><th>Optimize write</th></tr></thead>
+      <tbody>
+        <tr><td><code>writeHeavy</code> (default for new workspaces)</td><td>High-frequency ingestion, ETL, streaming</td><td>Off</td><td>Not forced on; enabled for partitioned tables</td></tr>
+        <tr><td><code>readHeavyForSpark</code></td><td>Spark workloads with frequent reads</td><td>Not set by the profile</td><td>On, 128 MB bins</td></tr>
+        <tr><td><code>readHeavyForPBI</code></td><td>Power BI queries on Delta tables (Direct Lake)</td><td>On</td><td>On, 1 GB bins</td></tr>
+        <tr><td><code>custom</code></td><td>Your own named profile</td><td>You decide</td><td>You decide</td></tr>
+      </tbody>
+    </table>
+    <p>V-Order can be controlled at three levels. A session setting applies to every Parquet write in the session; a table property sets a table default for future <code>INSERT</code>, <code>UPDATE</code> and <code>MERGE</code> writes; and a DataFrame writer option controls a single write. Changing a setting affects only future writes: existing files keep the ordering they were created with until compaction rewrites them.</p>
+<pre data-title="Spark SQL · enabling V-Order"><code class="language-sql">-- Session level: all Parquet writes in this session
+SET spark.sql.parquet.vorder.default = TRUE;
+
+-- Table level: future INSERT, UPDATE and MERGE writes to this table
+ALTER TABLE gold.daily_sales SET TBLPROPERTIES ('delta.parquet.vorder.enabled' = 'true');
+
+-- Rewrite existing files with V-Order applied
+OPTIMIZE gold.daily_sales VORDER;</code></pre>
+<pre data-title="PySpark · choose a resource profile for the session"><code class="language-python">spark.conf.set("spark.fabric.resourceProfile", "readHeavyForPBI")   # V-Order on, 1 GB optimize-write bins</code></pre>
+    <div class="callout note"><p class="callout-title">Other writers</p><p>The Copy activity in data pipelines writes Lakehouse tables with V-Order applied by default, with an option to turn it off, so tables loaded by Spark and by Copy can differ in layout even in the same workspace. Check the layout of each writer's output. Note also that in Fabric Runtime 1.3 and later the older <code>spark.sql.parquet.vorder.enable</code> setting is removed; use the settings above.</p></div>
+
+    <h2 id="optimize-write">Optimize write</h2>
+    <p>Optimize write does <strong>pre-write compaction</strong>: it shuffles in-memory data into optimally sized bins before Spark writes the Parquet files, so the write produces fewer, larger files without a cleanup step afterwards. The shuffle costs time, so use it selectively. It is most valuable for:</p>
+    <ul>
+      <li>Partitioned tables, where each write otherwise creates at least one file per partition touched</li>
+      <li>Tables with frequent small inserts, including streaming and micro-batch writes</li>
+      <li>Operations that touch many files, such as <code>MERGE</code>, <code>UPDATE</code> and <code>DELETE</code></li>
+    </ul>
+    <table>
+      <thead><tr><th>Setting</th><th>Where</th><th>Purpose</th></tr></thead>
+      <tbody>
+        <tr><td><code>spark.databricks.delta.optimizeWrite.enabled</code></td><td>Session</td><td>Turn optimize write on or off for the session</td></tr>
+        <tr><td><code>spark.microsoft.delta.optimizeWrite.partitioned.enabled</code></td><td>Session</td><td>Enable it for writes to partitioned tables when the session setting is unset (the resource profile defaults list the same switch as <code>spark.databricks.delta.optimizeWrite.partitioned.enabled</code>)</td></tr>
+        <tr><td><code>spark.databricks.delta.optimizeWrite.binSize</code></td><td>Session</td><td>Target size of the bins it generates</td></tr>
+        <tr><td><code>delta.autoOptimize.optimizeWrite</code></td><td>Table property</td><td>Enable it for one table; unset the session configuration first</td></tr>
+      </tbody>
+    </table>
+    <p>Do not assume optimize write is on. Its default depends on the resource profile, as the table above shows, and tables written by pipelines or dataflows do not inherit Spark session settings at all.</p>
+
+    <h2 id="file-size">Adaptive target file size</h2>
+    <p>Fabric can choose the target file size per table, so you do not have to tune it by hand. <strong>Adaptive target file size</strong> estimates the ideal size from table heuristics such as total size and updates it as the table grows: tables under about 10 GB target 128 MB files, scaling linearly up to 1 GB for tables beyond about 10 TB. Small tables thereby keep enough files to benefit from file skipping, and large tables keep files big enough to avoid metadata overhead.</p>
+    <ul>
+      <li><strong>Where it applies.</strong> It is evaluated at <code>CREATE TABLE AS SELECT</code>, overwrite writes, writes that create a new table, and at the start of every <code>OPTIMIZE</code>. The result is stored in the <code>delta.targetFileSize.adaptive</code> table property, visible in <code>DESCRIBE DETAIL</code>, and optimize, auto compaction and optimize write all use it.</li>
+      <li><strong>Defaults.</strong> Enabled by default from Runtime 2.0; opt in on Runtime 1.3 with <code>spark.microsoft.delta.targetFileSize.adaptive.enabled</code>. Bounds default to 128 MB and 1 GB and can be tuned within that range.</li>
+      <li><strong>File-level compaction targets</strong> (<code>spark.microsoft.delta.optimize.fileLevelTarget.enabled</code>) avoid rewriting files that already met an earlier target, which limits write amplification as the target grows. They are enabled by default from Runtime 2.0 and recommended on 1.3.</li>
+      <li><strong>Manual targets.</strong> <code>delta.targetFileSize</code> overrides adaptive sizing but exists mainly for legacy compatibility. Do not add arbitrary row-count limits either: row width varies, so a row cap creates tiny files for narrow tables.</li>
+    </ul>
+    <p>This changes the 1 GB per partition guidance in a useful way. A partition should hold enough data to produce well-sized files, which for tables of tens of GB means files of roughly 128 MB: the 1 GB partition floor guarantees at least a handful of right-sized files in each partition instead of one runt.</p>
+
+    <h2 id="compaction">Auto compaction and OPTIMIZE</h2>
+    <p><strong>Auto compaction</strong> evaluates partition health after each write. If it finds excessive fragmentation (too many small files) it runs a synchronous <code>OPTIMIZE</code> immediately after the commit. Because it only runs when needed, it is the recommended default maintenance strategy for Spark-written tables and removes the need for a separate table-health check before maintenance jobs.</p>
+<pre data-title="Spark SQL · enable auto compaction"><code class="language-sql">-- For new tables created in the session
+SET spark.databricks.delta.autoCompact.enabled = TRUE;
+
+-- For one table
+ALTER TABLE silver.orders SET TBLPROPERTIES ('delta.autoOptimize.autoCompact' = 'true');
+
+-- Runtime 2.0: defer the health check to log checkpoints to reduce per-commit overhead
+SET spark.microsoft.delta.autoCompact.onCheckpointOnly.enabled = TRUE;</code></pre>
+    <table>
+      <thead><tr><th>Scenario</th><th>Use</th></tr></thead>
+      <tbody>
+        <tr><td>Spark-written table, normal batch pattern</td><td>Auto compaction as the default</td></tr>
+        <tr><td>Streaming or micro-batch writes</td><td>Auto compaction plus optimize write</td></tr>
+        <tr><td>Strict write-latency requirements</td><td>Scheduled <code>OPTIMIZE</code> instead of synchronous auto compaction</td></tr>
+        <tr><td>Existing table with a backlog of small files</td><td>A one-time <code>OPTIMIZE</code>, then auto compaction</td></tr>
+        <tr><td>Frequent updates, deletes or merges</td><td>Auto compaction and deletion vectors both enabled</td></tr>
+        <tr><td>Written by Copy activity or Dataflow Gen2</td><td>Scheduled maintenance, for example a pipeline Lakehouse maintenance activity; these writers do not apply Spark defaults</td></tr>
+      </tbody>
+    </table>
+    <p><code>OPTIMIZE</code> is the foundational compaction command, and it has several forms. Spark applies combined options in the order bin compaction, then Z-Order, then V-Order.</p>
+<pre data-title="Spark SQL · OPTIMIZE forms"><code class="language-sql">OPTIMIZE silver.orders;                                          -- compact; also clusters if liquid clustered
+OPTIMIZE silver.orders WHERE order_month &gt;= '2026-01';           -- limit to recent partitions
+OPTIMIZE silver.orders WHERE order_month &gt;= '2026-01'
+         ZORDER BY (region, product_id) VORDER;                  -- compact, Z-Order, then V-Order
+OPTIMIZE gold.sales_clustered FULL;                              -- after changing clustering keys (Runtime 2.0)</code></pre>
+    <p><strong>Fast optimize</strong> (<code>spark.microsoft.delta.optimize.fast.enabled</code>) skips candidate bins that are unlikely to reach the minimum file size, which reduces write amplification and makes repeated <code>OPTIMIZE</code> runs closer to idempotent. It does not apply to liquid clustering or Z-Order operations and does not change auto compaction.</p>
+
+    <h2 id="vacuum">VACUUM and deletion vectors</h2>
+    <p><code>VACUUM</code> removes files that the Delta log no longer references once they are older than the retention period (seven days by default). It reclaims storage but does <strong>not</strong> improve the active file layout. Do not shorten the retention period without checking time-travel needs and concurrent readers, and, for Direct Lake, remember that a framed semantic model references a specific table version that must still exist until the model is reframed.</p>
+    <p><strong>Deletion vectors</strong> let <code>DELETE</code>, <code>UPDATE</code> and <code>MERGE</code> mark rows as removed instead of rewriting whole files. They are enabled by default from Runtime 2.0 and opt-in on Runtime 1.3. <code>OPTIMIZE</code> purges a file's deletion vectors when more than 5 percent of its records are referenced by them. Auto compaction purges them only when the partition also meets its small-file trigger, so a table with many updates but few new files still needs a periodic <code>OPTIMIZE</code>. Use <code>REORG TABLE ... APPLY (PURGE)</code> only when you must physically purge records, for example for a compliance requirement.</p>
+
+    <h2 id="z-order">Z-Order</h2>
+    <p>Z-Order colocates related rows in the same files by applying a space-filling curve across one or more columns, tightening the file-level min and max ranges so selective filters skip more files. It is applied as part of <code>OPTIMIZE</code>, and the columns are <strong>not stored in table metadata</strong>: you specify them on every run. It has no incremental mode, so each run rewrites all eligible files unless you add a <code>WHERE</code> predicate.</p>
+    <ul>
+      <li><strong>With partitioning:</strong> Z-Order is applied within each partition independently, which makes it the natural tool for secondary filters on an already partitioned table.</li>
+      <li><strong>With liquid clustering:</strong> incompatible. Use one or the other on a table.</li>
+      <li><strong>Choosing columns:</strong> 1 to 4 columns that appear frequently in <code>WHERE</code> clauses; you cannot Z-Order by a partition column.</li>
+      <li><strong>When to prefer it:</strong> established workflows, older runtimes, or partitioned tables where you want multi-column skipping without more partitions. For new unpartitioned tables on Runtime 2.0, liquid clustering is recommended.</li>
+    </ul>
+
+    <h2 id="liquid-clustering">Liquid clustering</h2>
+    <p>Liquid clustering organizes data so rows with similar values in the clustering columns sit in the same files, with tight, rarely overlapping value ranges. Queries that filter on those columns read only the files whose ranges match. Unlike partitioning it creates no directories, handles high-cardinality columns without small-file problems and lets you change the columns later. For most read-performance workloads starting in Runtime 2.0 it is the recommended layout strategy.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 282" role="img" aria-label="Partitioning groups files into one directory per value with a fixed scheme, while liquid clustering stores files with tight value ranges and no directories, and its columns can be changed later">
+        <text class="t-h" x="10" y="22">Hive partitioning: directories</text>
+        <rect class="zone purple" x="10" y="30" width="430" height="244" rx="12"/>
+        <rect class="zone" x="26" y="48" width="120" height="124" rx="8"/>
+        <text class="t-s" x="86" y="66" text-anchor="middle">2026-01</text>
+        <rect class="box purple" x="38" y="78" width="44" height="26" rx="5"/><rect class="box purple" x="90" y="78" width="44" height="26" rx="5"/>
+        <rect class="box purple" x="38" y="112" width="44" height="26" rx="5"/><rect class="box purple" x="90" y="112" width="44" height="26" rx="5"/>
+        <rect class="zone" x="166" y="48" width="120" height="124" rx="8"/>
+        <text class="t-s" x="226" y="66" text-anchor="middle">2026-02</text>
+        <rect class="box purple" x="178" y="78" width="44" height="26" rx="5"/><rect class="box purple" x="230" y="78" width="44" height="26" rx="5"/>
+        <rect class="box purple" x="178" y="112" width="44" height="26" rx="5"/><rect class="box purple" x="230" y="112" width="44" height="26" rx="5"/>
+        <rect class="zone" x="306" y="48" width="120" height="124" rx="8"/>
+        <text class="t-s" x="366" y="66" text-anchor="middle">2026-03</text>
+        <rect class="box purple" x="318" y="78" width="44" height="26" rx="5"/><rect class="box purple" x="370" y="78" width="44" height="26" rx="5"/>
+        <rect class="box purple" x="318" y="112" width="44" height="26" rx="5"/><rect class="box purple" x="370" y="112" width="44" height="26" rx="5"/>
+        <text class="t-s" x="225" y="202" text-anchor="middle">One directory per value; skipping by path</text>
+        <text class="t-s" x="225" y="222" text-anchor="middle">Scheme fixed at creation; change means rewrite</text>
+        <text class="t-b" x="225" y="250" text-anchor="middle">Best for writer isolation and bounded rewrites</text>
+
+        <text class="t-h" x="460" y="22">Liquid clustering: value ranges</text>
+        <rect class="zone blue" x="460" y="30" width="430" height="244" rx="12"/>
+        <rect class="box blue" x="476" y="52" width="124" height="48" rx="8"/><text class="t-s" x="538" y="81" text-anchor="middle">Jan 01 to 09</text>
+        <rect class="box blue" x="616" y="52" width="124" height="48" rx="8"/><text class="t-s" x="678" y="81" text-anchor="middle">Jan 10 to 18</text>
+        <rect class="box blue" x="756" y="52" width="124" height="48" rx="8"/><text class="t-s" x="818" y="81" text-anchor="middle">Jan 19 to 27</text>
+        <rect class="box blue" x="476" y="116" width="124" height="48" rx="8"/><text class="t-s" x="538" y="145" text-anchor="middle">Jan 28 to Feb 05</text>
+        <rect class="box blue" x="616" y="116" width="124" height="48" rx="8"/><text class="t-s" x="678" y="145" text-anchor="middle">Feb 06 to 14</text>
+        <rect class="box blue" x="756" y="116" width="124" height="48" rx="8"/><text class="t-s" x="818" y="145" text-anchor="middle">Feb 15 to 23</text>
+        <text class="t-s" x="675" y="202" text-anchor="middle">File-level min and max ranges; no directories</text>
+        <text class="t-s" x="675" y="222" text-anchor="middle">Change columns with ALTER TABLE ... CLUSTER BY</text>
+        <text class="t-b" x="675" y="250" text-anchor="middle">Best for repeated selective filters</text>
+      </svg>
+      <figcaption><b>Two ways to group like values.</b> Partitioning does it with folders, so the grouping must be right from the start. Clustering does it with ranges that OPTIMIZE maintains, so it can follow the workload as it changes.</figcaption>
+    </figure>
+<pre data-title="Spark SQL · create, alter and apply liquid clustering"><code class="language-sql">-- New table
+CREATE TABLE gold.sales (
+    order_id   BIGINT,
+    order_date DATE,
+    region     STRING,
+    amount     DECIMAL(18,2)
+) CLUSTER BY (order_date, region);
+
+-- Add clustering to an existing unpartitioned table
+ALTER TABLE gold.sales_txn CLUSTER BY (order_date, region);
+
+-- Change the columns later; the new layout applies on the next OPTIMIZE
+ALTER TABLE gold.sales CLUSTER BY (region, product_category);
+
+-- Remove clustering
+ALTER TABLE gold.sales CLUSTER BY NONE;
+
+-- Apply the layout (clustering happens in OPTIMIZE, not on ordinary writes)
+OPTIMIZE gold.sales;</code></pre>
+    <h3 id="lc-runtime">Runtime matters</h3>
+    <div class="callout warning"><p class="callout-title">Runtime 1.3: use liquid clustering with caution</p><p>On Runtime 1.3 every <code>OPTIMIZE</code> rewrites all files in each Z-Cube smaller than 100 GB, even those already well clustered, causing severe write amplification. Do not combine it with auto compaction on that runtime, and run <code>OPTIMIZE</code> deliberately and infrequently. Incremental liquid clustering, which processes only unclustered, small, unhealthy or deletion-vector files and re-clusters overlapping ones automatically, is available from Runtime 2.0 and is the default there.</p></div>
+    <ul>
+      <li><strong>Columns.</strong> Choose 1 to 4 columns that appear frequently in <code>WHERE</code> clauses. More columns dilute the effect of the space-filling curve, and column order has no impact. Eligible types include numeric, date, timestamp and string types; binary and boolean types are not eligible.</li>
+      <li><strong>Maintenance.</strong> Clustering is applied only when <code>OPTIMIZE</code> runs. Ordinary writes do not cluster, so schedule <code>OPTIMIZE</code> or use auto compaction (Runtime 2.0 and later). After changing columns, <code>OPTIMIZE FULL</code> reclusters everything; use it sparingly.</li>
+      <li><strong>Quality.</strong> From Runtime 2.0 the <code>clusteringQuality()</code> method reports per-column overlap and skipping effectiveness so you can judge whether clustering helps.</li>
+      <li><strong>Limits.</strong> Incompatible with partitioning and with Z-Order on the same table. Compatible with V-Order, optimize write, adaptive target file size and deletion vectors.</li>
+    </ul>
+    <h3 id="warehouse-clustering">Warehouse data clustering <span class="badge preview">Preview</span></h3>
+    <p>Warehouse tables have their own, system-managed layout. Data clustering in Fabric Data Warehouse (Preview) groups rows by up to four columns with <code>CLUSTER BY</code> at table creation, applies during ingestion with no later maintenance, and cannot be added to or changed on an existing table. It suits large tables with repeated selective predicates on mid-to-high cardinality columns. It is a Warehouse feature and does not apply to lakehouse tables.</p>
+
+    <h2 id="matrix">What combines with what</h2>
+    <table>
+      <thead><tr><th>Feature</th><th>With partitioning</th><th>With liquid clustering</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Partitioning</strong></td><td>Not applicable</td><td class="no">No</td><td>Choose one scheme per table</td></tr>
+        <tr><td><strong>Z-Order</strong></td><td class="yes">Yes</td><td class="no">No</td><td>On a partitioned table it is applied within each partition independently</td></tr>
+        <tr><td><strong>V-Order</strong></td><td class="yes">Yes</td><td class="yes">Yes</td><td>V-Order and clustering work on different axes: file-internal layout versus cross-file ranges</td></tr>
+        <tr><td><strong>Optimize write</strong></td><td class="yes">Yes</td><td class="yes">Yes</td><td>Especially useful for partitioned writes; for clustered tables it produces consolidated files that <code>OPTIMIZE</code> then clusters</td></tr>
+        <tr><td><strong>Auto compaction</strong></td><td class="yes">Yes</td><td class="maybe">Runtime 2.0+</td><td>Evaluated per partition. Avoid it with liquid clustering on Runtime 1.3</td></tr>
+        <tr><td><strong>Adaptive target file size</strong></td><td class="yes">Yes</td><td class="yes">Yes</td><td>For clustered tables the adaptive size is the clustering target size</td></tr>
+        <tr><td><strong>Deletion vectors</strong></td><td class="yes">Yes</td><td class="yes">Yes</td><td>For clustered tables, files over the deleted-rows threshold are selected for clustering</td></tr>
+        <tr><td><strong>Fast optimize</strong></td><td class="yes">Yes</td><td class="maybe">Runtime 2.0+</td><td>It does not apply to clustering or Z-Order operations themselves</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="runtime-diffs">Runtime 1.3 versus Runtime 2.0</h2>
+    <table>
+      <thead><tr><th>Capability</th><th>Runtime 1.3</th><th>Runtime 2.0</th></tr></thead>
+      <tbody>
+        <tr><td>Adaptive target file size</td><td>Opt-in</td><td>On by default</td></tr>
+        <tr><td>File-level compaction targets</td><td>Opt-in</td><td>On by default</td></tr>
+        <tr><td>Deletion vectors</td><td>Opt-in</td><td>On by default</td></tr>
+        <tr><td>Liquid clustering</td><td>Available, full-rewrite strategy; use with caution</td><td>Incremental strategy by default; auto compaction compatible</td></tr>
+        <tr><td><code>OPTIMIZE FULL</code>, <code>clusteringQuality()</code></td><td>Not available</td><td>Available</td></tr>
+        <tr><td>Auto compaction <code>onCheckpointOnly</code> mode</td><td>Not available</td><td>Available</td></tr>
+        <tr><td>Native execution engine for clustering and Z-Order <code>OPTIMIZE</code></td><td>Falls back to regular Spark</td><td>Accelerated (documented as 30 to 50 percent faster)</td></tr>
+      </tbody>
+    </table>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>Defaults, configuration names and runtime availability in this area change between releases, and a few Learn pages differ on the Delta version that Runtime 2.0 ships. Check the <a href="https://learn.microsoft.com/fabric/data-engineering/runtime">Fabric runtime pages</a>, <a href="https://learn.microsoft.com/fabric/data-engineering/tune-file-size">Tune file size</a>, <a href="https://learn.microsoft.com/fabric/data-engineering/table-compaction">Table compaction</a> and <a href="https://learn.microsoft.com/fabric/data-engineering/liquid-clustering">Liquid clustering</a> for the version your workspace uses, and test the behavior on a copy of a table before relying on it.</p></div>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p><ul>
+      <li>Prevent small files at write time (adaptive target size, optimize write), repair them after the commit (auto compaction) and keep scheduled <code>OPTIMIZE</code> for clustering, Z-Order and purging.</li>
+      <li>V-Order is off by default in new workspaces; enable it for Direct Lake tables, not everywhere.</li>
+      <li>Optimize write is not on by default under the <code>writeHeavy</code> profile (except for partitioned tables), and Copy activity and dataflows do not inherit Spark settings.</li>
+      <li>Liquid clustering is the recommended read layout on Runtime 2.0; it is incompatible with partitioning and Z-Order and needs caution on Runtime 1.3.</li>
+      <li>Z-Order remains the tool for secondary filters on tables that are already partitioned.</li>
+      <li><code>VACUUM</code> reclaims storage and never improves layout; mind retention for time travel and Direct Lake.</li>
+    </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/delta-optimization-and-v-order">Optimize Delta Lake tables with V-Order</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/configure-resource-profile-configurations">Configure resource profile configurations</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/tune-file-size">Tune the size of Delta table data files</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/table-compaction">Compacting Delta tables</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/liquid-clustering">Apply liquid clustering on Delta tables</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/delta-lake-z-order">Z-Order for Delta tables</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/delta-lake-vacuum">Delta Lake table VACUUM</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-warehouse/data-clustering">Data clustering in Fabric Data Warehouse</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

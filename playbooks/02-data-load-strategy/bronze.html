@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bronze layer patterns · Data Load Strategy</title>
+<meta name="description" content="Files versus Delta tables in Bronze, the landing zone pattern, append-only loading with batch metadata, and how to land mixed full and incremental feeds safely.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="02-data-load-strategy" data-page="bronze.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 02 · Data Load Strategy</p>
+      <h1>Bronze layer patterns</h1>
+      <p class="lede">Bronze is the raw, auditable foundation of the medallion architecture. The decisions you make here, files or Delta, append or replace, how you tag a batch, set what you can reprocess later and how complicated Silver has to be. This page covers the patterns and the metadata that make Bronze rebuildable.</p>
+    </header>
+
+    <h2 id="mandate">Mandate: raw, immutable, auditable</h2>
+    <p>Bronze ingests data from source systems in its original, unaltered form and keeps it as a historical archive. It is the single place from which Silver and Gold can be rebuilt if business logic changes or a defect is found downstream. To do that job, Bronze is treated as immutable and loaded append-only: every delivery from the source is kept, in the order it arrived, so a complete chronological record exists for audit, debugging and reprocessing.</p>
+    <p>Two practical consequences follow. First, Bronze holds what was <em>delivered</em>, which is not always what the source contains: a delta file is not a snapshot. Second, because Bronze is not the place for interpretation, it should be agnostic to how the source delivers data. Interpretation, such as "this batch is complete, so absent rows were deleted", belongs in Silver.</p>
+
+    <h2 id="files-vs-delta">Landing as files vs loading into Delta tables</h2>
+    <p>The foundational Bronze decision in a lakehouse is whether to keep raw data as files in the Lakehouse <strong>Files</strong> area (Parquet, CSV, JSON in their native form) or to load it straight into Delta tables in the <strong>Tables</strong> area.</p>
+    <table>
+      <thead><tr><th>Approach</th><th>Strengths</th><th>Weaknesses</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Files</strong></td><td>Maximum fidelity, a true 1:1 copy of the source. Resilient to schema drift, because validation is deferred to the Bronze-to-Silver step and ingestion does not fail on unexpected changes. Simple ingestion (often a plain copy) with clean separation between acquisition and transformation. Easy remediation: delete a failed batch's folder.</td><td>Not directly queryable through the SQL analytics endpoint. Needs an extra step, usually Spark, to parse and load into a table format. No transactions, schema enforcement or time travel on the raw layer.</td></tr>
+        <tr><td><strong>Delta tables</strong></td><td>Structured and queryable immediately, useful for profiling and validation. Delta features from the first write: ACID transactions, time travel, schema enforcement, change data feed and streaming reads for incremental Silver loads.</td><td>Parsing is already a first transformation, which slightly breaks the "pure raw" principle. Ingestion can be more fragile, failing when the source schema changes incompatibly. Remediating a bad append needs a plan (see <a href="#remediation">below</a>).</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="landing-zone">The landing zone pattern (pre-Bronze)</h2>
+    <p>The trade-off between architectural purity and operational efficiency has a well-established resolution: do both. Extend the layer in two stages. The ingestion tool lands data as files in a dedicated landing area, which satisfies the requirement for a pure, replayable archive. A Spark step then reads those files and appends them to append-only Bronze Delta tables, which enables SQL access, time travel and efficient incremental processing into Silver. You get the audit and resilience of files plus the performance of tables.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 238" role="img" aria-label="Ingestion tools land raw files in the lakehouse Files area; a Spark notebook reads each landed batch and appends it with batch metadata to an append-only Bronze Delta table in the Tables area, which feeds Silver">
+        <defs>
+          <marker id="fig-bronze-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <text class="t-s" x="282" y="38">Lakehouse Files area</text>
+        <rect class="zone" x="276" y="44" width="148" height="112" rx="10"/>
+        <text class="t-s" x="592" y="38">Lakehouse Tables area</text>
+        <rect class="zone" x="586" y="44" width="148" height="112" rx="10"/>
+        <rect class="box gray" x="10" y="64" width="100" height="80" rx="10"/>
+        <text class="t-h" x="60" y="96" text-anchor="middle">Source</text>
+        <text class="t-s" x="60" y="116" text-anchor="middle">system</text>
+        <rect class="box teal" x="140" y="64" width="110" height="80" rx="10"/>
+        <text class="t-h" x="195" y="94" text-anchor="middle">Pipeline</text>
+        <text class="t-s" x="195" y="114" text-anchor="middle">or Copy job</text>
+        <rect class="box gray" x="290" y="64" width="120" height="80" rx="10"/>
+        <text class="t-h" x="350" y="94" text-anchor="middle">Landing zone</text>
+        <text class="t-s" x="350" y="114" text-anchor="middle">raw files</text>
+        <rect class="box blue" x="450" y="64" width="110" height="80" rx="10"/>
+        <text class="t-h" x="505" y="94" text-anchor="middle">Notebook</text>
+        <text class="t-s" x="505" y="114" text-anchor="middle">tag and append</text>
+        <rect class="box bronze" x="600" y="64" width="120" height="80" rx="10"/>
+        <text class="t-h" x="660" y="94" text-anchor="middle">Bronze</text>
+        <text class="t-s" x="660" y="114" text-anchor="middle">append-only Delta</text>
+        <rect class="box silver" x="760" y="64" width="120" height="80" rx="10"/>
+        <text class="t-h" x="820" y="94" text-anchor="middle">Silver</text>
+        <text class="t-s" x="820" y="114" text-anchor="middle">MERGE</text>
+        <path class="ln" d="M110 104H138" marker-end="url(#fig-bronze-1-a)"/>
+        <path class="ln" d="M250 104H288" marker-end="url(#fig-bronze-1-a)"/>
+        <path class="ln" d="M410 104H448" marker-end="url(#fig-bronze-1-a)"/>
+        <path class="ln" d="M560 104H598" marker-end="url(#fig-bronze-1-a)"/>
+        <path class="ln" d="M720 104H758" marker-end="url(#fig-bronze-1-a)"/>
+        <text class="t-s" x="269" y="96" text-anchor="middle">write</text>
+        <text class="t-s" x="429" y="96" text-anchor="middle">read</text>
+        <text class="t-s" x="579" y="96" text-anchor="middle">add</text>
+        <text class="t-s" x="739" y="96" text-anchor="middle">read</text>
+        <text class="t-s" x="350" y="184" text-anchor="middle">Byte-for-byte copy</text>
+        <text class="t-s" x="350" y="200" text-anchor="middle">Replayable archive</text>
+        <text class="t-s" x="350" y="216" text-anchor="middle">Tolerates schema drift</text>
+        <text class="t-s" x="660" y="184" text-anchor="middle">ACID and time travel</text>
+        <text class="t-s" x="660" y="200" text-anchor="middle">Queryable with SQL</text>
+        <text class="t-s" x="660" y="216" text-anchor="middle">Streamable into Silver</text>
+      </svg>
+      <figcaption><b>Two-stage Bronze.</b> The landing zone is the audit trail; the Bronze Delta table is the query and processing surface. Each stage has one job, so a failure in one never corrupts the other.</figcaption>
+    </figure>
+
+    <h3 id="landing-layout">Landing layout and conventions</h3>
+    <p>Treat the landing area as an API between ingestion and processing. Predictable paths let any tool write and any notebook read, and let you tell full and incremental deliveries apart without opening a file.</p>
+<pre data-title="Landing path convention (Files area of LH_SALES_BRZ)"><code class="language-text">Files/landing/&lt;source_system&gt;/&lt;entity&gt;/load_type=&lt;full|incremental&gt;/batch_id=&lt;n&gt;/part-0000.parquet
+
+Files/landing/sales/orders/load_type=incremental/batch_id=1042/part-0000.parquet
+Files/landing/sales/orders/load_type=full/batch_id=1050/part-0000.parquet</code></pre>
+    <ul>
+      <li><strong>One batch, one folder.</strong> A batch id from the orchestrator, increasing and never reused, is the unit of load, replay and cleanup.</li>
+      <li><strong>Encode the load type in the path.</strong> Silver needs to know whether a batch is a delta or a complete snapshot; do not make it infer that from row counts.</li>
+      <li><strong>Prefer Parquet over CSV or JSON where the source allows.</strong> Keep the original format when bit-for-bit fidelity is a requirement.</li>
+      <li><strong>Write a batch completely, then publish it.</strong> Land into a temporary name or write a completion marker so the notebook never reads a half-written batch.</li>
+      <li><strong>Define a retention rule for landing files.</strong> Bronze Delta tables hold the processed history, so the landing area usually needs a shorter or archived retention, set by your audit requirements.</li>
+    </ul>
+
+    <h3 id="append-code">Appending a batch to Bronze</h3>
+    <p>The notebook receives the batch id and load type as parameters from the pipeline, reads the batch folder, adds standard metadata columns and appends. The metadata columns are what let Silver deduplicate, order and interpret batches later.</p>
+<pre data-title="PySpark · notebook NB_SALES_BRZ_LoadOrders"><code class="language-python">from pyspark.sql import functions as F
+
+# Parameters set by the pipeline
+batch_id = 1042                  # monotonically increasing, assigned by the orchestrator
+load_type = "incremental"        # 'full' or 'incremental'
+landing_path = f"Files/landing/sales/orders/load_type={load_type}/batch_id={batch_id}/"
+
+# Idempotency guard: skip if this batch is already in Bronze (keeps the table append-only)
+if spark.catalog.tableExists("bronze.orders") and \
+   spark.table("bronze.orders").where(F.col("_batch_id") == batch_id).limit(1).count() &gt; 0:
+    print(f"Batch {batch_id} already loaded; nothing to do")
+else:
+    raw = (spark.read.format("parquet").load(landing_path)
+             .withColumn("_batch_id", F.lit(batch_id).cast("long"))
+             .withColumn("_load_type", F.lit(load_type))
+             .withColumn("_source_file", F.col("_metadata.file_path"))
+             .withColumn("_ingest_ts", F.current_timestamp()))
+
+    (raw.write.format("delta")
+        .mode("append")
+        .option("mergeSchema", "true")   # accept additive columns; fail on incompatible changes
+        .saveAsTable("bronze.orders"))</code></pre>
+    <p>Delta also supports idempotent writes through the <code>txnAppId</code> and <code>txnVersion</code> writer options, which make a repeated commit of the same version a no-op; see the Delta documentation if you prefer that to an explicit check. If the landing area receives a steady flow of files rather than orchestrated batches, a Structured Streaming file source with a checkpoint and <code>trigger(availableNow=True)</code> discovers each new file exactly once.</p>
+
+    <h3 id="metadata-columns">Standard metadata columns</h3>
+    <table>
+      <thead><tr><th>Column</th><th>Purpose</th></tr></thead>
+      <tbody>
+        <tr><td><code>_batch_id</code></td><td>Unit of load, ordering, replay and remediation; also the watermark for Bronze-to-Silver processing</td></tr>
+        <tr><td><code>_load_type</code></td><td><code>full</code> or <code>incremental</code>; tells Silver whether absent rows can imply deletes</td></tr>
+        <tr><td><code>_ingest_ts</code></td><td>When the row reached Bronze; breaks ties when the same key arrives more than once</td></tr>
+        <tr><td><code>_source_file</code></td><td>Row-level lineage back to the landed file</td></tr>
+        <tr><td><code>_source_system</code></td><td>Needed when several systems feed one conformed entity</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="load-patterns">Loading patterns for Bronze</h2>
+    <p>The loading pattern follows from Bronze's role: preserve a complete historical record.</p>
+    <table>
+      <thead><tr><th>Pattern</th><th>Verdict</th><th>Details</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Incremental append</strong></td><td>Default, recommended</td><td>All incoming data, whether it came from a full or an incremental extraction, is appended. Nothing in Bronze is updated or deleted. Files go to a new folder per batch; Delta tables use append mode. The result is a re-playable log of what the source delivered over time.</td></tr>
+        <tr><td><strong>Full reload (truncate or drop and reload)</strong></td><td>Generally discouraged</td><td>It destroys the previous state and breaks the archive principle. Acceptable for very small, non-volatile reference tables where history is explicitly not required, and for transient staging tables that are not part of the permanent archive.</td></tr>
+        <tr><td><strong>Merge or SCD2 in Bronze</strong></td><td>Avoid, or label honestly</td><td>Reconciling in Bronze couples the archive to one interpretation. If your ingestion tool already writes with merge or SCD Type 2 (Copy job can), that table is a current-state or history replica rather than a raw archive. Either accept that and document it, or add an append-only landing zone in front of it.</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="mixed-feeds">Handling mixed full and incremental source feeds</h2>
+    <p>A common real-world situation: a source sends daily incremental files containing only new and changed records, plus a periodic full file that represents the complete table. The problem appears when reconciliation logic built for full extracts meets a small incremental file. A <code>MERGE</code> with <code>WHEN NOT MATCHED BY SOURCE THEN DELETE</code> treats every row missing from the small file as deleted, and wipes the target.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 240" role="img" aria-label="Daily delta files and periodic full files land in separate load_type folders, are appended into one Bronze table with a load type tag, and Silver applies upsert-only logic to incremental batches and upsert plus delete logic to full snapshots">
+        <defs>
+          <marker id="fig-bronze-2-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <text class="t-h" x="20" y="22">Deliveries</text>
+        <text class="t-h" x="230" y="22">Landing zone</text>
+        <text class="t-h" x="490" y="22">Bronze</text>
+        <text class="t-h" x="710" y="22">Silver interprets</text>
+        <rect class="box gray" x="20" y="40" width="150" height="56" rx="8"/>
+        <text class="t-b" x="95" y="64" text-anchor="middle">Daily delta file</text>
+        <text class="t-s" x="95" y="82" text-anchor="middle">changed rows only</text>
+        <rect class="box gray" x="20" y="150" width="150" height="56" rx="8"/>
+        <text class="t-b" x="95" y="174" text-anchor="middle">Periodic full file</text>
+        <text class="t-s" x="95" y="192" text-anchor="middle">complete table</text>
+        <rect class="box gray" x="230" y="40" width="200" height="56" rx="8"/>
+        <text class="t-m" x="330" y="64" text-anchor="middle">load_type=incremental</text>
+        <text class="t-s" x="330" y="82" text-anchor="middle">batch_id=&lt;n&gt;</text>
+        <rect class="box gray" x="230" y="150" width="200" height="56" rx="8"/>
+        <text class="t-m" x="330" y="174" text-anchor="middle">load_type=full</text>
+        <text class="t-s" x="330" y="192" text-anchor="middle">batch_id=&lt;n&gt;</text>
+        <rect class="box bronze" x="490" y="95" width="170" height="70" rx="10"/>
+        <text class="t-b" x="575" y="122" text-anchor="middle">bronze.orders</text>
+        <text class="t-s" x="575" y="142" text-anchor="middle">append all, tag _load_type</text>
+        <rect class="box green" x="710" y="40" width="180" height="56" rx="8"/>
+        <text class="t-b" x="800" y="64" text-anchor="middle">Upsert only</text>
+        <text class="t-s" x="800" y="82" text-anchor="middle">if _load_type = incremental</text>
+        <rect class="box orange" x="710" y="150" width="180" height="56" rx="8"/>
+        <text class="t-b" x="800" y="174" text-anchor="middle">Upsert and delete</text>
+        <text class="t-s" x="800" y="192" text-anchor="middle">if _load_type = full</text>
+        <path class="ln" d="M170 68H228" marker-end="url(#fig-bronze-2-a)"/>
+        <path class="ln" d="M170 178H228" marker-end="url(#fig-bronze-2-a)"/>
+        <path class="ln" d="M430 68H460V120H488" marker-end="url(#fig-bronze-2-a)"/>
+        <path class="ln" d="M430 178H460V140H488" marker-end="url(#fig-bronze-2-a)"/>
+        <path class="ln" d="M660 118H685V68H708" marker-end="url(#fig-bronze-2-a)"/>
+        <path class="ln" d="M660 142H685V178H708" marker-end="url(#fig-bronze-2-a)"/>
+      </svg>
+      <figcaption><b>Keep Bronze ignorant, make Silver explicit.</b> Both kinds of delivery are archived exactly as received. Only Silver decides what a missing row means, and it decides from the recorded load type.</figcaption>
+    </figure>
+    <ol class="steps">
+      <li><strong>Segregate at ingestion</strong><p>Use separate folders or metadata tags to distinguish full from incremental files, as in the landing convention above. This gives downstream logic the context it needs.</p></li>
+      <li><strong>Append everything to Bronze</strong><p>Whatever the file type, append it to the Bronze store, preserving the raw history of every delivery.</p></li>
+      <li><strong>Defer reconciliation to Silver</strong><p>The Bronze-to-Silver job reads <code>_load_type</code> and applies the matching logic: an upsert for incremental batches, and a full-snapshot merge that also removes missing rows for complete files. The code is on the <a href="silver.html#deletes">Silver page</a>.</p></li>
+    </ol>
+    <p>This separation keeps Bronze a simple, pure archive while Silver holds the business logic that consolidates the feeds into one accurate current state.</p>
+
+    <h2 id="remediation">Remediating a bad batch</h2>
+    <p>Because each batch is tagged and written to its own files, undoing a bad load is routine, but the method depends on where the batch lives.</p>
+    <table>
+      <thead><tr><th>Where</th><th>Remediation</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td>Landing files</td><td>Delete the batch folder and re-land</td><td>Nothing else is affected</td></tr>
+        <tr><td>Bronze Delta table</td><td><code>DELETE FROM bronze.orders WHERE _batch_id = &lt;n&gt;</code></td><td>Cheap when each batch occupies its own files. It writes a delete commit, so streaming readers of Bronze need to be configured to skip change commits</td></tr>
+        <tr><td>Bronze Delta table (nothing else has written since)</td><td><code>RESTORE TABLE bronze.orders TO VERSION AS OF &lt;v&gt;</code></td><td>Reverts everything after that version, so use it only when no other batch has committed</td></tr>
+        <tr><td>Silver already processed the bad batch</td><td>Fix Bronze, then rebuild the affected Silver keys or partitions</td><td>This is the case Bronze immutability exists for</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="table-settings">Table settings and layout for Bronze</h2>
+    <p>Bronze is write-heavy and rarely queried interactively, so tune for ingestion. Do not partition by default: a small daily append into many partitions produces small files, and Fabric guidance is to avoid partitioning unless a specific requirement justifies it (see the <a href="../08-delta-partitioning/index.html">Delta partitioning playbook</a>). Enable auto compaction so small appends are consolidated without a separate job, and do not rely on V-Order for Bronze; it benefits read-heavy consumption, mainly Direct Lake on Gold. Avoid building Direct Lake models directly on raw Bronze tables unless you have designed the model and data shape for that.</p>
+    <div class="callout warning"><p class="callout-title">Protect sensitive values in Bronze</p><p>Raw means raw: Bronze may hold personal, financial or health data exactly as received. Keep identifiers out of folder and partition names, restrict Bronze workspace access to the pipelines and engineers who need it, and plan retention and erasure (for example <code>DELETE</code> by key followed by <code>VACUUM</code>) before the first load, not after the first request.</p></div>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p><ul>
+      <li>Land raw files first, then append them to Bronze Delta tables; each stage has one job.</li>
+      <li>Append every delivery with <code>_batch_id</code>, <code>_load_type</code>, <code>_ingest_ts</code> and <code>_source_file</code>; never update Bronze in place.</li>
+      <li>Encode full versus incremental in the landing path so Silver never has to guess.</li>
+      <li>Never apply "delete what is missing" logic to a batch that is not a verified full snapshot.</li>
+      <li>Make loads idempotent and remediation a <code>DELETE</code> by batch id, not a rebuild.</li>
+    </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/lakehouse-overview">What is a lakehouse in Microsoft Fabric?</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/lakehouse-and-delta-tables">Lakehouse and Delta Lake tables</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/table-compaction">Compacting Delta tables</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/fundamentals/table-maintenance-optimization">Cross-workload table maintenance and optimization</a></li>
+        <li><a href="https://docs.delta.io/delta-batch/">Delta Lake: table batch reads and writes</a></li>
+        <li><a href="https://docs.delta.io/delta-streaming/">Delta Lake: table streaming reads and writes</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

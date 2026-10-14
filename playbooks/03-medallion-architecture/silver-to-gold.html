@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Silver to Gold · Medallion Architecture</title>
+<meta name="description" content="Build Gold facts and dimensions from Silver shortcuts with full loads in Spark SQL or PySpark, or with a config-driven incremental MERGE engine that reconciles every load.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="03-medallion-architecture" data-page="silver-to-gold.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 03 · Implementation</p>
+      <h1>Silver to Gold</h1>
+      <p class="lede">Gold turns conformed Silver entities into facts and dimensions at business grain. The wiring repeats the Bronze to Silver pattern, a shortcut schema and a notebook, but Gold adds two things: business transforms that must be applied identically on every run, and reconciliation that proves the incremental loads still add up.</p>
+      <ul class="chips"><li><b>Audience</b> data engineers, analytics engineers</li><li><b>Focus</b> facts, dimensions, QA</li><li><b>Pages</b> 8 of 10</li></ul>
+    </header>
+    <h2 id="gold-wiring">Wiring the Gold workspace</h2>
+<figure class="diagram">
+<svg class="dg" viewBox="0 0 900 262" role="img" aria-label="Silver to Gold: the Gold lakehouse reads Silver through a shortcut schema, a config-driven notebook merges facts and dimensions into owned tables, and a reconciliation step either lets the pipeline continue or fails the run">
+<defs>
+<marker id="fig-s2g-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+<marker id="fig-s2g-1-a-green" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+<marker id="fig-s2g-1-a-red" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar red" d="M0 0L10 5L0 10z"/></marker>
+</defs>
+<rect class="zone" x="10" y="14" width="176" height="120" rx="12"/>
+<text class="t-h" x="24" y="33">DEV_SALES_SLV</text>
+<rect class="box silver" x="24" y="52" width="148" height="60" rx="10"/>
+<text class="t-b" x="98" y="77.5" text-anchor="middle">LH_SALES_SLV</text>
+<text class="t-s" x="98" y="94.5" text-anchor="middle">conformed tables</text>
+<rect class="zone" x="206" y="14" width="684" height="234" rx="12"/>
+<text class="t-h" x="220" y="33">DEV_SALES_GLD</text>
+<rect class="box plain" x="222" y="52" width="130" height="60" rx="10"/>
+<text class="t-b" x="287" y="77.5" text-anchor="middle">Schema slv</text>
+<text class="t-s" x="287" y="94.5" text-anchor="middle">shortcuts</text>
+<rect class="box blue" x="392" y="52" width="164" height="60" rx="10"/>
+<text class="t-b" x="474" y="77.5" text-anchor="middle">Gold notebook</text>
+<text class="t-s" x="474" y="94.5" text-anchor="middle">config + engine</text>
+<rect class="box gold" x="596" y="52" width="130" height="60" rx="10"/>
+<text class="t-b" x="661" y="77.5" text-anchor="middle">Schema dbo</text>
+<text class="t-s" x="661" y="94.5" text-anchor="middle">facts, dims</text>
+<rect class="box purple" x="596" y="168" width="130" height="60" rx="10"/>
+<text class="t-b" x="661" y="193.5" text-anchor="middle">Reconcile</text>
+<text class="t-s" x="661" y="210.5" text-anchor="middle">expected vs actual</text>
+<rect class="box green" x="392" y="168" width="164" height="60" rx="10"/>
+<text class="t-b" x="474" y="193.5" text-anchor="middle">Next activity</text>
+<text class="t-s" x="474" y="210.5" text-anchor="middle">pipeline continues</text>
+<rect class="box red" x="766" y="168" width="112" height="60" rx="10"/>
+<text class="t-b" x="822" y="193.5" text-anchor="middle">Run fails</text>
+<text class="t-s" x="822" y="210.5" text-anchor="middle">raise, alert</text>
+<path class="ln" d="M172 82H222" marker-end="url(#fig-s2g-1-a)"/>
+<path class="ln" d="M352 82H392" marker-end="url(#fig-s2g-1-a)"/>
+<path class="ln" d="M556 82H596" marker-end="url(#fig-s2g-1-a)"/>
+<path class="ln" d="M661 112V168" marker-end="url(#fig-s2g-1-a)"/>
+<rect class="pill-bg" x="633.2" y="133.5" width="55.6" height="16"/>
+<text class="t-s" x="661" y="146" text-anchor="middle">compare</text>
+<path class="ln green" d="M596 198H556" marker-end="url(#fig-s2g-1-a-green)"/>
+<rect class="pill-bg" x="557.1" y="179.5" width="37.8" height="16"/>
+<text class="t-s" x="576" y="192" text-anchor="middle">pass</text>
+<path class="ln red" d="M726 198H766" marker-end="url(#fig-s2g-1-a-red)"/>
+<rect class="pill-bg" x="727.1" y="179.5" width="37.8" height="16"/>
+<text class="t-s" x="746" y="192" text-anchor="middle">fail</text>
+</svg>
+<figcaption><b>Silver to Gold with a reconciliation gate.</b> The notebook is the only writer of the Gold tables. Reconciliation runs after the merge and raises on a mismatch, so a bad load stops the pipeline before the Consumption layer reads it.</figcaption>
+</figure>
+    <ol class="steps">
+      <li><strong>Create the Silver shortcuts in Gold</strong><p>In <code>DEV_SALES_GLD</code>, open <code>LH_SALES_GLD</code> and create a schema shortcut named <code>slv</code> to the Silver lakehouse's <code>dbo</code> schema, or table shortcuts in an <code>slv</code> schema, exactly as on the <a href="bronze-to-silver.html#shortcut-steps">Bronze to Silver page</a>. Gold reads Silver only, never Bronze.</p></li>
+      <li><strong>Create the notebooks</strong><p>Name them by the standard and by what they build: <code>NB_SALES_GLD_BuildFactOrderLines</code>, <code>NB_SALES_GLD_BuildDimensions</code>. Attach <code>LH_SALES_GLD</code> as the default lakehouse.</p></li>
+      <li><strong>Choose a load pattern per table</strong><p>Dimensions are usually small enough to rebuild; facts usually are not. Use the same criteria as in <a href="bronze-to-silver.html#load-patterns">choosing a load pattern</a> and the <a href="../02-data-load-strategy/index.html">Data Load Strategy</a> playbook.</p></li>
+      <li><strong>Reconcile and fail loudly</strong><p>Every Gold load ends with a check that raises on a mismatch, so the pipeline stops before Consumption reads a wrong number.</p></li>
+    </ol>
+    <div class="callout note"><p class="callout-title">Where business logic lives</p><p>Gold is the first layer allowed to apply business meaning: derived measures, categorizations, keys for the star schema. Keep that logic in named transform functions or SQL statements in Gold, not in Silver and not in DAX, so there is one definition that every consumer inherits.</p></div>
+
+    <h2 id="full-load">Full load: Spark SQL and PySpark</h2>
+    <p>The example builds <code>dbo.fact_order_lines</code> from the Silver <code>order_lines</code> table. Each Silver order line carries up to three charge slots, each with a type and an amount (<code>charge_1_type</code>, <code>charge_1_amount</code> and so on). Gold pivots those slots into named measures, discount, shipping, tax and handling, so reports never need to know which slot held which charge. This positional-to-named pivot is a common Gold transform; the same shape appears whenever a source stores categorized values in numbered columns.</p>
+    <div class="tabs">
+      <div class="tab" data-title="Spark SQL">
+<pre data-title="NB_SALES_GLD_BuildFactOrderLines (%%sql cell)"><code class="language-sql">%%sql
+-- Gold lakehouse. slv.order_lines is a shortcut (created in the Gold lakehouse) to the Silver table.
+-- Development only: SELECT COUNT(*) FROM slv.order_lines;
+
+CREATE OR REPLACE TABLE dbo.fact_order_lines
+USING DELTA
+AS
+WITH pivoted AS (
+    SELECT
+        order_line_id,
+        order_id,
+        line_number,
+        product_id,
+        quantity,
+        unit_price,
+        CAST(quantity * unit_price AS DECIMAL(18,2)) AS gross_amount,
+        -- Pivot the three charge slots into named measures (the first matching slot wins)
+        COALESCE(CASE WHEN charge_1_type = 'discount' THEN charge_1_amount
+                      WHEN charge_2_type = 'discount' THEN charge_2_amount
+                      WHEN charge_3_type = 'discount' THEN charge_3_amount END, 0) AS discount_amount,
+        COALESCE(CASE WHEN charge_1_type = 'shipping' THEN charge_1_amount
+                      WHEN charge_2_type = 'shipping' THEN charge_2_amount
+                      WHEN charge_3_type = 'shipping' THEN charge_3_amount END, 0) AS shipping_amount,
+        COALESCE(CASE WHEN charge_1_type = 'tax' THEN charge_1_amount
+                      WHEN charge_2_type = 'tax' THEN charge_2_amount
+                      WHEN charge_3_type = 'tax' THEN charge_3_amount END, 0) AS tax_amount,
+        COALESCE(CASE WHEN charge_1_type = 'handling' THEN charge_1_amount
+                      WHEN charge_2_type = 'handling' THEN charge_2_amount
+                      WHEN charge_3_type = 'handling' THEN charge_3_amount END, 0) AS handling_amount,
+        last_modified_utc,
+        ingested_at_utc
+    FROM slv.order_lines
+    WHERE COALESCE(is_deleted, false) = false
+)
+SELECT
+    order_line_id, order_id, line_number, product_id, quantity, unit_price,
+    gross_amount, discount_amount, shipping_amount, tax_amount, handling_amount,
+    CAST(gross_amount - discount_amount AS DECIMAL(18,2)) AS net_amount,
+    last_modified_utc, ingested_at_utc
+FROM pivoted;
+
+-- Development only: the count must equal the non-deleted row count of the source.
+SELECT COUNT(*) AS tgt_rows FROM dbo.fact_order_lines;</code></pre>
+      </div>
+      <div class="tab" data-title="PySpark">
+<pre data-title="NB_SALES_GLD_BuildFactOrderLines (PySpark)"><code class="language-python">from pyspark.sql import functions as F
+
+source_table = "slv.order_lines"
+target_table = "dbo.fact_order_lines"
+
+def pick_slot(kind: str):
+    """Amount of the first charge slot whose type equals `kind`, else 0."""
+    return F.coalesce(
+        F.when(F.col("charge_1_type") == kind, F.col("charge_1_amount"))
+         .when(F.col("charge_2_type") == kind, F.col("charge_2_amount"))
+         .when(F.col("charge_3_type") == kind, F.col("charge_3_amount")),
+        F.lit(0),
+    )
+
+src = spark.table(source_table).where(~F.coalesce(F.col("is_deleted"), F.lit(False)))
+
+fact = (src
+    .withColumn("gross_amount", (F.col("quantity") * F.col("unit_price")).cast("decimal(18,2)"))
+    .withColumn("discount_amount", pick_slot("discount"))
+    .withColumn("shipping_amount", pick_slot("shipping"))
+    .withColumn("tax_amount", pick_slot("tax"))
+    .withColumn("handling_amount", pick_slot("handling"))
+    .withColumn("net_amount", (F.col("gross_amount") - F.col("discount_amount")).cast("decimal(18,2)"))
+    .select(
+        "order_line_id", "order_id", "line_number", "product_id", "quantity", "unit_price",
+        "gross_amount", "discount_amount", "shipping_amount", "tax_amount", "handling_amount", "net_amount",
+        "last_modified_utc", "ingested_at_utc",
+    ))
+
+(fact.write
+     .format("delta")
+     .mode("overwrite")
+     .option("overwriteSchema", "true")
+     .saveAsTable(target_table))</code></pre>
+      </div>
+    </div>
+    <ul>
+      <li><strong>Deleted rows are excluded</strong> with <code>COALESCE(is_deleted, false) = false</code>. Silver keeps the flag precisely so Gold can make this decision per table.</li>
+      <li><strong>Measures are typed explicitly.</strong> <code>DECIMAL(18,2)</code> on derived money columns keeps the Gold schema stable, which matters for the Warehouse and semantic model built on it.</li>
+      <li><strong>Missing charges become 0, not NULL,</strong> so sums in reports and in reconciliation behave predictably. Choose deliberately: NULL means "unknown", 0 means "none".</li>
+      <li><strong>The column list is explicit.</strong> <code>SELECT *</code> in Gold lets every Silver change leak into the business model.</li>
+      <li><strong>Watermark columns are kept</strong> (<code>last_modified_utc</code>, <code>ingested_at_utc</code>), so the table can later move to the incremental engine without a rebuild.</li>
+    </ul>
+    <div class="callout tip"><p class="callout-title">Simplified from the original</p><p>The original example repeated a four-branch <code>CASE</code> for each derived column in SQL and a chain of <code>when</code> calls in PySpark, with two development-only count statements and print blocks around them. The PySpark version also wrapped counts in try and except, which hid a missing source table. The version here keeps one helper per pattern, removes the prints and leaves one commented count.</p></div>
+
+    <h2 id="incremental-engine">Incremental load: a config-driven engine</h2>
+    <p>For large facts, Gold reuses the Silver <a href="incremental-merge.html#merge-utility">incremental MERGE utility</a> and adds three things around it: a shared watermark list, a registry of per-table transforms and settings, and reconciliation. Run the cells in this order: helpers and the Silver utility, transforms, configuration, engine, then the calls.</p>
+<figure class="diagram">
+<svg class="dg" viewBox="0 0 900 214" role="img" aria-label="The Gold engine looks up a table's configuration, runs the shared incremental merge with the table's transform, then reconciles expected and actual totals and returns one metrics dictionary">
+<defs>
+<marker id="fig-s2g-2-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+</defs>
+<rect class="box purple" x="16" y="24" width="180" height="74" rx="10"/>
+<text class="t-b" x="106" y="48" text-anchor="middle">1 Look up config</text>
+<text class="t-s" x="106" y="65" text-anchor="middle">TABLE_CONFIG</text>
+<text class="t-s" x="106" y="82" text-anchor="middle">plus overrides</text>
+<rect class="box silver" x="238" y="24" width="180" height="74" rx="10"/>
+<text class="t-b" x="328" y="48" text-anchor="middle">2 Merge</text>
+<text class="t-s" x="328" y="65" text-anchor="middle">shared SCD1 utility</text>
+<text class="t-s" x="328" y="82" text-anchor="middle">with transform_fn</text>
+<rect class="box orange" x="460" y="24" width="180" height="74" rx="10"/>
+<text class="t-b" x="550" y="48" text-anchor="middle">3 Reconcile</text>
+<text class="t-s" x="550" y="65" text-anchor="middle">full source scan,</text>
+<text class="t-s" x="550" y="82" text-anchor="middle">rows and sums</text>
+<rect class="box green" x="682" y="24" width="180" height="74" rx="10"/>
+<text class="t-b" x="772" y="48" text-anchor="middle">4 Return</text>
+<text class="t-s" x="772" y="65" text-anchor="middle">metrics and</text>
+<text class="t-s" x="772" y="82" text-anchor="middle">qa_ok flag</text>
+<path class="ln" d="M196 61H238" marker-end="url(#fig-s2g-2-a)"/>
+<path class="ln" d="M418 61H460" marker-end="url(#fig-s2g-2-a)"/>
+<path class="ln" d="M640 61H682" marker-end="url(#fig-s2g-2-a)"/>
+<rect class="box plain" x="16" y="132" width="402" height="54" rx="10"/>
+<text class="t-b" x="217" y="154.5" text-anchor="middle">Same code for every Gold table</text>
+<text class="t-s" x="217" y="171.5" text-anchor="middle">add a table by adding a config entry</text>
+<rect class="box plain" x="460" y="132" width="424" height="54" rx="10"/>
+<text class="t-b" x="672" y="154.5" text-anchor="middle">Caller decides what a mismatch means</text>
+<text class="t-s" x="672" y="171.5" text-anchor="middle">raise to fail the activity, or log and alert</text>
+</svg>
+<figcaption><b>The Gold engine, one table at a time.</b> The engine itself has no table-specific code. Everything that differs between tables, source, keys, transform, delete rule and the measures to reconcile, lives in one configuration entry.</figcaption>
+</figure>
+    <h3 id="global-watermark">Global watermark and transforms</h3>
+    <p><code>WATERMARK_COLS_DEFAULT</code> is the priority list every Gold table shares: the first non-null value is the row's last-changed time. A single list works because Silver standardized these columns; if a table needs a different list, pass <code>watermark_cols</code> for that call.</p>
+    <p>Transform functions take a DataFrame of changed Silver rows and return the Gold shape. Because the engine applies them to the incremental slice only, they must be <strong>row-local</strong>: the output for a row may depend on that row and on stable reference data, but not on other rows in the slice. Aggregations across rows (daily totals, running balances) do not belong in this engine; build those as full loads, or as a separate step that recomputes the affected periods.</p>
+<pre data-title="Gold notebook: shared watermark list and transforms"><code class="language-python">from pyspark.sql import Column, DataFrame
+from pyspark.sql import functions as F
+
+# Global watermark priority list, shared by every Gold table (first non-null wins).
+WATERMARK_COLS_DEFAULT = ["last_modified_utc", "ingested_at_utc"]
+
+CHARGE_KINDS = ["discount", "shipping", "tax", "handling"]
+
+
+def _pick_slot(kind: str) -&gt; Column:
+    """Value of the first charge slot (1..3) whose type equals `kind`; null if none matches.
+
+    Without .otherwise(), when() returns a NULL of the branch type, so no explicit cast is needed.
+    """
+    return (F.when(F.col("charge_1_type") == kind, F.col("charge_1_amount"))
+             .when(F.col("charge_2_type") == kind, F.col("charge_2_amount"))
+             .when(F.col("charge_3_type") == kind, F.col("charge_3_amount")))
+
+
+def transform_fact_order_lines(df: DataFrame) -&gt; DataFrame:
+    """Silver order_lines -&gt; Gold fact_order_lines: pivot charge slots into named measures."""
+    amount_type = df.schema["charge_1_amount"].dataType
+    zero = F.lit(0).cast(amount_type)
+    out = df
+    for kind in CHARGE_KINDS:
+        out = out.withColumn(f"{kind}_amount", F.coalesce(_pick_slot(kind), zero))
+    out = out.withColumn("gross_amount", (F.col("quantity") * F.col("unit_price")).cast("decimal(18,2)"))
+    out = out.withColumn("net_amount", (F.col("gross_amount") - F.col("discount_amount")).cast("decimal(18,2)"))
+    return out.select(
+        "order_line_id", "order_id", "line_number", "product_id", "quantity", "unit_price",
+        "gross_amount", "discount_amount", "shipping_amount", "tax_amount", "handling_amount", "net_amount",
+        "last_modified_utc", "ingested_at_utc",
+    )
+
+
+def transform_fact_orders(df: DataFrame) -&gt; DataFrame:
+    """Silver orders -&gt; Gold fact_orders: add a date key and keep a stable column order."""
+    return (df
+            .withColumn("order_date_key", F.date_format(F.col("order_ts"), "yyyyMMdd").cast("int"))
+            .select("order_id", "customer_id", "employee_id", "order_date_key", "order_ts",
+                    "status", "currency_code", "gross_amount",
+                    "last_modified_utc", "ingested_at_utc"))</code></pre>
+    <ul>
+      <li><code>_pick_slot</code> leaves out <code>otherwise</code>, so an unmatched slot yields a NULL of the amount's own type and the <code>coalesce</code> turns it into a typed zero. The original cast a NULL literal to the key's data type for the same reason.</li>
+      <li>Both transforms keep the key and watermark columns, which the engine requires.</li>
+    </ul>
+    <h3 id="table-config">Per-table configuration</h3>
+<pre data-title="Gold notebook: TABLE_CONFIG"><code class="language-python"># Per-table settings, keyed by the Gold target table name. Add one entry per table.
+TABLE_CONFIG = {
+    "fact_orders": {
+        "source_table": "slv.orders",             # shortcut to Silver in the Gold lakehouse
+        "key_candidates": [["order_id"]],
+        "transform_fn": transform_fact_orders,
+        "delete_condition": "is_deleted = true",  # Silver keeps soft-delete flags for this reason
+        "qa_sum_columns": ["gross_amount"],
+    },
+    "fact_order_lines": {
+        "source_table": "slv.order_lines",
+        "key_candidates": [["order_line_id"], ["order_id", "line_number"]],
+        "transform_fn": transform_fact_order_lines,
+        "delete_condition": "is_deleted = true",
+        "qa_sum_columns": ["quantity", "gross_amount", "net_amount"],
+    },
+}</code></pre>
+    <dl class="kv">
+      <dt><code>source_table</code></dt><dd>Silver shortcut to read, in the <code>slv</code> schema.</dd>
+      <dt><code>key_candidates</code></dt><dd>Ordered key sets, as in the Silver utility. The first must be the true grain of the Gold table.</dd>
+      <dt><code>transform_fn</code></dt><dd>The row-local transform for this table.</dd>
+      <dt><code>delete_condition</code></dt><dd>How Gold recognizes rows to remove; here the Silver soft-delete flag.</dd>
+      <dt><code>qa_sum_columns</code></dt><dd>Measures whose totals reconciliation compares. Choose the ones the business reports on.</dd>
+      <dt>Optional</dt><dd><code>row_filter</code>, <code>normalize_keys</code>, <code>tiebreak_cols</code>, <code>lookback_minutes</code>, <code>watermark_value</code>.</dd>
+    </dl>
+    <p>Configuration is keyed by the Gold target table name. In the original version the key carried a suffix that did not match the real table name, and the engine fell back to a heuristic key search containing hard-coded column names of one source. Here a table without a configuration entry fails with a <code>KeyError</code>; there is no guessing.</p>
+    <h3 id="engine-code">The engine</h3>
+<pre data-title="Gold notebook: incremental_merge_with_qa and qa_reconcile"><code class="language-python">import math
+
+
+def qa_reconcile(
+    spark: SparkSession,
+    source_table: str,
+    target_table: str,
+    key_candidates: Sequence[Sequence[str]],
+    watermark_cols: Sequence[str],
+    *,
+    row_filter: Optional[RowFilter] = None,
+    transform_fn: Optional[Callable[[DataFrame], DataFrame]] = None,
+    delete_condition: Optional[str] = None,
+    normalize_keys: bool = False,
+    tiebreak_cols: Sequence[str] = (),
+    sum_columns: Sequence[str] = (),
+    raise_on_mismatch: bool = False,
+) -&gt; Dict[str, Any]:
+    """Compare what the target should hold (latest row per key, transformed) with what it holds.
+
+    Scans the whole source, so schedule it per release or nightly rather than on every run.
+    """
+    full, key_cols = build_slice(spark, source_table, key_candidates, watermark_cols,
+                                 row_filter, normalize_keys)
+    expected = latest_per_key(full, key_cols, "_wm", tiebreak_cols).drop("_wm")
+    if delete_condition:
+        expected = expected.filter(~F.coalesce(F.expr(delete_condition), F.lit(False)))
+    if transform_fn is not None:
+        expected = transform_fn(expected)
+
+    aggs = [F.count(F.lit(1)).alias("rows")] + [F.sum(c).alias(f"sum_{c}") for c in sum_columns]
+    want = expected.agg(*aggs).first().asDict()
+    have = spark.table(target_table).agg(*aggs).first().asDict()
+
+    checks = {}
+    for name, e in want.items():
+        e, a = e or 0, (have[name] or 0)
+        checks[name] = {"expected": float(e), "actual": float(a),
+                        "ok": math.isclose(float(e), float(a), rel_tol=1e-9, abs_tol=1e-6)}
+    result = {"qa_ok": all(c["ok"] for c in checks.values()), "checks": checks}
+    if raise_on_mismatch and not result["qa_ok"]:
+        raise AssertionError(f"QA mismatch for {target_table}: {checks}")
+    return result
+
+
+def incremental_merge_with_qa(
+    spark: SparkSession,
+    target_table: str,
+    table_config: Dict[str, Dict[str, Any]],
+    *,
+    watermark_cols: Sequence[str] = WATERMARK_COLS_DEFAULT,
+    run_qa: bool = True,
+    **overrides: Any,
+) -&gt; Dict[str, Any]:
+    """Look up a table's settings, run the incremental merge, then optionally reconcile."""
+    cfg = {**table_config[target_table], **overrides}
+    shared = dict(
+        row_filter=cfg.get("row_filter"),
+        transform_fn=cfg["transform_fn"],
+        delete_condition=cfg.get("delete_condition"),
+        normalize_keys=cfg.get("normalize_keys", False),
+        tiebreak_cols=cfg.get("tiebreak_cols", ()),
+    )
+    metrics = incremental_merge_scd1(
+        spark, cfg["source_table"], target_table, cfg["key_candidates"], watermark_cols,
+        lookback_minutes=cfg.get("lookback_minutes", 0),
+        watermark_value=cfg.get("watermark_value"),
+        **shared,
+    )
+    if run_qa:
+        metrics["qa"] = qa_reconcile(
+            spark, cfg["source_table"], target_table, cfg["key_candidates"], watermark_cols,
+            sum_columns=cfg.get("qa_sum_columns", ()), **shared,
+        )
+    return metrics</code></pre>
+<pre data-title="Gold notebook: run every configured table"><code class="language-python">results = {}
+for target in TABLE_CONFIG:                      # fact_orders, fact_order_lines, ...
+    results[target] = incremental_merge_with_qa(
+        spark, target, TABLE_CONFIG,
+        lookback_minutes=15,                      # tolerate late-arriving rows
+        run_qa=True,                              # turn off in production if the scan is too costly
+    )
+    print(target, results[target])
+
+failed = [t for t, r in results.items() if not r.get("qa", {}).get("qa_ok", True)]
+if failed:
+    raise RuntimeError(f"Reconciliation failed for: {failed}")   # fail the pipeline activity</code></pre>
+    <p>The loop runs every configured table, collects the metrics and raises once at the end if any reconciliation failed. That way one bad table does not hide the results of the others, and the pipeline activity still fails. To fail fast instead, pass <code>raise_on_mismatch=True</code> to <code>qa_reconcile</code>.</p>
+
+    <h2 id="reconciliation">Reconciliation</h2>
+    <p>Reconciliation answers one question: does the Gold table hold what a full rebuild from Silver would produce? The incremental engine is correct only if every slice was complete, every key unique and every delete applied. Reconciliation catches a failure in any of those without knowing which one happened.</p>
+<figure class="diagram">
+<svg class="dg" viewBox="0 0 900 300" role="img" aria-label="Reconciliation builds the expected Gold content from the full Silver source by keeping the latest row per key, removing deleted keys and applying the transform, then compares row counts and measure sums with the actual Gold table">
+<defs>
+<marker id="fig-s2g-3-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+</defs>
+<text class="t-h" x="16" y="30">Expected</text>
+<rect class="box silver" x="16" y="44" width="128" height="56" rx="10"/>
+<text class="t-b" x="80" y="67.5" text-anchor="middle">Silver source</text>
+<text class="t-s" x="80" y="84.5" text-anchor="middle">all rows</text>
+<rect class="box blue" x="174" y="44" width="128" height="56" rx="10"/>
+<text class="t-b" x="238" y="67.5" text-anchor="middle">Latest per key</text>
+<text class="t-s" x="238" y="84.5" text-anchor="middle">same dedup rule</text>
+<rect class="box blue" x="332" y="44" width="128" height="56" rx="10"/>
+<text class="t-b" x="396" y="67.5" text-anchor="middle">Minus deletes</text>
+<text class="t-s" x="396" y="84.5" text-anchor="middle">same condition</text>
+<rect class="box blue" x="490" y="44" width="128" height="56" rx="10"/>
+<text class="t-b" x="554" y="67.5" text-anchor="middle">Transform</text>
+<text class="t-s" x="554" y="84.5" text-anchor="middle">same function</text>
+<path class="ln" d="M144 72H174" marker-end="url(#fig-s2g-3-a)"/>
+<path class="ln" d="M302 72H332" marker-end="url(#fig-s2g-3-a)"/>
+<path class="ln" d="M460 72H490" marker-end="url(#fig-s2g-3-a)"/>
+<text class="t-h" x="16" y="140">Actual</text>
+<rect class="box gold" x="16" y="154" width="128" height="56" rx="10"/>
+<text class="t-b" x="80" y="177.5" text-anchor="middle">Gold table</text>
+<text class="t-s" x="80" y="194.5" text-anchor="middle">after merge</text>
+<rect class="box purple" x="690" y="98" width="194" height="62" rx="10"/>
+<text class="t-b" x="787" y="116" text-anchor="middle">Compare</text>
+<text class="t-s" x="787" y="133" text-anchor="middle">rows, sum of measures,</text>
+<text class="t-s" x="787" y="150" text-anchor="middle">within tolerance</text>
+<path class="ln" d="M618 72H660V120H690" marker-end="url(#fig-s2g-3-a)"/>
+<path class="ln" d="M144 182H660V140H690" marker-end="url(#fig-s2g-3-a)"/>
+<rect class="box red" x="16" y="238" width="868" height="44" rx="10"/>
+<text class="t-s" x="450" y="264" text-anchor="middle">Not a valid check: raw source row count vs target row count (duplicates and deleted keys make them differ)</text>
+</svg>
+<figcaption><b>What reconciliation compares.</b> The expected side repeats the engine's logic over the whole source, so a match means the incremental runs added up to the same answer as a full rebuild. Comparing the raw source count with the target count, as the original check did, differs by design and proves nothing.</figcaption>
+</figure>
+    <h3 id="what-to-compare">What to compare</h3>
+    <table>
+      <thead><tr><th>Check</th><th>Expected side</th><th>Catches</th><th>Cost</th></tr></thead>
+      <tbody>
+        <tr><td>Row count</td><td>Latest row per key, minus deleted keys</td><td>Missed slices, missed deletes, duplicates</td><td>Full source scan</td></tr>
+        <tr><td>Sum of key measures</td><td>Same rows, transformed</td><td>Missed updates, transform drift, type truncation</td><td>Same scan, extra aggregates</td></tr>
+        <tr><td>Duplicate keys</td><td>Zero</td><td>Wrong key choice, concurrent writers</td><td>Group by key on the target</td></tr>
+        <tr><td>Orphan foreign keys</td><td>Zero, or a known unknown-member count</td><td>Facts loaded before their dimensions</td><td>Anti-join to each dimension</td></tr>
+        <tr><td>Freshness</td><td>Max watermark in Gold close to Silver</td><td>Stalled loads, a stuck mark</td><td>Two small aggregates</td></tr>
+      </tbody>
+    </table>
+    <p>The engine's <code>qa_reconcile</code> covers the first two. Add the integrity checks as a separate step after all tables of a run have loaded, so dimensions and facts are compared at the same point in time.</p>
+<pre data-title="Gold notebook: integrity checks after the run"><code class="language-python">from typing import Sequence
+
+from pyspark.sql import SparkSession
+from pyspark.sql import functions as F
+
+
+def duplicate_keys(spark: SparkSession, table: str, key_cols: Sequence[str]) -&gt; int:
+    """Number of key values that occur more than once (should be 0 after an SCD1 merge)."""
+    return (spark.table(table).groupBy(*key_cols).count()
+            .filter(F.col("count") &gt; 1).count())
+
+
+def orphan_rows(spark: SparkSession, fact: str, fk: str, dim: str, pk: str) -&gt; int:
+    """Fact rows whose foreign key has no matching dimension row."""
+    keys = spark.table(dim).select(F.col(pk).alias(fk))
+    return spark.table(fact).join(keys, fk, "left_anti").count()
+
+
+problems = {
+    "dup fact_order_lines": duplicate_keys(spark, "dbo.fact_order_lines", ["order_line_id"]),
+    "orphan product_id": orphan_rows(spark, "dbo.fact_order_lines", "product_id", "dbo.dim_product", "product_id"),
+}
+if any(problems.values()):
+    raise AssertionError(f"Gold integrity checks failed: {problems}")</code></pre>
+    <h3 id="reconcile-changes">Corrected from the original QA</h3>
+    <table>
+      <thead><tr><th>Original check</th><th>Problem</th><th>Now</th></tr></thead>
+      <tbody>
+        <tr><td>Raw source row count against target row count</td><td>The two differ by design (duplicates per key, deleted rows), so a difference is normal and teams learn to ignore it</td><td>Expected count is derived with the same deduplication and delete rules as the load</td></tr>
+        <tr><td>Sum of a value column joined to a dimension filtered on one unit type</td><td>Tied to one source's dimension and column names; a dimension change altered both sides silently</td><td>Sums of configured measure columns, no join</td></tr>
+        <tr><td>Results printed and returned</td><td>Nothing failed on a mismatch</td><td>A <code>qa_ok</code> flag per table; the run raises if any is false</td></tr>
+      </tbody>
+    </table>
+    <h3 id="reconcile-operations">Running reconciliation in production</h3>
+    <ul>
+      <li><strong>Cost.</strong> The expected side scans the whole Silver table. For large facts run it nightly or per release with <code>run_qa=False</code> on intraday runs, or restrict both sides to recent partitions with the same filter.</li>
+      <li><strong>Tolerance.</strong> Integer counts must match exactly. Sums of decimals should match exactly too; the tolerance in the code only absorbs floating-point conversion in the comparison.</li>
+      <li><strong>Timing.</strong> If Silver is loading while Gold reconciles, the expected side moves. Reconcile right after the Gold load in the same run, before the next Silver load.</li>
+      <li><strong>Recording.</strong> Append the <code>checks</code> dictionary to the run log so trends (a slowly growing difference) are visible, and alert on <code>qa_ok = false</code>. The <a href="../15-qa-validation/index.html">QA Validation Frameworks</a> playbook covers the wider framework.</li>
+    </ul>
+
+    <h2 id="gold-layout">Gold table layout for consumers</h2>
+    <p>Gold tables feed the Warehouse, Direct Lake semantic models and SQL readers, so their file layout affects every query.</p>
+    <ul>
+      <li>Compact after incremental loads; many small files slow Direct Lake framing and SQL scans and count against Direct Lake guardrails.</li>
+      <li>Keep V-Order on for tables that Power BI reads; see the resource profile guidance on the <a href="environment.html#resource-profiles">Environment page</a>.</li>
+      <li>Partition only large tables, on a low-cardinality column consumers filter by; see <a href="../08-delta-partitioning/index.html">Delta Partitioning</a>.</li>
+      <li>Treat column names and types as a contract with Consumption: add columns freely, rename or retype only with a coordinated change.</li>
+    </ul>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p>
+      <ul>
+        <li>Gold reads Silver through an <code>slv</code> shortcut schema and writes only its own tables.</li>
+        <li>Put business logic in named, row-local transforms; aggregate tables are full loads or recompute affected periods.</li>
+        <li>Drive the incremental engine from one configuration entry per table; a missing entry is an error, not a guess.</li>
+        <li>Reconcile against what a full rebuild would produce, not against the raw source count, and fail the run on a mismatch.</li>
+      </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/fabric/onelake/onelake-medallion-lakehouse-architecture">Implement medallion lakehouse architecture in Fabric</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/lakehouse-schemas">Lakehouse schemas</a></li>
+        <li><a href="https://docs.delta.io/latest/delta-update.html">Delta Lake: table deletes, updates and merges</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/delta-optimization-and-v-order">Delta Lake table optimization and V-Order</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/lakehouse-table-maintenance">Lakehouse table maintenance</a></li>
+        <li><a href="https://spark.apache.org/docs/latest/api/python/reference/pyspark.sql/api/pyspark.sql.functions.when.html">PySpark functions.when</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

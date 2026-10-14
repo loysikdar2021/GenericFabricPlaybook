@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Change tracking options · Data Load Strategy</title>
+<meta name="description" content="High-watermark, log-based CDC, mirroring, Copy job incremental modes and Delta change data feed: what each detects, what each misses, and how to choose.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="02-data-load-strategy" data-page="change-tracking.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 02 · Data Load Strategy</p>
+      <h1>Change tracking options</h1>
+      <p class="lede">An incremental pipeline is only as reliable as its answer to one question: what changed? This page covers the mechanisms available in a Fabric platform, from a simple high-watermark to log-based CDC, mirroring and Delta change data feed, and gives you a way to choose between them.</p>
+    </header>
+
+    <h2 id="source-first">Start with the source, not the tool</h2>
+    <p>The feasibility and reliability of an incremental load depend entirely on how accurately you can identify changed data. That capability is set by the source system, not by your pipeline tool, so the first design question is "what change information does the source provide?" Adopting this source-first view prevents the most common production surprise: an incremental pipeline that works for months and then reveals that deletes were never propagated.</p>
+    <p>There are three situations, in order of preference:</p>
+    <ol>
+      <li><strong>The source exposes a change log</strong> (database CDC, a replication feed). You can capture inserts, updates and deletes in order.</li>
+      <li><strong>The source has a reliable "last changed" marker</strong> (a modified timestamp, row version or increasing key). You can find inserts and updates since the last run, but not deletes.</li>
+      <li><strong>The source offers only snapshots.</strong> You must compare the new snapshot with what you hold, which costs a full scan each time.</li>
+    </ol>
+
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 290" role="img" aria-label="Decision path for change tracking: use log-based CDC when the source exposes it, otherwise a watermark on a reliable modified column with periodic full comparison for deletes, otherwise compare full snapshots">
+        <defs>
+          <marker id="fig-track-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-track-1-ar" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar red" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box purple" x="20" y="24" width="230" height="52" rx="26"/>
+        <text class="t-b" x="135" y="55" text-anchor="middle">Log-based CDC available?</text>
+        <rect class="box purple" x="20" y="124" width="230" height="52" rx="26"/>
+        <text class="t-b" x="135" y="155" text-anchor="middle">Reliable modified column?</text>
+        <path class="ln green" d="M250 50H318" marker-end="url(#fig-track-1-a)"/>
+        <text class="t-s c-green" x="284" y="42" text-anchor="middle">yes</text>
+        <path class="ln green" d="M250 150H318" marker-end="url(#fig-track-1-a)"/>
+        <text class="t-s c-green" x="284" y="142" text-anchor="middle">yes</text>
+        <path class="ln red" d="M135 76V122" marker-end="url(#fig-track-1-ar)"/>
+        <text class="t-s c-red" x="143" y="104">no</text>
+        <path class="ln red" d="M135 176V250H318" marker-end="url(#fig-track-1-ar)"/>
+        <text class="t-s c-red" x="143" y="204">no</text>
+        <rect class="box green" x="320" y="18" width="300" height="64" rx="10"/>
+        <text class="t-b" x="470" y="44" text-anchor="middle">Use CDC</text>
+        <text class="t-s" x="470" y="63" text-anchor="middle">Copy job CDC, mirroring, Eventstreams</text>
+        <rect class="box orange" x="320" y="118" width="300" height="64" rx="10"/>
+        <text class="t-b" x="470" y="144" text-anchor="middle">Watermark incremental</text>
+        <text class="t-s" x="470" y="163" text-anchor="middle">plus periodic full compare for deletes</text>
+        <rect class="box orange" x="320" y="224" width="300" height="52" rx="10"/>
+        <text class="t-b" x="470" y="247" text-anchor="middle">Snapshot compare</text>
+        <text class="t-s" x="470" y="264" text-anchor="middle">land full snapshots, diff in Silver</text>
+        <rect class="box gray" x="650" y="24" width="230" height="52" rx="8"/>
+        <text class="t-s" x="765" y="46" text-anchor="middle">Sees inserts, updates, deletes</text>
+        <text class="t-s" x="765" y="62" text-anchor="middle">in commit order</text>
+        <rect class="box gray" x="650" y="124" width="230" height="52" rx="8"/>
+        <text class="t-s" x="765" y="146" text-anchor="middle">Sees inserts and updates</text>
+        <text class="t-s" x="765" y="162" text-anchor="middle">deletes need a resync</text>
+        <rect class="box gray" x="650" y="224" width="230" height="52" rx="8"/>
+        <text class="t-s" x="765" y="246" text-anchor="middle">Sees everything</text>
+        <text class="t-s" x="765" y="262" text-anchor="middle">at full-scan cost</text>
+      </svg>
+      <figcaption><b>Source-first decision path.</b> Each step down loses visibility and adds cost; the right-hand boxes state what the chosen mechanism can see.</figcaption>
+    </figure>
+
+    <h2 id="watermark">High-watermarking (HWM)</h2>
+    <p>The high-watermark method tracks progress with a column in the source table, such as a <code>last_modified</code> timestamp, a SQL Server <code>ROWVERSION</code> or a monotonically increasing integer. Each run uses the highest value seen last time as a bookmark.</p>
+    <ol class="steps">
+      <li><strong>Read the stored high-water mark</strong><p>Fetch the maximum watermark value from the last successful run out of a durable control table. On the first run there is none, which means a full initial load.</p></li>
+      <li><strong>Query the window</strong><p>Select rows whose watermark is greater than the stored value and no greater than an upper bound captured when the run starts. The upper bound stops rows committed during extraction from being half-read and then skipped.</p></li>
+      <li><strong>Write the batch</strong><p>Append it to Bronze (or merge it into the target) and wait for the commit.</p></li>
+      <li><strong>Advance the watermark last</strong><p>Store the new maximum only after the write succeeds, so a failed run is simply repeated.</p></li>
+    </ol>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 322" role="img" aria-label="Sequence of a watermark load: the orchestrator reads the stored watermark, pulls rows in the window from the source, appends them to Bronze, and only then advances the watermark in the control table">
+        <defs>
+          <marker id="fig-track-2-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-track-2-ag" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box gray" x="30" y="14" width="160" height="46" rx="8"/>
+        <text class="t-b" x="110" y="34" text-anchor="middle">Control table</text>
+        <text class="t-s" x="110" y="50" text-anchor="middle">durable state</text>
+        <rect class="box teal" x="250" y="14" width="160" height="46" rx="8"/>
+        <text class="t-b" x="330" y="34" text-anchor="middle">Pipeline or notebook</text>
+        <text class="t-s" x="330" y="50" text-anchor="middle">orchestrates the run</text>
+        <rect class="box gray" x="470" y="14" width="160" height="46" rx="8"/>
+        <text class="t-b" x="550" y="34" text-anchor="middle">Source system</text>
+        <text class="t-s" x="550" y="50" text-anchor="middle">modified column</text>
+        <rect class="box bronze" x="690" y="14" width="160" height="46" rx="8"/>
+        <text class="t-b" x="770" y="34" text-anchor="middle">Bronze table</text>
+        <text class="t-s" x="770" y="50" text-anchor="middle">append-only Delta</text>
+        <path class="ln thin dash gray" d="M110 60V262"/>
+        <path class="ln thin dash gray" d="M330 60V262"/>
+        <path class="ln thin dash gray" d="M550 60V262"/>
+        <path class="ln thin dash gray" d="M770 60V262"/>
+        <path class="ln" d="M326 98H114" marker-end="url(#fig-track-2-a)"/>
+        <text class="t-s" x="220" y="90" text-anchor="middle">1 read last watermark</text>
+        <path class="ln" d="M334 146H546" marker-end="url(#fig-track-2-a)"/>
+        <text class="t-s" x="440" y="138" text-anchor="middle">2 pull rows in the window</text>
+        <path class="ln" d="M334 194H766" marker-end="url(#fig-track-2-a)"/>
+        <text class="t-s" x="346" y="186">3 append rows to Bronze</text>
+        <path class="ln green thick" d="M326 242H114" marker-end="url(#fig-track-2-ag)"/>
+        <text class="t-s" x="220" y="234" text-anchor="middle">4 advance watermark after commit</text>
+        <rect class="box green" x="60" y="274" width="780" height="40" rx="8"/>
+        <text class="t-b" x="450" y="299" text-anchor="middle">If a run fails before step 4 the watermark does not move, so the rerun repeats the same window safely</text>
+      </svg>
+      <figcaption><b>Watermark sequence.</b> The order of steps 3 and 4 is the whole safety property: write first, then advance. Combined with an idempotent write, a retry cannot lose or double-count a window.</figcaption>
+    </figure>
+
+    <h3 id="watermark-pipeline">Watermark in a pipeline</h3>
+    <p>In a data pipeline the pattern is a Lookup activity that reads the stored value, a Copy activity whose source query uses it, and a final activity that stores the new value on success. Copy job implements the same state handling for you (see <a href="#copy-job">Copy job incremental modes</a>), so hand-built pipelines are worth it only when you need custom queries or orchestration around the copy.</p>
+<pre data-title="Copy activity source query (pipeline dynamic content)"><code class="language-sql">SELECT *
+FROM sales.orders
+WHERE modified_at &gt;  '@{activity('Lookup_LastWatermark').output.firstRow.watermark_value}'
+  AND modified_at &lt;= '@{pipeline().parameters.RunUpperBound}'</code></pre>
+    <p>Set <code>RunUpperBound</code> to the pipeline's start time (or the source's current maximum) and write the same value to the control table when the copy succeeds.</p>
+
+    <h3 id="watermark-notebook">Watermark in a notebook</h3>
+    <p>For Bronze-to-Silver processing, track progress with an ingestion batch id that the orchestrator assigns in increasing order, not with wall-clock time. Concurrent ingestion runs can finish out of order, and a timestamp watermark would then skip the slower run's rows.</p>
+<pre data-title="PySpark · notebook cell (batch-id watermark for Bronze to Silver)"><code class="language-python">from pyspark.sql import functions as F
+from delta.tables import DeltaTable
+
+WM_TABLE = "ops.watermarks"   # source_name STRING, watermark_value STRING, updated_at TIMESTAMP
+
+spark.sql(f"""
+CREATE TABLE IF NOT EXISTS {WM_TABLE} (
+  source_name STRING, watermark_value STRING, updated_at TIMESTAMP
+) USING DELTA""")
+
+def get_watermark(source_name):
+    row = (spark.table(WM_TABLE)
+                .where(F.col("source_name") == source_name)
+                .select("watermark_value").first())
+    return int(row["watermark_value"]) if row else None
+
+def set_watermark(source_name, value):
+    new = (spark.createDataFrame([(source_name, str(value))], "source_name string, watermark_value string")
+                .withColumn("updated_at", F.current_timestamp()))
+    (DeltaTable.forName(spark, WM_TABLE).alias("t")
+        .merge(new.alias("s"), "t.source_name = s.source_name")
+        .whenMatchedUpdateAll()
+        .whenNotMatchedInsertAll()
+        .execute())
+
+last_batch = get_watermark("bronze.orders")          # None on the first run
+batch = spark.table("bronze.orders")
+if last_batch is not None:
+    batch = batch.where(F.col("_batch_id") &gt; last_batch)
+
+new_high = batch.agg(F.max("_batch_id")).first()[0]
+if new_high is None:
+    print("Nothing new to process")
+else:
+    # ... deduplicate and MERGE `batch` into silver.orders (see the Silver page) ...
+    set_watermark("bronze.orders", new_high)         # only after the MERGE has committed</code></pre>
+
+    <h3 id="watermark-pitfalls">What goes wrong with watermarks</h3>
+    <table>
+      <thead><tr><th>Pitfall</th><th>Why it happens</th><th>Fix</th></tr></thead>
+      <tbody>
+        <tr><td>Hard deletes are invisible</td><td>A deleted row no longer exists to be selected</td><td>Periodic full comparison, or move to CDC (see <a href="silver.html#deletes">delete handling</a>)</td></tr>
+        <tr><td>Late-committing transactions</td><td>A long transaction stamps rows with an early time but commits after your run passed that time</td><td>Prefer <code>ROWVERSION</code> or a commit-ordered feed; otherwise re-read an overlap window (for example the last few hours) and rely on an idempotent <code>MERGE</code></td></tr>
+        <tr><td>Equal values at the boundary</td><td>Many rows share the same timestamp, and the run ends mid-group</td><td>Use a capped upper bound and an overlap, never a strict greater-than against the maximum of a partially read group</td></tr>
+        <tr><td>Column not always updated</td><td>Some code paths or bulk fixes change rows without touching the modified column</td><td>Validate with a sampling reconciliation; fix at the source or switch mechanisms</td></tr>
+        <tr><td>NULL watermark values</td><td>NULLs cannot satisfy a greater-than comparison, so such rows are skipped after the first load</td><td>Enforce NOT NULL with a default, or handle NULL explicitly in the query</td></tr>
+        <tr><td>Slow source scans</td><td>The watermark column is not indexed, so each incremental query scans the table</td><td>Index the column, or project it as an indexed computed column</td></tr>
+        <tr><td>Clock skew and time zones</td><td>Application-set timestamps or mixed time zones break ordering</td><td>Use a database-generated value in UTC, and compare like with like</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="cdc">Change data capture (CDC)</h2>
+    <p>Change data capture records every insert, update and delete directly from the source database, usually by reading its transaction log, and delivers an ordered stream of change events. It is more accurate than a watermark because deletes are first-class events, and it puts little load on the source because it reads the log rather than querying tables. The price is setup and operations: the source must have the feature enabled (for example SQL Server's native CDC), you manage permissions and log retention, and you need a consumer that applies the events correctly.</p>
+    <p>In Fabric you have several ways to consume change streams. They differ in what they produce and how much of the pipeline they take over.</p>
+    <table>
+      <thead><tr><th>Option</th><th>What it does</th><th>Result in Fabric</th><th>Typical use</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Database mirroring</strong></td><td>Continuously replicates a source database into OneLake and merges changes for you</td><td>Read-only Delta tables holding current state, with a managed layout and a SQL analytics endpoint</td><td>Operational data that analytics needs with minimal pipeline work</td></tr>
+        <tr><td><strong>Open mirroring</strong></td><td>Lets your own application or a partner write change data into a landing zone in an open format; Fabric merges it into Delta</td><td>A mirrored database item fed by custom or third-party producers</td><td>Sources Fabric has no native mirroring connector for</td></tr>
+        <tr><td><strong>Copy job with CDC</strong></td><td>Reads CDC-enabled source tables and applies inserts, updates and deletes to a destination</td><td>Destination tables you own, written by merge (SCD1) or SCD Type 2</td><td>You want a replica you control, with scheduling and column mapping</td></tr>
+        <tr><td><strong>Eventstreams CDC sources</strong></td><td>Streams database changes in near real time</td><td>Eventhouse, lakehouse or other destinations</td><td>Low-latency and event-driven designs</td></tr>
+      </tbody>
+    </table>
+    <div class="callout important"><p class="callout-title">Mirroring is a replica, not a history</p><p>A mirrored database gives you the current state of each source table, merged for you. It is not an append-only change history: Fabric vacuums old files automatically, with a short default retention that you can adjust in the mirrored database settings, and you cannot configure the Delta layout or table properties. If you need an immutable record of every change for audit or reprocessing, land the change stream with Copy job (append, with audit columns) or keep your own Bronze history, and treat the mirror as the current-state source for Silver.</p></div>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>Supported mirroring sources and their release status vary and change often; some sources are labeled preview. Check <a href="https://learn.microsoft.com/fabric/mirroring/overview">What is Mirroring in Fabric?</a> before committing. Mirroring storage and background replication compute are free up to a capacity-based limit; confirm the current terms on the same page.</p></div>
+
+    <h2 id="copy-job">Copy job incremental modes</h2>
+    <p>Copy job is a Data Factory item that moves data from many sources to many destinations without building a pipeline. It supports full copy and incremental copy, and manages the state of the last successful run for you. For database sources it chooses between two incremental modes per table.</p>
+    <ul>
+      <li><strong>Watermark-based incremental copy.</strong> You pick an incremental column. Supported types include <code>ROWVERSION</code>, datetime, date, strings interpretable as datetime and integers; for an unsupported type you can cast in the source query. Date-only columns get an automatic delayed extraction so same-day changes are not lost. Rows with a NULL watermark are skipped after the initial load. Deletes are not detected.</li>
+      <li><strong>CDC-based incremental copy.</strong> When CDC is enabled on a supported source table, Copy job detects it, replicates inserts, updates and deletes, and applies them to the destination with merge (SCD Type 1) or SCD Type 2 (with soft-deleted history).</li>
+      <li><strong>File sources.</strong> Subsequent loads copy only files created or modified since the last successful run.</li>
+    </ul>
+    <p>Useful operational features: Copy job resumes from the end of the last successful run, you can reset incremental state to a full copy per job or per table, it can add audit columns (extraction time, run id, incremental window bounds) to every row, and for Lakehouse destinations it can enable Delta change data feed on the tables it creates. Reset does not clear the destination: with the Append write method, a reset followed by a run duplicates rows unless you truncate first.</p>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>CDC replication in Copy job is documented as a preview capability with a limited connector list, SCD Type 2 is marked preview, only net-change capture and the default capture instance are supported, and a job that mixes CDC and non-CDC tables treats all of them as watermark-based. Check <a href="https://learn.microsoft.com/fabric/data-factory/cdc-copy-job">Change data capture in Copy job</a> for current sources, status and limitations before designing around it.</p></div>
+
+    <h2 id="cdf">Delta change data feed (CDF)</h2>
+    <p>Once data is in a Delta table you can get row-level change tracking from Delta itself. Delta change data feed records, for each commit, which rows were inserted, updated or deleted. It is off by default and records only changes made after you enable it.</p>
+<pre data-title="Spark SQL · notebook cell"><code class="language-sql">-- Enable on a new or existing table
+ALTER TABLE silver.orders SET TBLPROPERTIES (delta.enableChangeDataFeed = true);
+
+-- Read changes from a table version onward
+SELECT order_id, order_date, amount, _change_type, _commit_version, _commit_timestamp
+FROM table_changes('silver.orders', 42);</code></pre>
+    <dl class="kv">
+      <dt><code>_change_type</code></dt><dd><code>insert</code>, <code>update_preimage</code>, <code>update_postimage</code> or <code>delete</code>. The pre-image is the row before an update, which lets you correct aggregates keyed on an old value.</dd>
+      <dt>Storage</dt><dd>Change rows for <code>UPDATE</code>, <code>DELETE</code> and <code>MERGE</code> are written under a <code>_change_data</code> folder. Insert-only commits and whole-partition deletes are served from the transaction log. Overhead is small.</dd>
+      <dt>Retention</dt><dd>Change data follows the table's retention, so <code>VACUUM</code> removes it. A consumer that falls further behind than the retention period loses changes and must fall back to a rebuild.</dd>
+      <dt>Maintenance commits</dt><dd><code>OPTIMIZE</code> rewrites files without changing data and produces no change rows.</dd>
+    </dl>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 256" role="img" aria-label="A Gold refresh reads table_changes from the Silver Delta log starting after the last processed version stored in a control table, recomputes the affected dates, and saves the new version only after success">
+        <defs>
+          <marker id="fig-track-3-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-track-3-ag" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box silver" x="20" y="70" width="150" height="90" rx="10"/>
+        <text class="t-b" x="95" y="108" text-anchor="middle">Silver orders</text>
+        <text class="t-s" x="95" y="126" text-anchor="middle">CDF enabled</text>
+        <rect class="box blue" x="222" y="50" width="190" height="130" rx="10"/>
+        <text class="t-b" x="317" y="76" text-anchor="middle">Delta log</text>
+        <text class="t-m" x="317" y="102" text-anchor="middle">v41  MERGE</text>
+        <text class="t-m" x="317" y="122" text-anchor="middle">v42  MERGE</text>
+        <text class="t-m" x="317" y="142" text-anchor="middle">v43  OPTIMIZE</text>
+        <text class="t-s" x="317" y="166" text-anchor="middle">OPTIMIZE adds no change rows</text>
+        <rect class="box teal" x="470" y="70" width="190" height="90" rx="10"/>
+        <text class="t-b" x="565" y="96" text-anchor="middle">table_changes</text>
+        <text class="t-s" x="565" y="118" text-anchor="middle">insert, delete,</text>
+        <text class="t-s" x="565" y="134" text-anchor="middle">update pre/postimage</text>
+        <rect class="box gold" x="710" y="70" width="170" height="90" rx="10"/>
+        <text class="t-b" x="795" y="100" text-anchor="middle">Gold refresh</text>
+        <text class="t-s" x="795" y="120" text-anchor="middle">affected dates only</text>
+        <rect class="box gray" x="470" y="196" width="190" height="40" rx="8"/>
+        <text class="t-b" x="565" y="214" text-anchor="middle">last_version = 41</text>
+        <text class="t-s" x="565" y="229" text-anchor="middle">control table</text>
+        <path class="ln" d="M170 115H220" marker-end="url(#fig-track-3-a)"/>
+        <text class="t-s" x="195" y="107" text-anchor="middle">commit</text>
+        <path class="ln" d="M412 115H468" marker-end="url(#fig-track-3-a)"/>
+        <text class="t-s" x="440" y="107" text-anchor="middle">v42+</text>
+        <path class="ln" d="M660 115H708" marker-end="url(#fig-track-3-a)"/>
+        <text class="t-s" x="684" y="107" text-anchor="middle">keys</text>
+        <path class="ln dash" d="M565 196V162" marker-end="url(#fig-track-3-a)"/>
+        <text class="t-s" x="573" y="182">start after 41</text>
+        <path class="ln green" d="M795 162V216H662" marker-end="url(#fig-track-3-ag)"/>
+        <text class="t-s" x="728" y="208" text-anchor="middle">save v43 on success</text>
+      </svg>
+      <figcaption><b>CDF-driven refresh.</b> The control table holds the last processed commit version. A run reads changes after it, recomputes only what those changes touch, and stores the new version once the write has committed.</figcaption>
+    </figure>
+
+    <h3 id="cdf-bronze">Where CDF helps, and where it does not</h3>
+    <p>CDF is most valuable on tables that are updated and deleted, typically Silver tables maintained with <code>MERGE</code>, feeding Gold. It is also how materialized lake views decide to refresh incrementally (see <a href="tooling.html#mlv">materialized lake views</a>). On an append-only Bronze table it adds little, because every change is an insert. To process only new Bronze rows without a hand-written watermark, read Bronze as a stream and let the checkpoint keep the state.</p>
+<pre data-title="PySpark · notebook cell (exactly-once incremental read of an append-only Bronze table)"><code class="language-python">from delta.tables import DeltaTable
+from pyspark.sql import functions as F, Window
+
+silver_cols = spark.table("silver.orders").columns
+
+def upsert_batch(micro_df, batch_id):
+    w = Window.partitionBy("order_id").orderBy(F.col("modified_at").desc(), F.col("_ingest_ts").desc())
+    latest = (micro_df.withColumn("_rn", F.row_number().over(w))
+                      .where("_rn = 1")
+                      .select(*silver_cols))              # drop Bronze metadata columns
+    (DeltaTable.forName(micro_df.sparkSession, "silver.orders").alias("t")
+        .merge(latest.alias("s"), "t.order_id = s.order_id")
+        .whenMatchedUpdateAll(condition="s.modified_at &gt;= t.modified_at")
+        .whenNotMatchedInsertAll()
+        .execute())
+
+(spark.readStream.table("bronze.orders")                  # Bronze must be append-only
+    .writeStream
+    .foreachBatch(upsert_batch)
+    .option("checkpointLocation", "Files/_checkpoints/silver_orders")
+    .trigger(availableNow=True)                           # process all new data, then stop
+    .start()
+    .awaitTermination())</code></pre>
+    <p>The checkpoint (kept in the lakehouse Files area) records which Bronze commits were processed, so a rerun after failure resumes where it stopped. If Bronze ever receives updates or deletes, a stream over it fails by default; handle that deliberately (for example with the source option <code>skipChangeCommits</code>) rather than disabling the check blindly.</p>
+
+    <h2 id="comparison">Comparing the mechanisms</h2>
+    <table>
+      <thead><tr><th>Mechanism</th><th>Source prerequisite</th><th>Inserts</th><th>Updates</th><th>Deletes</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Watermark</strong></td><td>Monotonic modified column or row version</td><td class="yes">Yes</td><td class="maybe">Partly</td><td class="no">No</td><td>Cheap and simple. Updates are seen only if the column is bumped on every change; risk of late commits and missed updates</td></tr>
+        <tr><td><strong>Log-based CDC</strong> (through Copy job or Eventstreams)</td><td>CDC enabled on the source and supported by the connector</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="yes">Yes</td><td>Low source load; setup and log retention to manage</td></tr>
+        <tr><td><strong>Database mirroring</strong></td><td>Supported source and connection</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="yes">Yes</td><td>Current state only; layout and properties are system-managed</td></tr>
+        <tr><td><strong>Delta CDF</strong></td><td>Delta table with CDF enabled</td><td class="yes">Yes</td><td class="yes">Yes, with pre-image</td><td class="yes">Yes</td><td>Only changes after enablement; bounded by <code>VACUUM</code> retention</td></tr>
+        <tr><td><strong>Snapshot diff</strong></td><td>A full snapshot each run</td><td class="yes">Yes</td><td class="yes">Yes</td><td class="yes">Yes</td><td>Cost proportional to table size; hash or key comparison</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="choosing">Choosing a mechanism</h2>
+    <p>The ideal mechanism is log-based CDC because it gives a complete, unambiguous stream of changes and simplifies every downstream transformation. If CDC is not available, a watermark is a viable alternative with one structural constraint: it cannot see hard deletes, so you must combine it with a periodic full comparison to resynchronize the target. If neither CDC nor a reliable watermark exists, true incremental loading is very difficult, and you fall back to hashing or comparing full snapshots, which gives up much of the performance benefit.</p>
+    <div class="callout tip"><p class="callout-title">Test the signal before you trust it</p><p>Before building on a watermark column, run a one-off reconciliation: take a sample of recent source rows, change a few through the normal application path (insert, update, soft delete, bulk correction) and confirm each one moves the column and appears in the next increment. Repeat the test whenever the source application changes.</p></div>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p><ul>
+      <li>The change signal is set by the source; ask what it provides before choosing a tool.</li>
+      <li>Watermark loads must write first and advance the watermark last, with an upper bound and an idempotent write.</li>
+      <li>Track Bronze-to-Silver progress with monotonically increasing batch ids or a stream checkpoint, not wall-clock time.</li>
+      <li>Watermarks cannot see deletes; plan a periodic full comparison or move to CDC.</li>
+      <li>Mirroring gives you current state, not history; keep your own Bronze history if you need audit or replay.</li>
+      <li>Use Delta CDF on updated Silver tables to drive incremental Gold refresh, and respect <code>VACUUM</code> retention.</li>
+    </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/incremental-copy-job">Incremental copy in Copy job</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/cdc-copy-job">Change data capture in Copy job</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/mirroring/overview">What is Mirroring in Fabric?</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/mirroring/open-mirroring">Open mirroring</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/decision-guide-data-movement">Data movement decision guide</a></li>
+        <li><a href="https://docs.delta.io/delta-change-data-feed/">Delta Lake: change data feed</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/tutorial-incremental-copy-data-warehouse-lakehouse">Tutorial: incrementally load data from a warehouse to a lakehouse</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

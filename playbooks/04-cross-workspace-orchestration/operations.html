@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Logging, monitoring and CI/CD · Hub and Spoke</title>
+<meta name="description" content="Central run logging, Monitoring hub, workspace monitoring and alerts for a Fabric hub-and-spoke platform, plus how to resolve workspace and pipeline IDs and deploy hub and spokes across environments.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="04-cross-workspace-orchestration" data-page="operations.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 04 · Hub and spoke</p>
+      <h1>Logging, monitoring and CI/CD</h1>
+      <p class="lede">The two things that are painful to retrofit: one place that answers "did it finish?", and a way to promote hub and spokes between environments without hard-coded workspace and pipeline IDs. This page compares the monitoring options, shows an explicit run log, covers alerting, and then solves the item-ID problem.</p>
+    </header>
+
+    <h2 id="fragmentation">The fragmentation problem</h2>
+    <p>Run history lives in the workspace where a run executes. In hub and spoke that means the hub shows that its master pipeline ran, each spoke shows its own runs, and nothing shows the end-to-end story unless you build it. Earlier guidance solved this by enabling workspace monitoring in the hub and streaming each spoke's job events through an Eventstream into the hub's Eventhouse. That still works, but there are now native ways to route telemetry centrally, and a simple explicit log table remains the most portable answer for business-level questions. The right design usually uses two of them: a technical view and a business view.</p>
+
+    <h2 id="monitoring-options">Choose how to centralize</h2>
+    <table>
+      <thead><tr><th>Option</th><th>What you get</th><th>Scope</th><th>Watch out for</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Monitoring hub</strong> (legacy experience)</td><td>Run list across items you can access, activity runs, a Gantt view, export of run data, rerun</td><td>Across workspaces you can open</td><td>Browsing, not alerting or analysis</td></tr>
+        <tr><td><strong>New Monitoring hub</strong> <span class="badge preview">Preview</span></td><td>Pipeline health table (last status, success rate, average duration), run history, <em>upstream and downstream runs</em>, rerun of the whole pipeline, failed activities or selected activities, alert management</td><td>Across workspaces</td><td>Preview; you can switch back to the legacy experience</td></tr>
+        <tr><td><strong>Workspace monitoring</strong> <span class="badge preview">Preview</span></td><td>Pipeline-level (<code>ItemJobEventLogs</code>) and activity-level (<code>FabricDataPipelinesActivityRunsLogs</code>) logs in an Eventhouse, queryable with KQL; 30-day retention by default</td><td>Per workspace; a workspace can send its data to the Eventhouse of another workspace's monitoring item to centralize telemetry</td><td>Same Azure region required for central routing; the choice cannot be changed later; only one monitoring item per workspace; each source workspace adds a KQL database to the destination; it consumes capacity; error details are not supported in the pipeline tables</td></tr>
+        <tr><td><strong>Job events</strong> to Eventstream and Eventhouse</td><td>An event per job state change, routable to any destination, with your own transformations</td><td>Per workspace or item</td><td>You build and run one stream per spoke; the consumer and the source must be in the same region</td></tr>
+        <tr><td><strong>Explicit run log</strong></td><td>Rows your pipelines write: batch, stage, status, error text, rows written</td><td>Anything you choose to log</td><td>You own its correctness, and failure paths must write too</td></tr>
+        <tr><td><strong>Capacity Metrics app</strong></td><td>Consumption by item and operation</td><td>Per capacity</td><td>Cost and throttling view, not a run log</td></tr>
+      </tbody>
+    </table>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 310" role="img" aria-label="Three channels carry run information from spoke workspaces into the hub: explicit run rows into a Warehouse log, workspace monitoring telemetry into a monitoring Eventhouse, and job events through an Eventstream into the same Eventhouse; a dashboard and alerts read both stores">
+        <defs>
+          <marker id="fig-ops-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-ops-1-ag" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-ops-1-ab" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar blue" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="zone" x="20" y="30" width="200" height="260" rx="12"/>
+        <text class="t-s" x="34" y="48">Spoke workspaces</text>
+        <rect class="box teal" x="40" y="62" width="160" height="56" rx="8"/>
+        <text class="t-b" x="120" y="86" text-anchor="middle">Spoke A</text>
+        <text class="t-s" x="120" y="104" text-anchor="middle">pipelines and notebooks</text>
+        <rect class="box teal" x="40" y="136" width="160" height="56" rx="8"/>
+        <text class="t-b" x="120" y="160" text-anchor="middle">Spoke B</text>
+        <text class="t-s" x="120" y="178" text-anchor="middle">pipelines and notebooks</text>
+        <rect class="box teal" x="40" y="210" width="160" height="56" rx="8"/>
+        <text class="t-b" x="120" y="234" text-anchor="middle">Spoke C</text>
+        <text class="t-s" x="120" y="252" text-anchor="middle">pipelines and notebooks</text>
+        <rect class="zone purple" x="540" y="30" width="340" height="260" rx="12"/>
+        <text class="t-s" x="554" y="48">Hub workspace</text>
+        <rect class="box green" x="556" y="62" width="170" height="64" rx="8"/>
+        <text class="t-b" x="641" y="88" text-anchor="middle">Run log</text>
+        <text class="t-s" x="641" y="106" text-anchor="middle">Warehouse, business view</text>
+        <rect class="box blue" x="556" y="150" width="170" height="64" rx="8"/>
+        <text class="t-b" x="641" y="176" text-anchor="middle">Monitoring Eventhouse</text>
+        <text class="t-s" x="641" y="194" text-anchor="middle">KQL, technical view</text>
+        <rect class="box purple" x="772" y="82" width="96" height="112" rx="8"/>
+        <text class="t-b" x="820" y="130" text-anchor="middle">Dashboard</text>
+        <text class="t-s" x="820" y="148" text-anchor="middle">and alerts</text>
+        <path class="ln green thick" d="M220 94H554" marker-end="url(#fig-ops-1-ag)"/>
+        <path class="ln blue thick" d="M220 172H554" marker-end="url(#fig-ops-1-ab)"/>
+        <path class="ln blue dash" d="M220 196H554" marker-end="url(#fig-ops-1-ab)"/>
+        <text class="t-s" x="387" y="86" text-anchor="middle">1 · explicit rows from pipelines</text>
+        <text class="t-s" x="387" y="164" text-anchor="middle">2 · workspace monitoring</text>
+        <text class="t-s" x="387" y="188" text-anchor="middle">3 · job events via Eventstream</text>
+        <path class="ln" d="M726 94H744V120H770" marker-end="url(#fig-ops-1-a)"/>
+        <path class="ln" d="M726 182H744V156H770" marker-end="url(#fig-ops-1-a)"/>
+        <text class="t-s" x="554" y="240">Channels 2 and 3 carry the same</text>
+        <text class="t-s" x="554" y="256">technical data: pick one</text>
+      </svg>
+      <figcaption><b>One business view, one technical view.</b> The run log answers "did the batch finish and how many rows?"; the monitoring Eventhouse answers "which activity failed, how long did it take, who ran it?". Pick channel 2 or channel 3 for the technical data; both is duplication.</figcaption>
+    </figure>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>Workspace monitoring, the new Monitoring hub and routing telemetry to another workspace's monitoring item are labelled preview, and their limits (same region, one monitoring item per workspace, no backfill) decide whether channel 2 fits your topology. <a href="https://learn.microsoft.com/fabric/fundamentals/workspace-monitoring-overview">Workspace monitoring overview</a>, <a href="https://learn.microsoft.com/fabric/data-factory/workspace-monitoring">pipeline logs in workspace monitoring</a> and <a href="https://learn.microsoft.com/fabric/data-factory/monitor-pipeline-runs">choose how to monitor pipeline runs</a>.</p></div>
+
+    <h2 id="run-log">An explicit run log in a Warehouse</h2>
+    <p>Whatever the platform logs, keep a small table you control. It carries what no system log knows: the logical batch, the stage name your operations team uses, rows written, and the error text you chose to keep. The hub writes the envelope (started, succeeded, failed for each stage); spokes add their own metrics keyed by the same <code>batchId</code>.</p>
+<pre data-title="Warehouse query editor: run log table and logging procedure (T-SQL)"><code class="language-sql">CREATE SCHEMA ops;
+
+CREATE TABLE ops.pipeline_run_log (
+    event_id        VARCHAR(36)   NOT NULL,
+    event_time_utc  DATETIME2(6)  NOT NULL,
+    hub_run_id      VARCHAR(36)   NOT NULL,   -- @pipeline().RunId of the hub run
+    pipeline_name   VARCHAR(200)  NOT NULL,
+    stage           VARCHAR(50)   NULL,
+    batch_id        VARCHAR(100)  NOT NULL,
+    status          VARCHAR(20)   NOT NULL,   -- Started | Succeeded | Failed
+    error_message   VARCHAR(4000) NULL,
+    rows_written    BIGINT        NULL
+);
+
+CREATE PROCEDURE ops.usp_log_event
+    @hub_run_id    VARCHAR(36),
+    @pipeline_name VARCHAR(200),
+    @stage         VARCHAR(50),
+    @batch_id      VARCHAR(100),
+    @status        VARCHAR(20),
+    @error_message VARCHAR(4000) = NULL,
+    @rows_written  BIGINT = NULL
+AS
+BEGIN
+    INSERT INTO ops.pipeline_run_log
+        (event_id, event_time_utc, hub_run_id, pipeline_name, stage,
+         batch_id, status, error_message, rows_written)
+    VALUES
+        (CONVERT(VARCHAR(36), NEWID()), SYSUTCDATETIME(), @hub_run_id, @pipeline_name,
+         @stage, @batch_id, @status, LEFT(@error_message, 4000), @rows_written);
+END;</code></pre>
+    <p>In the hub, call the procedure with a Stored procedure or Script activity before each Invoke (status <code>Started</code>), on its On success path (<code>Succeeded</code>) and on its On fail path (<code>Failed</code>, with the error text). The error text of a failed activity is available as <code>@activity('Invoke Bronze').error.message</code>.</p>
+<pre data-title="Latest outcome per pipeline and batch (T-SQL)"><code class="language-sql">WITH ranked AS (
+    SELECT *,
+           ROW_NUMBER() OVER (PARTITION BY pipeline_name, batch_id
+                              ORDER BY event_time_utc DESC) AS rn
+    FROM ops.pipeline_run_log
+    WHERE status IN ('Succeeded', 'Failed')
+)
+SELECT pipeline_name, batch_id, status, event_time_utc, error_message
+FROM ranked
+WHERE rn = 1
+ORDER BY event_time_utc DESC;</code></pre>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 245" role="img" aria-label="State of one pipeline and batch in the run log: not run, started, then succeeded or failed; a failure raises an alert and a re-run with the same batch ID returns it to started">
+        <defs>
+          <marker id="fig-ops-2-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-ops-2-ag" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-ops-2-ar" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar red" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box gray" x="20" y="95" width="110" height="50" rx="25"/>
+        <text class="t-b" x="75" y="124" text-anchor="middle">Not run</text>
+        <rect class="box blue" x="200" y="95" width="110" height="50" rx="25"/>
+        <text class="t-b" x="255" y="124" text-anchor="middle">Started</text>
+        <rect class="box green" x="420" y="40" width="130" height="50" rx="25"/>
+        <text class="t-b" x="485" y="69" text-anchor="middle">Succeeded</text>
+        <rect class="box red" x="420" y="150" width="130" height="50" rx="25"/>
+        <text class="t-b" x="485" y="179" text-anchor="middle">Failed</text>
+        <rect class="box green" x="650" y="40" width="190" height="50" rx="8"/>
+        <text class="t-b" x="745" y="69" text-anchor="middle">Next stage starts</text>
+        <rect class="box purple" x="650" y="150" width="190" height="50" rx="8"/>
+        <text class="t-b" x="745" y="179" text-anchor="middle">Alert the on-call</text>
+        <path class="ln" d="M130 120H198" marker-end="url(#fig-ops-2-a)"/>
+        <text class="t-s" x="164" y="112" text-anchor="middle">invoke</text>
+        <path class="ln green" d="M310 110H365V65H418" marker-end="url(#fig-ops-2-ag)"/>
+        <text class="t-s c-green" x="391" y="56" text-anchor="middle">succeeds</text>
+        <path class="ln red" d="M310 130H365V175H418" marker-end="url(#fig-ops-2-ar)"/>
+        <text class="t-s c-red" x="391" y="193" text-anchor="middle">fails</text>
+        <path class="ln green" d="M550 65H648" marker-end="url(#fig-ops-2-ag)"/>
+        <text class="t-s c-green" x="599" y="57" text-anchor="middle">gate passes</text>
+        <path class="ln red" d="M550 175H648" marker-end="url(#fig-ops-2-ar)"/>
+        <text class="t-s c-red" x="599" y="167" text-anchor="middle">notify</text>
+        <path class="ln dash" d="M485 202V224H255V147" marker-end="url(#fig-ops-2-a)"/>
+        <rect class="pill-bg" x="312" y="216" width="126" height="16"/>
+        <text class="t-s" x="375" y="228" text-anchor="middle">re-run, same batchId</text>
+      </svg>
+      <figcaption><b>The log is a state machine per pipeline and batch.</b> A gate reads the latest state, an alert reads transitions into Failed, and a re-run with the same <code>batchId</code> moves a batch from Failed back to Started instead of creating a parallel history.</figcaption>
+    </figure>
+    <div class="callout tip"><p class="callout-title">Right-size the log</p><p>A Warehouse takes single-row inserts comfortably for a few hundred events per hub run. If you log per file or per partition (thousands of rows per run), write to a Lakehouse table from a notebook or send the events to an Eventhouse instead, and keep the Warehouse for the stage-level envelope.</p></div>
+
+    <h2 id="alerts">Alerts</h2>
+    <table>
+      <thead><tr><th>Mechanism</th><th>Granularity</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Failure notifications on a schedule</strong></td><td>One pipeline</td><td>Add users or groups in the Schedule pane. They apply to scheduled runs only; on-demand runs do not notify.</td></tr>
+        <tr><td><strong>Teams or Outlook activity</strong></td><td>One activity, inside the pipeline</td><td>Good for a rich message from the failure path. These OAuth-based activities need a manual sign-in after promotion to a higher environment.</td></tr>
+        <tr><td><strong>Activator on job events</strong></td><td>One pipeline or item, any status event</td><td>Set an alert on Job events in the Real-Time hub, or create the rule from Activator. Reacts to succeeded, failed and other job events with an email or Teams action.</td></tr>
+        <tr><td><strong>KQL queryset plus Activator</strong></td><td>Every pipeline in the monitored workspaces</td><td>One rule over the monitoring Eventhouse. Activator must poll more often than the query window, or alerts can be missed or repeated.</td></tr>
+        <tr><td><strong>Operations agent</strong> <span class="badge preview">Preview</span></td><td>Natural-language rules over the monitoring Eventhouse</td><td>For example, alert when any run exceeds 60 minutes.</td></tr>
+      </tbody>
+    </table>
+<pre data-title="KQL against the monitoring Eventhouse: recent pipeline failures"><code class="language-text">ItemJobEventLogs
+| where ItemKind == "Pipeline" or JobType == "Pipeline"
+| where JobStatus == "Failed"
+| where Timestamp &gt; ago(15m)
+| project Timestamp, WorkspaceName, ItemName, JobInvokeType, JobInstanceId
+| order by Timestamp desc</code></pre>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>Learn's examples filter on <code>ItemKind</code> in one article and <code>JobType</code> in another, and the expected values differ. The documented <code>JobStatus</code> values are Not started, In progress, Completed and Failed, so a success is <em>Completed</em>, not Succeeded. Before you build an alert, inspect your own table: <code>ItemJobEventLogs | summarize count() by ItemKind, JobType, JobStatus</code>. When telemetry is routed to a central monitoring item, each source workspace gets its own KQL database there, so a cross-spoke query unions the same table across those databases. <a href="https://learn.microsoft.com/fabric/data-factory/create-alerts-for-pipeline-runs">Create alerts for pipeline runs</a>.</p></div>
+    <p><strong>What to alert on.</strong> Alert on the <em>hub's</em> outcome and on a missed SLA (the batch is not complete by the agreed time), not on every spoke event. One message that says which stage stopped, for which batch, with a link to the run, is actionable; a flood of per-activity failures during one incident is not. Keep per-spoke alerts for the spoke teams' own channels.</p>
+    <p><strong>Cost visibility.</strong> Orchestration activity runs are billed per run and each child pipeline's activities consume capacity where they execute. A hub that polls with one-second waits across hundreds of children, or workspace monitoring left on in every development workspace, shows up in the Capacity Metrics app. Review it after the first month of production traffic.</p>
+
+    <h2 id="object-ids">The item-ID problem</h2>
+    <p>The most awkward technical problem in hub and spoke is that Fabric item IDs are not stable across workspaces. A pipeline deployed from development to test becomes a new item with a new ID. A hub pipeline whose Invoke activity carries the development workspace ID and pipeline ID will, after promotion, happily call the <em>development</em> spoke from the test hub, which is both a silent correctness bug and a data-isolation problem.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 300" role="img" aria-label="Before: a promoted test hub still carries the development spoke ID and calls the development spoke. After: the hub reads the ID from a variable library whose active value set differs per stage, so each hub calls the spoke in its own environment">
+        <defs>
+          <marker id="fig-ops-3-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-ops-3-ar" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar red" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <text class="t-h" x="20" y="26">Before: IDs travel with the pipeline</text>
+        <rect class="zone red" x="20" y="36" width="420" height="254" rx="12"/>
+        <rect class="box teal" x="40" y="76" width="130" height="50" rx="8"/>
+        <text class="t-b" x="105" y="105" text-anchor="middle">DEV hub</text>
+        <rect class="box teal" x="290" y="76" width="130" height="50" rx="8"/>
+        <text class="t-b" x="355" y="105" text-anchor="middle">DEV spoke</text>
+        <path class="ln green thick" d="M170 101H288" marker-end="url(#fig-ops-3-a)"/>
+        <text class="t-s c-green" x="229" y="93" text-anchor="middle">ID A</text>
+        <rect class="box teal" x="40" y="176" width="130" height="50" rx="8"/>
+        <text class="t-b" x="105" y="198" text-anchor="middle">TST hub</text>
+        <text class="t-s" x="105" y="214" text-anchor="middle">promoted copy</text>
+        <rect class="box gray dashed" x="290" y="176" width="130" height="50" rx="8"/>
+        <text class="t-b" x="355" y="198" text-anchor="middle">TST spoke</text>
+        <text class="t-s" x="355" y="214" text-anchor="middle">never called</text>
+        <path class="ln red thick" d="M170 190H240V150H355V128" marker-end="url(#fig-ops-3-ar)"/>
+        <text class="t-s c-red" x="248" y="143">still ID A</text>
+        <text class="t-s c-red" x="230" y="262" text-anchor="middle">TST runs against DEV data</text>
+
+        <text class="t-h" x="460" y="26">After: IDs resolved per stage</text>
+        <rect class="zone green" x="460" y="36" width="430" height="254" rx="12"/>
+        <rect class="box teal" x="480" y="76" width="100" height="50" rx="8"/>
+        <text class="t-b" x="530" y="105" text-anchor="middle">DEV hub</text>
+        <rect class="box blue" x="610" y="76" width="130" height="50" rx="8"/>
+        <text class="t-b" x="675" y="98" text-anchor="middle">Variable library</text>
+        <text class="t-s" x="675" y="114" text-anchor="middle">DEV value set</text>
+        <rect class="box teal" x="760" y="76" width="110" height="50" rx="8"/>
+        <text class="t-b" x="815" y="105" text-anchor="middle">DEV spoke</text>
+        <path class="ln green thick" d="M580 101H608" marker-end="url(#fig-ops-3-a)"/>
+        <path class="ln green thick" d="M740 101H758" marker-end="url(#fig-ops-3-a)"/>
+        <rect class="box teal" x="480" y="176" width="100" height="50" rx="8"/>
+        <text class="t-b" x="530" y="205" text-anchor="middle">TST hub</text>
+        <rect class="box blue" x="610" y="176" width="130" height="50" rx="8"/>
+        <text class="t-b" x="675" y="198" text-anchor="middle">Variable library</text>
+        <text class="t-s" x="675" y="214" text-anchor="middle">TST value set</text>
+        <rect class="box teal" x="760" y="176" width="110" height="50" rx="8"/>
+        <text class="t-b" x="815" y="205" text-anchor="middle">TST spoke</text>
+        <path class="ln green thick" d="M580 201H608" marker-end="url(#fig-ops-3-a)"/>
+        <path class="ln green thick" d="M740 201H758" marker-end="url(#fig-ops-3-a)"/>
+        <text class="t-s c-green" x="675" y="262" text-anchor="middle">Same hub definition, different value set</text>
+      </svg>
+      <figcaption><b>The reference must resolve at deploy or run time, not at authoring time.</b> Left: the ID is copied with the pipeline and points at the wrong environment. Right: the ID is read from configuration that each environment owns.</figcaption>
+    </figure>
+    <table>
+      <thead><tr><th>Approach</th><th>How it works</th><th>Strengths</th><th>Weaknesses</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Variable library, basic variables</strong></td><td>Store each spoke's workspace ID and pipeline ID as Guid variables with a value set per stage; reference them from the hub as library variables in the Invoke activity's dynamic content</td><td>Native; visible; no JSON editing; same hub definition in every stage</td><td>You maintain the value sets; confirm the Invoke fields accept dynamic content in your tenant</td></tr>
+        <tr><td><strong>Variable library, item reference</strong> <span class="badge preview">Preview</span></td><td>A variable that holds a workspace ID and item ID as a pair, picked from a list of items</td><td>No hand-typed GUIDs</td><td>Preview; the documented consumers are shortcuts, user data functions and notebooks, so confirm pipeline use; reference is static per value set</td></tr>
+        <tr><td><strong>Deployment-time replacement</strong></td><td>A deployment script (for example <code>fabric-cicd</code> with a <code>parameter.yml</code>) rewrites the Invoke activity's workspace and pipeline IDs by looking the items up by name in the target workspace</td><td>Hub definition in Git stays unchanged; no IDs stored anywhere</td><td>Needs a script and the exact JSON paths; spokes must be deployed first</td></tr>
+        <tr><td><strong>Metadata-driven lookup</strong></td><td>A per-environment plan table maps logical name to IDs; the hub Looks up and invokes dynamically</td><td>Add or remove spokes without redeploying the hub</td><td>The table has to be populated per environment (script it by name); IDs still live somewhere</td></tr>
+        <tr><td><strong>Deployment pipelines alone</strong></td><td>Promote the hub and spokes between stages</td><td>Built in, simple</td><td>Rebinding of cross-workspace references is not documented for the Invoke activity; related limitations are documented for other item types, so test it</td></tr>
+      </tbody>
+    </table>
+    <p><strong>Recommendation.</strong> Default to a variable library with basic Guid variables and one value set per stage, and verify the Invoke fields accept library variables. If they do not in your tenant, or you promote through Git rather than deployment pipelines, use deployment-time replacement. Reach for the plan-table approach when the set of spokes changes often. See the <a href="../09-variable-libraries/index.html">variable libraries playbook</a> for value-set mechanics and the <a href="../07-deployment/index.html">deployment playbook</a> for promotion.</p>
+<pre data-title="parameter.yml for fabric-cicd: resolve the hub's Invoke targets by name (illustrative paths)"><code class="language-yaml"># Copy the exact JSONPath keys from your own pipeline-content.json.
+# Spoke workspaces and pipelines are looked up by name in the target environment.
+key_value_replace:
+  - find_key: $.properties.activities[?(@.name=="Invoke Bronze")].typeProperties.workspaceId
+    replace_value:
+      TST: "$workspace.TST_SALES_BRZ.$id"
+      PRD: "$workspace.PRD_SALES_BRZ.$id"
+    item_type: "DataPipeline"
+    item_name: "PL_ORCH_HUB_SalesDaily"
+  - find_key: $.properties.activities[?(@.name=="Invoke Bronze")].typeProperties.pipelineId
+    replace_value:
+      TST: "$workspace.TST_SALES_BRZ.$items.DataPipeline.PL_SALES_BRZ_Ingest.$id"
+      PRD: "$workspace.PRD_SALES_BRZ.$items.DataPipeline.PL_SALES_BRZ_Ingest.$id"
+    item_type: "DataPipeline"
+    item_name: "PL_ORCH_HUB_SalesDaily"</code></pre>
+<pre data-title="deploy_hub.py (fabric-cicd, run after the spokes are deployed)"><code class="language-python">from fabric_cicd import FabricWorkspace, publish_all_items
+
+hub = FabricWorkspace(
+    workspace_id="&lt;tst-hub-workspace-id&gt;",
+    environment="TST",                      # selects the TST keys in parameter.yml
+    repository_directory="./hub",
+    item_type_in_scope=["DataPipeline", "VariableLibrary"],
+)
+publish_all_items(hub)</code></pre>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn and the tool documentation</p><p>The JSON property names inside an Invoke pipeline activity (<code>typeProperties</code> keys, the connection reference) are not documented as a stable schema. Open the activity's code view or the item's <code>pipeline-content.json</code> in Git and copy the real paths before writing replacement rules. Check the current <code>fabric-cicd</code> parameterization documentation for the token syntax. <a href="https://learn.microsoft.com/fabric/data-factory/variable-library-integration-with-data-pipelines">Variable library integration with pipelines</a>, <a href="https://learn.microsoft.com/fabric/cicd/variable-library/item-reference-variable-type">Item reference variable type</a> and <a href="https://microsoft.github.io/fabric-cicd/latest/how_to/parameterization/">fabric-cicd parameterization</a>.</p></div>
+
+    <h2 id="deploying">Deploying hub and spokes</h2>
+    <p>Order matters because the hub's references must resolve to things that already exist. Deploy foundations first, spokes second, the hub last, then verify before anything runs on a schedule.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 150" role="img" aria-label="Deployment order: foundations such as workspaces roles and identity, then connections, then spokes, then ID resolution, then the hub, then verification and enabling the schedule">
+        <defs>
+          <marker id="fig-ops-4-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box purple" x="12" y="20" width="125" height="70" rx="8"/>
+        <text class="t-b" x="74" y="48" text-anchor="middle">1 · Foundations</text>
+        <text class="t-s" x="74" y="68" text-anchor="middle">workspaces, roles</text>
+        <rect class="box blue" x="162" y="20" width="125" height="70" rx="8"/>
+        <text class="t-b" x="224" y="48" text-anchor="middle">2 · Connections</text>
+        <text class="t-s" x="224" y="68" text-anchor="middle">per environment</text>
+        <rect class="box teal" x="312" y="20" width="125" height="70" rx="8"/>
+        <text class="t-b" x="374" y="48" text-anchor="middle">3 · Spokes</text>
+        <text class="t-s" x="374" y="68" text-anchor="middle">pipelines last</text>
+        <rect class="box orange" x="462" y="20" width="125" height="70" rx="8"/>
+        <text class="t-b" x="524" y="48" text-anchor="middle">4 · Resolve IDs</text>
+        <text class="t-s" x="524" y="68" text-anchor="middle">value set / rules</text>
+        <rect class="box accent" x="612" y="20" width="125" height="70" rx="8"/>
+        <text class="t-b t-w" x="674" y="48" text-anchor="middle">5 · Hub</text>
+        <text class="t-s t-w" x="674" y="68" text-anchor="middle">master pipelines</text>
+        <rect class="box green" x="762" y="20" width="125" height="70" rx="8"/>
+        <text class="t-b" x="824" y="48" text-anchor="middle">6 · Verify</text>
+        <text class="t-s" x="824" y="68" text-anchor="middle">test, then schedule</text>
+        <path class="ln" d="M137 55H160" marker-end="url(#fig-ops-4-a)"/>
+        <path class="ln" d="M287 55H310" marker-end="url(#fig-ops-4-a)"/>
+        <path class="ln" d="M437 55H460" marker-end="url(#fig-ops-4-a)"/>
+        <path class="ln" d="M587 55H610" marker-end="url(#fig-ops-4-a)"/>
+        <path class="ln" d="M737 55H760" marker-end="url(#fig-ops-4-a)"/>
+        <text class="t-s" x="450" y="124" text-anchor="middle">Spokes before the hub: its references must resolve to items that already exist</text>
+      </svg>
+      <figcaption><b>Promotion order.</b> Steps 1 and 2 are not Fabric items and are never deployed by promotion; script them once per environment.</figcaption>
+    </figure>
+    <ol class="steps">
+      <li><strong>Foundations</strong><p>Create the workspaces, assign capacity, set roles, create the workspace identity (or register the service principal) and add it as Contributor on every spoke. Roles, identities and tenant settings are not items, so automate them with the Fabric REST API or your infrastructure tooling, not with deployment pipelines.</p></li>
+      <li><strong>Connections</strong><p>Create the Fabric Data Pipelines connection and the source connections in each environment, and note their IDs. Connections are not deployed with items; Git-based deployment tools expect them to exist and ask you to parameterize their IDs. Activities that use OAuth connectors such as Teams or Outlook require a manual sign-in after promotion. A service principal connection holds a client secret, so keep that secret in Azure Key Vault in your provisioning scripts rather than in a ticket or a repository; whether the Fabric Data Pipelines connection can reference a Key Vault secret directly is not confirmed here, so check the connection documentation before relying on it.</p></li>
+      <li><strong>Spokes</strong><p>Deploy storage items first (lakehouses, warehouses), then notebooks and dataflows, then pipelines. Learn documents a limitation: a pipeline that invokes a dataflow keeps pointing at the dataflow in the previous workspace after promotion, because dataflows are not supported in deployment pipelines, so check such references in the target.</p></li>
+      <li><strong>Resolve IDs</strong><p>Activate the right variable library value set for the stage, or run the replacement rules.</p></li>
+      <li><strong>Hub</strong><p>Deploy the hub's master pipelines and variable library last.</p></li>
+      <li><strong>Verify, then enable</strong><p>Run the hub against one small window in the target environment and read the run log. Schedules are stored with the pipeline in Git, so keep them disabled outside production through a deployment-time rule and enable them deliberately.</p></li>
+    </ol>
+    <div class="callout tip"><p class="callout-title">Git and ownership</p><p>Keep the hub in its own repository or folder with stricter review than the spokes, since a hub change affects every schedule. Route its pull requests to the platform team with CODEOWNERS (see the <a href="../17-pr-notifications-codeowners/index.html">pull-request notifications playbook</a> and the <a href="../05-github-integration/index.html">GitHub integration playbook</a>). Related release-day checks are in the <a href="../14-deployment-checklist/index.html">deployment checklist</a>.</p></div>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p><ul>
+      <li>Run history stays in the workspace where a run executes; centralizing it is a design task, not a default.</li>
+      <li>Keep an explicit run log for the business view and route monitoring telemetry for the technical view; alert on the hub's outcome and on missed SLAs.</li>
+      <li>Never let workspace or pipeline IDs travel with the pipeline. Resolve them per stage from a variable library or by name at deployment time.</li>
+      <li>Deploy foundations, connections and spokes before the hub; keep schedules off until a verified run.</li>
+    </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/monitor-pipeline-runs">Choose how to monitor pipeline runs in Fabric Data Factory</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/monitor-pipeline-runs-new-monitoring-hub">Monitor pipeline runs in the new Monitoring hub (preview)</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/fundamentals/workspace-monitoring-overview">What is workspace monitoring (preview)?</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/workspace-monitoring">Enable workspace monitoring for pipelines</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/create-alerts-for-pipeline-runs">Create alerts for pipeline runs</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/real-time-hub/explore-fabric-job-events">Explore Job events in Fabric Real-Time hub</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/cicd-pipelines">CI/CD for pipelines in Data Factory</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/variable-library-integration-with-data-pipelines">Variable library integration with pipelines</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/cicd/variable-library/item-reference-variable-type">Variable library item reference type</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/enterprise/metrics-app">Microsoft Fabric Capacity Metrics app</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

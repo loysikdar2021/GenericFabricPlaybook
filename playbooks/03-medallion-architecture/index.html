@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Overview · Medallion Architecture</title>
+<meta name="description" content="A strictly isolated Bronze, Silver, Gold, Consumption and Delivery workspace design for Microsoft Fabric, with naming standards, reusable load code and notebook and Environment guidance.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="03-medallion-architecture" data-page="index.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 03 · Data Engineering</p>
+      <h1>Medallion Architecture</h1>
+      <p class="lede">How to lay out a Fabric analytics platform as five isolated layers, one workspace each, and how to move data between them with shortcuts, notebooks, MERGE utilities, a warehouse and semantic models, using one naming standard from the first workspace to the last report.</p>
+      <ul class="chips"><li><b>Audience</b> data engineers, architects, platform and security teams</li><li><b>Level</b> intermediate</li><li><b>Reading time</b> 120 min</li><li><b>Pages</b> 10</li></ul>
+    </header>
+    <h2 id="purpose">Purpose and scope</h2>
+    <p>The medallion pattern says data should improve in stages: raw in Bronze, cleansed and conformed in Silver, modeled for the business in Gold. Most teams stop there and put all three stages in one workspace. This playbook takes a stricter position that Microsoft's own guidance points toward: <strong>each layer gets its own workspace</strong>, and so do the two layers that sit after Gold, <strong>Consumption</strong> (warehouse, semantic models, AI/ML lakehouse) and <strong>Delivery</strong> (reports and apps). The workspace is the unit of access control, capacity assignment, Git connection and promotion in Fabric, so making it the unit of a layer turns the architecture diagram into something the platform enforces.</p>
+    <p>The playbook is implementation-oriented. It gives you the workspace and item inventory, the naming standard that makes a hundred items readable, the shortcut-based wiring between layers, reusable notebook code for full and incremental loads, the Warehouse and semantic-model hand-off, and the notebook and Environment standards that keep the Spark side consistent. Every code sample uses a fictional retailer, Contoso, with customers, orders, order lines, products, employees and departments.</p>
+    <div class="callout note"><p class="callout-title">Strict isolation is a position, not a default</p>
+      <p>Five workspaces per domain per environment is the most isolated option, and it has a real cost in objects to create, permissions to grant and orchestration to wire. The <a href="architecture.html#decision-table">decision table</a> compares it with fewer workspaces and with schemas inside one lakehouse so you can choose deliberately and, if you choose less isolation, know what you gave up.</p></div>
+
+    <h2 id="when-to-use">When to use this playbook</h2>
+    <div class="pros-cons">
+      <div class="pros"><h4>Use it when you are</h4><ul><li>Standing up a new Fabric platform and deciding workspace boundaries</li><li>Separating duties between ingestion, transformation, modeling and BI teams</li><li>Handling regulated or sensitive data that raw-layer users must not see transformed or shared</li><li>Writing the first reusable Silver and Gold notebooks and want tested patterns</li><li>Standardizing names, Spark settings and notebook structure across teams</li></ul></div>
+      <div class="cons"><h4>Look elsewhere for</h4><ul><li>Choosing full versus incremental loads per table: <a href="../02-data-load-strategy/index.html">Data Load Strategy</a></li><li>Hub-and-spoke pipeline orchestration across these workspaces: <a href="../04-cross-workspace-orchestration/index.html">Cross-Workspace Orchestration</a></li><li>Git branching and repository layout: <a href="../05-github-integration/index.html">GitHub Integration</a></li><li>Physical Delta layout and partitioning: <a href="../08-delta-partitioning/index.html">Delta Partitioning</a></li></ul></div>
+    </div>
+
+    <h2 id="audience">Audience and prerequisites</h2>
+    <dl class="kv">
+      <dt>Primary readers</dt><dd>Data engineers and solution architects who design and build the lakehouse layers, plus the platform and security teams who own workspaces, roles and capacities.</dd>
+      <dt>Also useful for</dt><dd>BI developers (the Consumption and Delivery pages) and delivery leads who need the checklist.</dd>
+      <dt>You should know</dt><dd>What a Fabric workspace, lakehouse and Delta table are, basic PySpark and Spark SQL, and the idea of a medallion architecture.</dd>
+      <dt>Environment</dt><dd>A Fabric capacity, permission to create workspaces, and a notebook runtime that supports Delta <code>MERGE</code>. The code on these pages uses documented PySpark, Delta and Fabric APIs and is written for the runtime your workspace default selects; check the runtime callout on the <a href="environment.html#runtime-choice">Environment page</a>.</dd>
+      <dt>Example domain</dt><dd>Contoso, a fictional retailer, in a <code>SALES</code> domain: <code>customers</code>, <code>orders</code>, <code>order_lines</code>, <code>products</code>, <code>employees</code>, <code>departments</code>. Replace names and columns with your own.</dd>
+    </dl>
+
+    <h2 id="design-at-a-glance">The design at a glance</h2>
+    <p>The diagram shows one domain in one environment. Each dashed band is a workspace; the boxes inside are its items. Nothing reads across more than one hop: Silver reads Bronze, Gold reads Silver, Consumption reads Gold. Delivery reads Consumption.</p>
+<figure class="diagram">
+<svg class="dg" viewBox="0 0 900 520" role="img" aria-label="Five strictly isolated workspaces, Bronze, Silver, Gold, Consumption and Delivery, connected one hop at a time by shortcuts, notebooks and semantic models">
+<defs>
+<marker id="fig-index-1-a-teal" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar teal" d="M0 0L10 5L0 10z"/></marker>
+<marker id="fig-index-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+</defs>
+<rect class="zone" x="10" y="12" width="880" height="52" rx="12"/>
+<text class="t-h" x="26" y="42">External sources</text>
+<rect class="box gray" x="200" y="22" width="150" height="32" rx="10"/>
+<text class="t-b" x="275" y="42" text-anchor="middle">Databases</text>
+<rect class="box gray" x="364" y="22" width="190" height="32" rx="10"/>
+<text class="t-b" x="459" y="42" text-anchor="middle">Files and object storage</text>
+<rect class="box gray" x="568" y="22" width="150" height="32" rx="10"/>
+<text class="t-b" x="643" y="42" text-anchor="middle">SaaS and APIs</text>
+<rect class="box gray" x="732" y="22" width="120" height="32" rx="10"/>
+<text class="t-b" x="792" y="42" text-anchor="middle">Streams</text>
+<rect class="zone" x="10" y="100" width="880" height="74" rx="12"/>
+<text class="t-h" x="26" y="135">DEV_SALES_BRZ</text>
+<text class="t-s" x="26" y="152">Bronze: raw</text>
+<rect class="box bronze" x="200" y="112" width="216.7" height="50" rx="10"/>
+<text class="t-h" x="308.3" y="132.5" text-anchor="middle">LH_SALES_BRZ</text>
+<text class="t-s" x="308.3" y="149.5" text-anchor="middle">source-shaped Delta tables</text>
+<rect class="box teal" x="430.7" y="112" width="216.7" height="50" rx="10"/>
+<text class="t-h" x="539" y="132.5" text-anchor="middle">Ingestion pipelines</text>
+<text class="t-s" x="539" y="149.5" text-anchor="middle">copy, land, append</text>
+<rect class="box plain" x="661.3" y="112" width="216.7" height="50" rx="10"/>
+<text class="t-h" x="769.7" y="132.5" text-anchor="middle">Files section</text>
+<text class="t-s" x="769.7" y="149.5" text-anchor="middle">optional landing zone</text>
+<rect class="zone" x="10" y="208" width="880" height="74" rx="12"/>
+<text class="t-h" x="26" y="243">DEV_SALES_SLV</text>
+<text class="t-s" x="26" y="260">Silver: conformed</text>
+<rect class="box silver" x="200" y="220" width="216.7" height="50" rx="10"/>
+<text class="t-h" x="308.3" y="240.5" text-anchor="middle">LH_SALES_SLV</text>
+<text class="t-s" x="308.3" y="257.5" text-anchor="middle">cleansed, deduplicated Delta</text>
+<rect class="box plain" x="430.7" y="220" width="216.7" height="50" rx="10"/>
+<text class="t-h" x="539" y="240.5" text-anchor="middle">brz shortcuts</text>
+<text class="t-s" x="539" y="257.5" text-anchor="middle">read-only view of Bronze</text>
+<rect class="box blue" x="661.3" y="220" width="216.7" height="50" rx="10"/>
+<text class="t-h" x="769.7" y="240.5" text-anchor="middle">Notebooks</text>
+<text class="t-s" x="769.7" y="257.5" text-anchor="middle">filter, conform, MERGE</text>
+<rect class="zone" x="10" y="316" width="880" height="74" rx="12"/>
+<text class="t-h" x="26" y="351">DEV_SALES_GLD</text>
+<text class="t-s" x="26" y="368">Gold: business-ready</text>
+<rect class="box gold" x="200" y="328" width="216.7" height="50" rx="10"/>
+<text class="t-h" x="308.3" y="348.5" text-anchor="middle">LH_SALES_GLD</text>
+<text class="t-s" x="308.3" y="365.5" text-anchor="middle">facts and dimensions</text>
+<rect class="box plain" x="430.7" y="328" width="216.7" height="50" rx="10"/>
+<text class="t-h" x="539" y="348.5" text-anchor="middle">slv shortcuts</text>
+<text class="t-s" x="539" y="365.5" text-anchor="middle">read-only view of Silver</text>
+<rect class="box blue" x="661.3" y="328" width="216.7" height="50" rx="10"/>
+<text class="t-h" x="769.7" y="348.5" text-anchor="middle">Notebooks</text>
+<text class="t-s" x="769.7" y="365.5" text-anchor="middle">model, aggregate, reconcile</text>
+<rect class="zone" x="10" y="424" width="880" height="74" rx="12"/>
+<text class="t-h" x="26" y="459">DEV_SALES_CNSM_*</text>
+<text class="t-s" x="26" y="476">Consumption: serve</text>
+<rect class="box blue" x="200" y="436" width="216.7" height="50" rx="10"/>
+<text class="t-h" x="308.3" y="456.5" text-anchor="middle">WH_SALES_CNSM</text>
+<text class="t-s" x="308.3" y="473.5" text-anchor="middle">T-SQL warehouse</text>
+<rect class="box blue" x="430.7" y="436" width="216.7" height="50" rx="10"/>
+<text class="t-h" x="539" y="456.5" text-anchor="middle">SM_SALES_CNSM</text>
+<text class="t-s" x="539" y="473.5" text-anchor="middle">semantic model</text>
+<rect class="box blue" x="661.3" y="436" width="216.7" height="50" rx="10"/>
+<text class="t-h" x="769.7" y="456.5" text-anchor="middle">LH_SALES_CNSM_ML</text>
+<text class="t-s" x="769.7" y="473.5" text-anchor="middle">Gold shortcuts for AI/ML</text>
+<path class="ln teal" d="M275 54V112" marker-end="url(#fig-index-1-a-teal)"/>
+<rect class="pill-bg" x="293.2" y="71.5" width="49.6" height="16"/>
+<text class="t-s" x="318" y="84" text-anchor="middle">ingest</text>
+<path class="ln" d="M275 162V220" marker-end="url(#fig-index-1-a)"/>
+<rect class="pill-bg" x="316.6" y="181.5" width="126.9" height="16"/>
+<text class="t-s" x="380" y="194" text-anchor="middle">shortcut + notebook</text>
+<path class="ln" d="M275 270V328" marker-end="url(#fig-index-1-a)"/>
+<rect class="pill-bg" x="316.6" y="289.5" width="126.9" height="16"/>
+<text class="t-s" x="380" y="302" text-anchor="middle">shortcut + notebook</text>
+<path class="ln" d="M275 378V436" marker-end="url(#fig-index-1-a)"/>
+<rect class="pill-bg" x="315.4" y="397.5" width="97.2" height="16"/>
+<text class="t-s" x="364" y="410" text-anchor="middle">shortcut + SQL</text>
+</svg>
+<figcaption><b>The strictly isolated medallion.</b> Every dashed band is its own workspace with its own roles, capacity assignment and deployment lifecycle. Data moves one hop at a time: each layer reads the layer before it through a shortcut and writes only into its own lakehouse or warehouse.</figcaption>
+</figure>
+    <table>
+      <thead><tr><th>Layer</th><th>Workspace pattern</th><th>What it holds</th><th>Who writes</th><th>Who reads</th></tr></thead>
+      <tbody>
+        <tr><td><span class="badge neutral">Bronze</span></td><td><code>&lt;ENV&gt;_&lt;DOMAIN&gt;_BRZ</code></td><td>Raw, source-shaped Delta tables and landed files</td><td>Ingestion pipelines and notebooks</td><td>Silver notebooks, data stewards</td></tr>
+        <tr><td><span class="badge neutral">Silver</span></td><td><code>&lt;ENV&gt;_&lt;DOMAIN&gt;_SLV</code></td><td>Cleansed, deduplicated, conformed tables</td><td>Silver notebooks</td><td>Gold notebooks, data scientists</td></tr>
+        <tr><td><span class="badge neutral">Gold</span></td><td><code>&lt;ENV&gt;_&lt;DOMAIN&gt;_GLD</code></td><td>Facts, dimensions, aggregates at business grain</td><td>Gold notebooks</td><td>Consumption items</td></tr>
+        <tr><td><span class="badge info">Consumption</span></td><td><code>&lt;ENV&gt;_&lt;DOMAIN&gt;_CNSM[_&lt;Qualifier&gt;]</code></td><td>Warehouse, semantic models, AI/ML lakehouse</td><td>Warehouse developers, BI modelers</td><td>Delivery items, analysts, ML engineers</td></tr>
+        <tr><td><span class="badge info">Delivery</span></td><td><code>&lt;ENV&gt;_&lt;DOMAIN&gt;_DLV</code></td><td>Reports, dashboards, workspace apps</td><td>Report authors</td><td>Business users</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="principles">Design principles</h2>
+    <ol>
+      <li><strong>One workspace per layer.</strong> The workspace is where roles, capacity, Git and deployment are set, so it is the right place to draw a layer boundary.</li>
+      <li><strong>One hop at a time.</strong> A layer reads only the layer immediately before it, through shortcuts that appear as local tables. No skip-level reads, no reads from a later layer.</li>
+      <li><strong>Each layer owns its writes.</strong> Only the notebooks and pipelines of a layer write to that layer's lakehouse. Downstream layers get read access, never write access.</li>
+      <li><strong>Virtualize, do not copy, between layers' read paths.</strong> Shortcuts remove the staging copy; the transformation notebook is the only place data is materialized.</li>
+      <li><strong>Parameterize every name.</strong> Lakehouse, schema and table names are parameters, so the same notebook promotes unchanged from development to production.</li>
+      <li><strong>Reconcile at every boundary.</strong> Row counts and checksum measures are compared when data crosses a layer, in development by hand and afterwards by automated checks.</li>
+      <li><strong>Use one naming standard.</strong> The environment, domain and layer in the workspace name repeat in every item name, so any item identifies its own place in the estate.</li>
+      <li><strong>Least privilege by layer.</strong> Engineers see Bronze; most analysts never do. BI developers work in Consumption and Delivery.</li>
+    </ol>
+
+    <h2 id="outcomes">What you will have built</h2>
+    <ul class="checklist">
+      <li>Workspaces for each layer, domain and environment, named by one standard and assigned to capacities</li>
+      <li>Lakehouses with shortcuts that expose each upstream layer as local, read-only tables</li>
+      <li>A reusable full-load function and an incremental MERGE utility for Silver, parameterized per table</li>
+      <li>A config-driven Gold engine with built-in reconciliation checks</li>
+      <li>A Warehouse loaded from Gold shortcuts, a semantic model on top of it, and a consumption lakehouse for AI/ML</li>
+      <li>Reports published to a separate Delivery workspace from a shared semantic model</li>
+      <li>One Environment item per workspace so every notebook runs with the same Spark settings</li>
+      <li>A promotion path through deployment pipelines (detailed in the deployment playbook)</li>
+    </ul>
+
+    <h2 id="map">How the pages fit together</h2>
+    <table>
+      <thead><tr><th>Page</th><th>Read it when you need to</th></tr></thead>
+      <tbody>
+        <tr><td><a href="architecture.html">Layers and strict isolation</a></td><td>Explain or defend the design: layer contracts, the case for isolation, its cost, the options compared and security controls</td></tr>
+        <tr><td><a href="workspace-pattern.html">Workspace pattern and naming</a></td><td>Create the workspaces and name everything: inventory per layer, naming standard, abbreviations, capacities, promotion summary</td></tr>
+        <tr><td><a href="notebooks.html">Fabric notebooks</a></td><td>Set notebook standards before anyone writes code: capabilities, sizing, hard limits, orchestration</td></tr>
+        <tr><td><a href="environment.html">The Environment item</a></td><td>Give every notebook the same Spark configuration and libraries</td></tr>
+        <tr><td><a href="bronze-to-silver.html">Bronze to Silver</a></td><td>Create shortcuts and build full loads with the reusable function</td></tr>
+        <tr><td><a href="incremental-merge.html">Incremental loads and MERGE</a></td><td>Load only changed rows: watermarks, keys, the MERGE utility, deletes and failure modes</td></tr>
+        <tr><td><a href="silver-to-gold.html">Silver to Gold</a></td><td>Build facts and dimensions, full or incremental, with reconciliation</td></tr>
+        <tr><td><a href="consumption-delivery.html">Consumption and delivery</a></td><td>Load the Warehouse, build semantic models, choose a Direct Lake variant, expose Gold to AI/ML and publish reports</td></tr>
+        <tr><td><a href="appendix.html">Appendix: loader internals</a></td><td>Reuse the generic full-load function and read the line-by-line walkthrough of the merge engines</td></tr>
+      </tbody>
+    </table>
+
+    <h3 id="reading-paths">Reading paths by role</h3>
+    <table>
+      <thead><tr><th>Role</th><th>Start with</th><th>Then</th></tr></thead>
+      <tbody>
+        <tr><td>Solution architect</td><td>Layers and strict isolation</td><td>Workspace pattern, then the deployment playbook</td></tr>
+        <tr><td>Platform or security engineer</td><td>Layers and strict isolation (security controls)</td><td>Workspace pattern (capacity, naming), Environment</td></tr>
+        <tr><td>Data engineer</td><td>Fabric notebooks, Environment</td><td>Bronze to Silver, Incremental loads, Silver to Gold</td></tr>
+        <tr><td>BI developer</td><td>Consumption and delivery</td><td>Power BI development standards playbook</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="implementation-checklist">Implementation checklist</h2>
+    <ul class="checklist">
+      <li>Decide the isolation level using the decision table and record the choice and the reasons</li>
+      <li>Agree environment, domain and layer abbreviations; reserve the naming standard before the first workspace is created</li>
+      <li>Create workspaces for one domain in development, assign roles by layer, and set the capacity</li>
+      <li>Create one schema-enabled lakehouse per lakehouse layer and one Environment item per workspace; publish and set it as the workspace default</li>
+      <li>Create the Silver shortcuts and verify they read through the identity that will run the notebooks</li>
+      <li>Build and unit-test the first Bronze to Silver notebook with row-count checks; then remove the checks and add automated reconciliation</li>
+      <li>Repeat for Gold; create the consumption lakehouse, warehouse and semantic model; publish a report to the Delivery workspace</li>
+      <li>Connect each workspace to source control and create the deployment pipeline for each layer</li>
+      <li>Orchestrate the notebooks with a pipeline and monitor the first scheduled runs</li>
+    </ul>
+
+    <h2 id="related">Related playbooks</h2>
+    <ul>
+      <li><a href="../02-data-load-strategy/index.html">Data Load Strategy</a> decides full versus incremental per table; this playbook supplies the code.</li>
+      <li><a href="../04-cross-workspace-orchestration/index.html">Cross-Workspace Orchestration</a> wires the layer workspaces into one run.</li>
+      <li><a href="../05-github-integration/index.html">GitHub Integration</a> and <a href="../07-deployment/index.html">Deployment Pipelines and Promotion</a> govern how these workspaces move from development to production.</li>
+      <li><a href="../06-shared-libraries/index.html">Shared Python Libraries</a> packages the helpers from the incremental-load pages.</li>
+      <li><a href="../08-delta-partitioning/index.html">Delta Partitioning</a> and <a href="../09-variable-libraries/index.html">Variable Libraries</a> cover table layout and per-environment configuration.</li>
+      <li><a href="../10-control-table-pipelines/index.html">Control-Table Pipelines</a> drives these notebooks from metadata.</li>
+      <li>Terms are defined in the <a href="../../glossary.html">glossary</a>; the whole estate is drawn in the <a href="../../reference-architecture.html">reference architecture</a>.</li>
+    </ul>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p>
+      <ul>
+        <li>Make the workspace the layer boundary, for Consumption and Delivery as well as Bronze, Silver and Gold, and let the platform enforce it.</li>
+        <li>Read one hop at a time through shortcuts; write only into your own layer.</li>
+        <li>Treat strict isolation as a choice with a cost, and use the decision table before committing a team to it.</li>
+        <li>Parameterize names and promote the same notebook unchanged across environments.</li>
+        <li>Standardize Spark settings in an Environment item, not in notebook snippets.</li>
+      </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/fabric/onelake/onelake-medallion-lakehouse-architecture">Implement medallion lakehouse architecture in Fabric</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/onelake/onelake-shortcuts">OneLake shortcuts</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/fundamentals/roles-workspaces">Roles in workspaces in Microsoft Fabric</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/lakehouse-schemas">Lakehouse schemas</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/create-and-use-environment">Create, configure, and use an environment in Fabric</a></li>
+        <li><a href="https://learn.microsoft.com/azure/architecture/databases/architecture/dataops-mdw">Modern data warehouse medallion architecture in Fabric (Azure Architecture Center)</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Packaging and building a wheel · Shared Libraries</title>
+<meta name="description" content="Declare a Fabric-friendly Python package with a PEP 621 pyproject.toml and src layout, add unit tests, then build and validate a pure-Python wheel locally before it goes near an Environment.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="06-shared-libraries" data-page="packaging.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 06 · Shared Python Libraries</p>
+      <h1>Packaging and building a wheel</h1>
+      <p class="lede">The artifact Fabric consumes is a wheel. This page declares the project in <code>pyproject.toml</code>, shows the repository layout and the complete module, adds tests that run without Fabric, and builds and validates the wheel on your machine.</p>
+    </header>
+
+    <h2 id="pep621">PEP 621 and pyproject.toml in practice</h2>
+    <p>PEP 621 defines how a project declares its core metadata (name, version, dependencies, Python requirement, authors, license) in a <code>[project]</code> table of <code>pyproject.toml</code>. Every mainstream build backend reads the same table, so the metadata is portable and the backend is a swappable detail. The living specification is maintained by the Python Packaging Authority, and the Packaging User Guide is the place to check current field syntax.</p>
+    <p>A <code>pyproject.toml</code> has three tables that matter here:</p>
+    <dl class="kv">
+      <dt><code>[build-system]</code></dt><dd>Which backend builds the package and what must be installed to build it. Always present, whichever backend you pick.</dd>
+      <dt><code>[project]</code></dt><dd>The metadata. <code>name</code> must be static; <code>version</code> can be static or declared <code>dynamic</code> and computed by the backend (for example from a Git tag).</dd>
+      <dt><code>[tool.*]</code></dt><dd>Backend and tool configuration, for example where setuptools finds packages and how pytest discovers tests.</dd>
+    </dl>
+
+    <h3 id="backend">Choosing a build backend</h3>
+    <p>For a pure-Python library of utilities, any of the standard backends produces an identical wheel. Pick the one your team already operates.</p>
+    <table>
+      <thead><tr><th>Backend</th><th><code>build-backend</code></th><th>Choose it when</th></tr></thead>
+      <tbody>
+        <tr><td><strong>setuptools</strong></td><td><code>setuptools.build_meta</code></td><td>Default choice. Familiar, reads <code>[project]</code>, supports the <code>src</code> layout and optional dynamic versioning through <code>setuptools-scm</code>.</td></tr>
+        <tr><td><strong>hatchling</strong></td><td><code>hatchling.build</code></td><td>You want sensible defaults with almost no configuration and built-in version-from-VCS plugins.</td></tr>
+        <tr><td><strong>flit-core</strong></td><td><code>flit_core.buildapi</code></td><td>Tiny, single-package libraries where you want the least machinery.</td></tr>
+        <tr><td><strong>uv_build / pdm-backend</strong></td><td><code>uv_build</code>, <code>pdm.backend</code></td><td>Your team already standardized on uv or PDM for environments and locking.</td></tr>
+      </tbody>
+    </table>
+    <div class="callout tip"><p class="callout-title">Corrections to older templates</p><p>Many templates still show <code>requires = ["setuptools&gt;=68", "wheel"]</code> and <code>license = { text = "MIT" }</code>. The <code>wheel</code> package is no longer needed in <code>requires</code> because setuptools provides the wheel build itself, and the table form of <code>license</code> is deprecated in favor of an SPDX expression string (<code>license = "MIT"</code>) plus <code>license-files</code>. Setuptools needs version 77.0.3 or later for that form, so the examples here pin <code>setuptools&gt;=77.0.3</code>.</p></div>
+
+    <h2 id="repo-structure">Repository structure</h2>
+    <p>Use the <code>src</code> layout: the importable package lives under <code>src/</code>, tests live beside it, and nothing build-related is committed.</p>
+<pre data-title="Repository layout"><code class="language-text">fabric-etl-utils/                  # repository: contoso-org/fabric-etl-utils
+├── .github/
+│   └── workflows/
+│       └── release.yml            # test, build once, promote (see the CI/CD page)
+├── src/
+│   └── contoso_fabric_utils/      # the import package
+│       ├── __init__.py            # public API and __version__
+│       ├── loads.py               # full_load_overwrite, merge_upsert, max_value
+│       └── py.typed               # marks the package as typed
+├── tests/
+│   ├── conftest.py                # local Spark session fixture
+│   ├── test_sanity.py             # import and version smoke test
+│   └── test_loads.py              # behavior tests on tiny DataFrames
+├── .gitignore                     # dist/, build/, *.egg-info/, .venv/
+├── CHANGELOG.md
+├── LICENSE
+├── README.md
+└── pyproject.toml</code></pre>
+    <div class="callout warning"><p class="callout-title">Do not commit build output</p><p>Folders such as <code>dist/</code>, <code>build/</code> and <code>*.egg-info/</code> belong in <code>.gitignore</code>. A committed <code>dist/</code> goes stale the moment the code changes, and people will upload the stale wheel because it is sitting right there. The only wheel that should reach an Environment is one built by CI from a tagged commit.</p></div>
+    <p><strong>Why <code>src/</code>?</strong> With a flat layout, <code>pytest</code> run from the repository root can import the package straight from the working directory even if packaging is broken (a missing module, a forgotten data file). With <code>src/</code> the package is importable only after installation, so the tests exercise what the wheel actually ships. The cost is one line in <code>pyproject.toml</code>: tell setuptools where to look.</p>
+
+    <h2 id="pyproject">The pyproject.toml</h2>
+<pre data-title="pyproject.toml"><code class="language-text">[build-system]
+requires = ["setuptools&gt;=77.0.3"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "contoso-fabric-utils"            # distribution name; hyphens allowed
+version = "0.1.0"
+description = "Reusable ETL utilities for Microsoft Fabric Spark notebooks (Delta Lake)."
+readme = "README.md"
+requires-python = "&gt;=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Contoso Data Platform Team", email = "data-platform@contoso.com" }]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Operating System :: OS Independent",
+]
+# Runtime dependencies: none. The Fabric Spark runtime already provides
+# pyspark and delta-spark; declaring them here would make the Environment
+# try to install a second copy next to the runtime's own.
+dependencies = []
+
+[project.optional-dependencies]
+# Local development and CI only. Match the Spark and Delta versions of the
+# Fabric runtime your Environment selects.
+test = [
+  "pytest&gt;=8",
+  "pyspark&gt;=3.5,&lt;3.6",
+  "delta-spark&gt;=3.2,&lt;3.3",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]                          # critical for the src layout
+
+[tool.setuptools.package-data]
+contoso_fabric_utils = ["py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"</code></pre>
+
+    <table>
+      <thead><tr><th>Field</th><th>Decision</th><th>Why</th></tr></thead>
+      <tbody>
+        <tr><td><code>name</code></td><td><code>contoso-fabric-utils</code> (distribution) versus <code>contoso_fabric_utils</code> (import)</td><td>Tools normalize hyphens, underscores and dots to the same project name, and wheel file names use underscores. Keep one canonical spelling in documentation and notebooks: import with underscores.</td></tr>
+        <tr><td><code>version</code></td><td>Static, bumped in the release pull request</td><td>The wheel file name carries the version, so Environments, logs and changelogs all agree. See the versioning options below.</td></tr>
+        <tr><td><code>requires-python</code></td><td><code>&gt;=3.11</code>, no upper bound</td><td>Match the Python version of the Spark runtime your Environment selects. Upper bounds on Python cause avoidable resolution failures when the runtime moves.</td></tr>
+        <tr><td><code>dependencies</code></td><td>Empty</td><td>Fewer dependencies mean fewer conflicts with the runtime's preinstalled packages. Anything you do list is resolved at publish time in Full mode, and cannot be downloaded at all from workspaces that block public repositories.</td></tr>
+        <tr><td><code>optional-dependencies.test</code></td><td>PySpark and Delta pinned to the runtime's minor versions</td><td>Unit tests run against the same engine behavior as production. This extra is never installed in Fabric.</td></tr>
+        <tr><td><code>license</code> and <code>license-files</code></td><td>SPDX expression plus file</td><td>The current form per PEP 639. Use your organization's internal license identifier if the code is not open source.</td></tr>
+      </tbody>
+    </table>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>The Python, Spark and Delta versions in a Fabric runtime change as new runtimes are released and older ones retire. Check <a href="https://learn.microsoft.com/fabric/data-engineering/runtime">Apache Spark runtime in Fabric</a> for the runtime your Environment selects, then align <code>requires-python</code> and the <code>test</code> extra with it.</p></div>
+
+    <h3 id="versioning">Versioning options</h3>
+    <table>
+      <thead><tr><th>Strategy</th><th>How</th><th>Strengths</th><th>Weaknesses</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Static version</strong></td><td><code>version = "1.4.0"</code> edited in the release pull request; CI fails if the Git tag does not equal <code>v</code> plus the project version</td><td>Obvious, no extra tooling, wheel name is known before the build</td><td>A human must remember to bump it; the CI check turns forgetting into a failed build instead of a wrong release</td></tr>
+        <tr><td><strong>Dynamic from a tag</strong></td><td><code>dynamic = ["version"]</code> with <code>setuptools-scm</code> in <code>build-system.requires</code>; tag <code>v1.4.0</code> to release</td><td>No manual bump; untagged builds get a development version automatically</td><td>CI needs full Git history (<code>fetch-depth: 0</code>); local wheel names change with every commit</td></tr>
+      </tbody>
+    </table>
+    <p>Either way, follow semantic versioning for the public API and use PEP 440 pre-release versions (<code>1.5.0rc1</code>) for builds you want to try in TST before a final release.</p>
+
+    <h2 id="module-code">The module code</h2>
+    <p>This is the library's public surface. It is the notebook function from the previous page with the changes explained there: injectable session, safer defaults and metrics returned instead of printed.</p>
+<pre data-title="src/contoso_fabric_utils/__init__.py"><code class="language-python">"""Reusable ETL utilities for Microsoft Fabric Spark notebooks."""
+from importlib.metadata import PackageNotFoundError, version
+
+from .loads import full_load_overwrite, max_value, merge_upsert
+
+try:
+    __version__ = version("contoso-fabric-utils")
+except PackageNotFoundError:   # source checkout that has not been installed
+    __version__ = "0+unknown"
+
+__all__ = ["full_load_overwrite", "max_value", "merge_upsert", "__version__"]</code></pre>
+
+<pre data-title="src/contoso_fabric_utils/loads.py"><code class="language-python">"""Load helpers for Delta tables in Fabric lakehouses."""
+from __future__ import annotations
+
+import logging
+from typing import Any, Callable, Dict, List, Optional, Union
+
+from pyspark.sql import Column, DataFrame, SparkSession
+from pyspark.sql import functions as F
+
+log = logging.getLogger(__name__)
+
+RowFilter = Union[str, Column, Callable[[DataFrame], Column]]
+
+
+def _spark(spark: Optional[SparkSession]) -&gt; SparkSession:
+    """Injected session, else the active one, else the default session."""
+    if spark is not None:
+        return spark
+    return SparkSession.getActiveSession() or SparkSession.builder.getOrCreate()
+
+
+def _require(columns: List[str], required: List[str], where: str) -&gt; None:
+    missing = [c for c in required if c not in columns]
+    if missing:
+        raise ValueError(f"Missing required columns in {where}: {missing}")
+
+
+def _apply_row_filter(df: DataFrame, row_filter: Optional[RowFilter]) -&gt; DataFrame:
+    if row_filter is None:
+        return df
+    if isinstance(row_filter, Column):
+        return df.filter(row_filter)
+    if isinstance(row_filter, str):
+        return df.filter(F.expr(row_filter))
+    if callable(row_filter):
+        condition = row_filter(df)
+        if not isinstance(condition, Column):
+            raise ValueError("row_filter callable must return a pyspark Column.")
+        return df.filter(condition)
+    raise ValueError("row_filter must be a SQL string, a Column, or callable(df) -&gt; Column.")
+
+
+def full_load_overwrite(
+    *,
+    source_table: str,
+    target_table: str,
+    transform_fn: Callable[[DataFrame], DataFrame] = lambda df: df,
+    select_cols: Optional[List[str]] = None,
+    select_and_cast: Optional[Dict[str, str]] = None,
+    add_missing_as_null: bool = False,
+    row_filter: Optional[RowFilter] = None,
+    validate_required_cols: Optional[List[str]] = None,
+    partition_by: Optional[List[str]] = None,
+    num_repartitions: Optional[int] = None,
+    overwrite_schema: bool = False,
+    count_rows: bool = True,
+    spark: Optional[SparkSession] = None,
+) -&gt; Dict[str, int]:
+    """Overwrite a Delta table from a source table.
+
+    Order of operations: read, validate, filter, transform, project or cast,
+    write. Returns {"rows_written": n}; n is -1 when count_rows is False.
+    """
+    session = _spark(spark)
+
+    df = session.table(source_table)                                    # 1) read
+    if validate_required_cols:                                          # 2) validate
+        _require(df.columns, validate_required_cols, f"source '{source_table}'")
+    df = _apply_row_filter(df, row_filter)                              # 3) filter early
+    df = transform_fn(df)                                               # 4) transform
+
+    if select_and_cast:                                                 # 5) project and cast
+        cols = []
+        for name, dtype in select_and_cast.items():
+            if name in df.columns:
+                cols.append(F.col(name).cast(dtype).alias(name))
+            elif add_missing_as_null:
+                cols.append(F.lit(None).cast(dtype).alias(name))
+            else:
+                raise ValueError(
+                    f"Column '{name}' not found after transform of '{source_table}'. "
+                    "Pass add_missing_as_null=True to create it as a typed null."
+                )
+        df = df.select(*cols)
+    elif select_cols:
+        _require(df.columns, select_cols, "the transformed DataFrame")
+        df = df.select(*select_cols)
+
+    if num_repartitions:                                                # 6) write
+        df = df.repartition(num_repartitions)
+    writer = (
+        df.write.format("delta")
+        .mode("overwrite")
+        .option("overwriteSchema", "true" if overwrite_schema else "false")
+    )
+    if partition_by:
+        writer = writer.partitionBy(*partition_by)
+    writer.saveAsTable(target_table)
+
+    rows = session.table(target_table).count() if count_rows else -1   # 7) metrics
+    log.info("full load %s -&gt; %s: %s rows written", source_table, target_table, rows)
+    return {"rows_written": rows}
+
+
+def max_value(
+    table: str, column: str, *, spark: Optional[SparkSession] = None
+) -&gt; Optional[Any]:
+    """Return max(column) from a table, or None if it does not exist or is empty."""
+    session = _spark(spark)
+    if not session.catalog.tableExists(table):
+        return None
+    return session.table(table).agg(F.max(column)).first()[0]
+
+
+def _last_commit(delta_table) -&gt; tuple:
+    """(version, operation, operationMetrics) of the latest Delta commit."""
+    row = delta_table.history(1).select("version", "operation", "operationMetrics").first()
+    return row["version"], row["operation"], (row["operationMetrics"] or {})
+
+
+def merge_upsert(
+    *,
+    source_df: DataFrame,
+    target_table: str,
+    key_cols: List[str],
+    update_cols: Optional[List[str]] = None,
+    delete_when: Optional[str] = None,
+    ignore_cols: Optional[List[str]] = None,
+    skip_unchanged: bool = True,
+    check_duplicates: bool = True,
+    spark: Optional[SparkSession] = None,
+) -&gt; Dict[str, int]:
+    """Upsert source_df into a Delta table with MERGE.
+
+    Inside delete_when, ``s`` is the source and ``t`` is the target.
+    update_cols   columns updated on a match (default: every written non-key column).
+    delete_when   SQL condition on ``s`` that marks a source row as deleted.
+    ignore_cols   source columns used only in conditions; never written.
+    Returns {"inserted", "updated", "deleted"} from the commit's metrics.
+    """
+    from delta.tables import DeltaTable   # provided by the Fabric Spark runtime
+
+    if not key_cols:
+        raise ValueError("key_cols must not be empty.")
+    ignore = set(ignore_cols or [])
+    _require(source_df.columns, key_cols, "source_df")
+    write_cols = [c for c in source_df.columns if c not in ignore]
+    _require(write_cols, key_cols, "the written columns")
+    update_cols = update_cols or [c for c in write_cols if c not in key_cols]
+    _require(write_cols, update_cols, "the written columns")
+
+    session = _spark(spark)
+
+    if check_duplicates:
+        dupes = (
+            source_df.groupBy(*key_cols)
+            .agg(F.count(F.lit(1)).alias("_n"))
+            .filter(F.col("_n") &gt; 1)
+            .limit(1)
+            .count()
+        )
+        if dupes:
+            raise ValueError(f"source_df has more than one row per key {key_cols}; deduplicate first.")
+
+    if not session.catalog.tableExists(target_table):                   # first run: create
+        first = source_df.alias("s")
+        if delete_when:
+            first = first.filter(f"NOT COALESCE({delete_when}, false)")
+        first.select(*write_cols).write.format("delta").saveAsTable(target_table)
+        rows = session.table(target_table).count()
+        return {"inserted": rows, "updated": 0, "deleted": 0}
+
+    def q(name: str) -&gt; str:
+        return f"`{name}`"
+
+    on = " AND ".join(f"t.{q(k)} = s.{q(k)}" for k in key_cols)
+    changed = " OR ".join(f"NOT (t.{q(c)} &lt;=&gt; s.{q(c)})" for c in update_cols)
+
+    target = DeltaTable.forName(session, target_table)
+    before = _last_commit(target)[0]
+
+    builder = target.alias("t").merge(source_df.alias("s"), on)
+    if delete_when:                                                     # clause order matters
+        builder = builder.whenMatchedDelete(condition=delete_when)
+    if update_cols:
+        builder = builder.whenMatchedUpdate(
+            condition=changed if skip_unchanged else None,
+            set={c: f"s.{q(c)}" for c in update_cols},
+        )
+    builder = builder.whenNotMatchedInsert(
+        condition=f"NOT COALESCE({delete_when}, false)" if delete_when else None,
+        values={c: f"s.{q(c)}" for c in write_cols},
+    )
+    builder.execute()
+
+    version_after, operation, metrics = _last_commit(target)
+    if version_after == before or operation != "MERGE":
+        metrics = {}                                                    # nothing was committed
+    return {
+        "inserted": int(metrics.get("numTargetRowsInserted", 0)),
+        "updated": int(metrics.get("numTargetRowsUpdated", 0)),
+        "deleted": int(metrics.get("numTargetRowsDeleted", 0)),
+    }</code></pre>
+    <div class="callout note"><p class="callout-title">How the metrics are read</p><p>The merge result is read back from the table's Delta history (the commit made by this call), not from a second scan. The helper compares the table version before and after so that a merge that commits nothing reports zeros rather than the previous commit's numbers. Operation metric names come from Delta Lake; confirm them against the Delta version of your runtime when you upgrade.</p></div>
+
+    <h3 id="tests">Tests that run without Fabric</h3>
+    <p>The library imports <code>pyspark</code> and <code>delta</code>, both of which the <code>test</code> extra installs locally. A session-scoped local Spark session with the Delta extensions is enough to test real behavior on tiny DataFrames.</p>
+<pre data-title="tests/conftest.py"><code class="language-python">import pytest
+from pyspark.sql import SparkSession
+
+
+@pytest.fixture(scope="session")
+def spark(tmp_path_factory):
+    from delta import configure_spark_with_delta_pip
+
+    warehouse = tmp_path_factory.mktemp("warehouse")
+    builder = (
+        SparkSession.builder.master("local[2]")
+        .appName("unit-tests")
+        .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
+        .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
+        .config("spark.sql.warehouse.dir", str(warehouse))
+        .config("spark.ui.enabled", "false")
+        .config("spark.sql.shuffle.partitions", "2")
+    )
+    session = configure_spark_with_delta_pip(builder).getOrCreate()
+    yield session
+    session.stop()</code></pre>
+
+<pre data-title="tests/test_sanity.py"><code class="language-python">def test_public_api_is_importable():
+    import contoso_fabric_utils as lib
+
+    assert callable(lib.full_load_overwrite)
+    assert callable(lib.merge_upsert)
+    assert callable(lib.max_value)
+    assert lib.__version__</code></pre>
+
+<pre data-title="tests/test_loads.py"><code class="language-python">import pytest
+
+from contoso_fabric_utils import full_load_overwrite, max_value, merge_upsert
+
+
+def _save(spark, rows, schema, name):
+    spark.createDataFrame(rows, schema).write.format("delta").mode("overwrite").saveAsTable(name)
+
+
+def test_full_load_filters_and_counts(spark):
+    _save(spark, [(1, False), (2, True)], "order_id int, is_deleted boolean", "src_orders_a")
+
+    result = full_load_overwrite(
+        source_table="src_orders_a",
+        target_table="tgt_orders_a",
+        row_filter="coalesce(is_deleted, false) = false",
+        spark=spark,
+    )
+
+    assert result == {"rows_written": 1}
+    assert [r.order_id for r in spark.table("tgt_orders_a").collect()] == [1]
+
+
+def test_full_load_names_the_missing_column(spark):
+    _save(spark, [(1,)], "order_id int", "src_orders_b")
+
+    with pytest.raises(ValueError, match="Missing required columns"):
+        full_load_overwrite(
+            source_table="src_orders_b",
+            target_table="tgt_orders_b",
+            validate_required_cols=["order_id", "quantity"],
+            spark=spark,
+        )
+
+
+def test_max_value_is_none_for_a_missing_table(spark):
+    assert max_value("table_that_does_not_exist", "id", spark=spark) is None
+
+
+def test_merge_upsert_inserts_updates_and_deletes(spark):
+    _save(spark, [(1, "open"), (2, "open"), (3, "open")], "order_id int, status string", "silver_orders_c")
+    changes = spark.createDataFrame(
+        [(1, "closed", False),    # matched, changed      -&gt; update
+         (2, "open", True),       # matched, flagged      -&gt; delete
+         (3, "open", False),      # matched, unchanged    -&gt; untouched
+         (4, "open", False),      # new key               -&gt; insert
+         (5, "open", True)],      # new key, flagged      -&gt; skipped
+        "order_id int, status string, is_deleted boolean",
+    )
+
+    result = merge_upsert(
+        source_df=changes,
+        target_table="silver_orders_c",
+        key_cols=["order_id"],
+        delete_when="s.is_deleted = true",
+        ignore_cols=["is_deleted"],
+        spark=spark,
+    )
+
+    assert result == {"inserted": 1, "updated": 1, "deleted": 1}
+    rows = {r.order_id: r.status for r in spark.table("silver_orders_c").collect()}
+    assert rows == {1: "closed", 3: "open", 4: "open"}
+
+
+def test_merge_upsert_rejects_duplicate_keys(spark):
+    _save(spark, [(1, "open")], "order_id int, status string", "silver_orders_d")
+    dupes = spark.createDataFrame([(1, "a"), (1, "b")], "order_id int, status string")
+
+    with pytest.raises(ValueError, match="more than one row per key"):
+        merge_upsert(source_df=dupes, target_table="silver_orders_d", key_cols=["order_id"], spark=spark)</code></pre>
+    <p>The tests run on a laptop or a GitHub runner in a minute or two once Spark's Delta jars are cached. Add a test for every transformation you share, using three-row DataFrames that include a null, a duplicate and a boundary value.</p>
+
+    <h2 id="build">Build and validate the wheel locally</h2>
+    <p><code>python -m build</code> reads <code>pyproject.toml</code>, creates an isolated build environment containing only <code>build-system.requires</code>, builds a source distribution first, then builds the wheel from that source distribution. If the sdist is missing a file the wheel needs, the build fails here and not in production.</p>
+
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 215" role="img" aria-label="Local release check: source is unit tested, built into a wheel and sdist in a dist folder, inspected, and installed into a clean virtual environment for an import smoke test; only the wheel moves on to the Environment and dist is never committed">
+        <defs>
+          <marker id="fig-packaging-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-packaging-1-ao" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar orange" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box blue" x="20" y="30" width="120" height="80" rx="10"/>
+        <text class="t-b" x="80" y="58" text-anchor="middle">Source</text><text class="t-s" x="80" y="78" text-anchor="middle">src/ + pyproject</text>
+        <rect class="box teal" x="168" y="30" width="120" height="80" rx="10"/>
+        <text class="t-b" x="228" y="58" text-anchor="middle">Unit tests</text><text class="t-s" x="228" y="78" text-anchor="middle">pytest on Spark</text>
+        <rect class="box teal" x="316" y="30" width="120" height="80" rx="10"/>
+        <text class="t-b" x="376" y="58" text-anchor="middle">Build</text><text class="t-s" x="376" y="78" text-anchor="middle">python -m build</text>
+        <rect class="box accent" x="464" y="30" width="120" height="80" rx="10"/>
+        <text class="t-b t-w" x="524" y="58" text-anchor="middle">Wheel + sdist</text><text class="t-s t-w" x="524" y="78" text-anchor="middle">in dist/</text>
+        <rect class="box teal" x="612" y="30" width="120" height="80" rx="10"/>
+        <text class="t-b" x="672" y="58" text-anchor="middle">Inspect</text><text class="t-s" x="672" y="78" text-anchor="middle">twine check, list</text>
+        <rect class="box green" x="760" y="30" width="120" height="80" rx="10"/>
+        <text class="t-b" x="820" y="58" text-anchor="middle">Clean install</text><text class="t-s" x="820" y="78" text-anchor="middle">import smoke test</text>
+        <path class="ln" d="M140 70H166" marker-end="url(#fig-packaging-1-a)"/>
+        <path class="ln" d="M288 70H314" marker-end="url(#fig-packaging-1-a)"/>
+        <path class="ln" d="M436 70H462" marker-end="url(#fig-packaging-1-a)"/>
+        <path class="ln" d="M584 70H610" marker-end="url(#fig-packaging-1-a)"/>
+        <path class="ln" d="M732 70H758" marker-end="url(#fig-packaging-1-a)"/>
+        <rect class="box orange" x="414" y="150" width="220" height="40" rx="10"/>
+        <text class="t-b" x="524" y="175" text-anchor="middle">.gitignore: dist/, build/</text>
+        <path class="ln orange" d="M524 150V112" marker-end="url(#fig-packaging-1-ao)"/>
+        <text class="t-s" x="534" y="136">never committed</text>
+      </svg>
+      <figcaption><b>Release check on your machine.</b> The wheel is the artifact; <code>dist/</code> stays out of Git. CI repeats exactly these steps, so a green local run predicts a green pipeline.</figcaption>
+    </figure>
+
+    <div class="tabs">
+      <div class="tab" data-title="Linux / macOS (bash)">
+<pre data-title="shell"><code class="language-shell">python -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+
+# Develop and test: editable install with the test extra
+python -m pip install -e ".[test]"
+pytest
+
+# Build and inspect
+python -m pip install --upgrade build twine
+python -m build                      # writes dist/*.whl and dist/*.tar.gz
+twine check dist/*
+python -m zipfile -l dist/contoso_fabric_utils-0.1.0-py3-none-any.whl
+
+# Prove the wheel installs and imports in a clean environment
+python -m venv /tmp/wheel-check
+/tmp/wheel-check/bin/python -m pip install "dist/contoso_fabric_utils-0.1.0-py3-none-any.whl[test]"
+/tmp/wheel-check/bin/python -c "import contoso_fabric_utils as m; print(m.__version__)"</code></pre>
+      </div>
+      <div class="tab" data-title="Windows (PowerShell)">
+<pre data-title="powershell"><code class="language-powershell">python -m venv .venv
+. .\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+
+# Develop and test: editable install with the test extra
+python -m pip install -e ".[test]"
+pytest
+
+# Build and inspect
+python -m pip install --upgrade build twine
+python -m build
+twine check dist/*
+python -m zipfile -l dist\contoso_fabric_utils-0.1.0-py3-none-any.whl
+
+# Prove the wheel installs and imports in a clean environment
+python -m venv $env:TEMP\wheel-check
+& "$env:TEMP\wheel-check\Scripts\python.exe" -m pip install "dist\contoso_fabric_utils-0.1.0-py3-none-any.whl[test]"
+& "$env:TEMP\wheel-check\Scripts\python.exe" -c "import contoso_fabric_utils as m; print(m.__version__)"</code></pre>
+      </div>
+    </div>
+
+    <h3 id="inspect">What to check in the output</h3>
+    <table>
+      <thead><tr><th>Check</th><th>Expected</th><th>If not</th></tr></thead>
+      <tbody>
+        <tr><td>File name</td><td><code>contoso_fabric_utils-0.1.0-py3-none-any.whl</code>: <code>py3-none-any</code> means pure Python, no platform tag</td><td>A platform tag means a compiled extension crept in; a wheel like that will not install on the Fabric runtime's Linux image unless it matches</td></tr>
+        <tr><td>Listing from <code>python -m zipfile -l</code></td><td><code>contoso_fabric_utils/__init__.py</code>, <code>loads.py</code>, <code>py.typed</code> and a <code>.dist-info</code> folder with <code>METADATA</code>, <code>WHEEL</code> and the license</td><td>Missing modules mean <code>packages.find</code> points at the wrong folder</td></tr>
+        <tr><td><code>METADATA</code></td><td><code>Name</code>, <code>Version</code>, <code>Requires-Python: &gt;=3.11</code>; no <code>Requires-Dist</code> except the optional <code>test</code> extra</td><td>A <code>Requires-Dist: pyspark</code> line will make the Environment try to install PySpark</td></tr>
+        <tr><td><code>twine check</code></td><td>Passes for both files</td><td>Fix the README or metadata field it names</td></tr>
+        <tr><td>Clean-environment import</td><td>Prints the version</td><td>An import error in a clean venv that did not occur in your development venv means a runtime dependency is undeclared</td></tr>
+      </tbody>
+    </table>
+    <p>The <code>.whl</code> in <code>dist/</code> is the distributable package. Upload only that file to Fabric. The <code>.tar.gz</code> source distribution is useful for a package feed but is not what an Environment installs for a Python library.</p>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p><ul>
+      <li>Declare everything in <code>pyproject.toml</code>: setuptools 77.0.3 or later, an SPDX <code>license</code> string, <code>requires-python</code> matching the runtime, and the <code>src</code> layout.</li>
+      <li>Keep runtime <code>dependencies</code> empty; PySpark and Delta come from the Fabric runtime and belong only in the <code>test</code> extra.</li>
+      <li>Test the installed package against a local Spark session so packaging mistakes fail on your machine.</li>
+      <li>Never commit <code>dist/</code>; the only wheel that reaches an Environment is the one CI built from a tag.</li>
+      <li>Verify the built wheel in a clean virtual environment before you upload it.</li>
+    </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://packaging.python.org/en/latest/guides/writing-pyproject-toml/">Writing your pyproject.toml</a></li>
+        <li><a href="https://packaging.python.org/en/latest/discussions/src-layout-vs-flat-layout/">src layout vs flat layout</a></li>
+        <li><a href="https://packaging.python.org/en/latest/discussions/single-source-version/">Single-sourcing the project version</a></li>
+        <li><a href="https://peps.python.org/pep-0621/">PEP 621: Storing project metadata in pyproject.toml</a></li>
+        <li><a href="https://peps.python.org/pep-0639/">PEP 639: Improving license clarity with better package metadata</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/runtime">Apache Spark runtime in Fabric</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Silver: MERGE, SCD2 and deletes · Data Load Strategy</title>
+<meta name="description" content="Silver layer loading: when a full or partition-scoped reload is enough, idempotent Delta MERGE upserts, SCD Type 2 dimensions and delete handling aligned to the change signal.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="02-data-load-strategy" data-page="silver.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 02 · Data Load Strategy</p>
+      <h1>Silver: MERGE, SCD2 and deletes</h1>
+      <p class="lede">Silver turns raw Bronze history into a single, trustworthy current state. This is where deduplication, upserts, dimension history and delete handling happen, and where most data-correctness bugs are made. The patterns below are idempotent, and each delete strategy is tied to the change signal that makes it safe.</p>
+    </header>
+
+    <h2 id="goal">Goal: cleansed, conformed, integrated</h2>
+    <p>Silver takes the append-only data in Bronze and improves its quality and usability. Typical work falls into three groups.</p>
+    <ul>
+      <li><strong>Cleansing.</strong> Handle nulls and missing values, correct data types, and validate against business rules. Route failing rows to a quarantine table with a reason code instead of dropping them silently.</li>
+      <li><strong>Conforming.</strong> Standardize formats and build master entities such as <code>customers</code> and <code>products</code> by merging records from several source systems.</li>
+      <li><strong>Integration.</strong> Join datasets to give a fuller picture, for example orders with customers.</li>
+    </ul>
+    <p>The output is a set of validated, de-duplicated Delta tables that represent the current state of the business, ready to feed Gold. Whether Silver is loaded by full reload or incrementally follows the criteria on the <a href="load-strategy.html#eligibility">full vs incremental page</a>.</p>
+
+    <h2 id="full-reload">Full and partition-scoped reloads</h2>
+    <p>A full Silver reload is appropriate only while a table meets every eligibility check: small footprint, short run time, low downstream ripple, no history to protect, a friendly source and calm capacity. For small reference tables it is the simplest correct answer, and the overwrite pattern is on the <a href="load-strategy.html#full-load">full load section</a>.</p>
+    <p>A wider class of reloads is worth doing on large tables too, scoped to a table or a slice. Use them when most of these are true:</p>
+    <table>
+      <thead><tr><th>Situation</th><th>Why a reload is the right tool</th><th>Mechanism</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Transformation logic changed historically</strong></td><td>A KPI or derivation (net versus gross, a reclassification) must apply to past data. Rebuild Silver deterministically from Bronze and leave Bronze untouched</td><td>Full rebuild, or period by period</td></tr>
+        <tr><td><strong>Repartition or clustering refactor</strong></td><td>Changing the physical layout to fix scan cost is cleaner as a controlled rebuild than as in-place mutation</td><td>Rewrite into the new layout (see the <a href="../08-delta-partitioning/index.html">partitioning playbook</a>)</td></tr>
+        <tr><td><strong>Snapshot restatements</strong></td><td>A vendor restates a month or quarter. Prefer a slice rebuild, not a table-wide one</td><td><code>replaceWhere</code> on the affected range</td></tr>
+        <tr><td><strong>SCD1 only, or SCD2 rebuilt deliberately</strong></td><td>If you are not preserving type-2 history, or are intentionally regenerating it, a rebuild is viable. Otherwise prefer <code>MERGE</code> incrementals</td><td>Overwrite or <code>replaceWhere</code></td></tr>
+        <tr><td><strong>Operational window</strong></td><td>A safe window with low contention and clear duration and CU targets. If those degrade, pivot to incremental</td><td>Schedule outside peak; measure CU burn</td></tr>
+      </tbody>
+    </table>
+<pre data-title="PySpark · notebook cell (rebuild one restated month from Bronze)"><code class="language-python"># Parameters set by the pipeline for the restated period
+month_start = "&lt;first day of month&gt;"      # e.g. yyyy-MM-01
+month_end   = "&lt;first day of next month&gt;"
+
+pred = f"order_date &gt;= '{month_start}' AND order_date &lt; '{month_end}'"
+
+# build_silver_orders() is your deterministic Bronze-to-Silver transformation
+rebuilt = build_silver_orders(spark.table("bronze.orders")).where(pred)
+
+(rebuilt.write.format("delta")
+    .mode("overwrite")
+    .option("replaceWhere", pred)      # atomic; the write fails if any row falls outside the predicate
+    .saveAsTable("silver.orders"))</code></pre>
+    <p><code>replaceWhere</code> replaces only the rows matching the predicate in one atomic commit and rejects the write if the DataFrame contains rows outside it, which is the safety net that keeps the blast radius to one slice. Dynamic partition overwrite (<code>spark.sql.sources.partitionOverwriteMode=dynamic</code>) does similar work implicitly for partitioned tables, but silently replaces whatever partitions the DataFrame happens to touch, so the explicit predicate is the safer habit.</p>
+
+    <h2 id="merge">Incremental upserts with Delta MERGE</h2>
+    <p><code>MERGE</code> is the workhorse of Bronze-to-Silver loading. It compares a source dataset (the new Bronze rows) with a target (the Silver table) on a join condition and runs different actions depending on whether a match is found.</p>
+    <dl class="kv">
+      <dt><code>WHEN MATCHED</code></dt><dd>The key exists in both. Typically <code>UPDATE</code> the Silver row with the new values, guarded so that only a newer version wins.</dd>
+      <dt><code>WHEN NOT MATCHED</code></dt><dd>The key exists in the source only. <code>INSERT</code> a new Silver row.</dd>
+      <dt><code>WHEN NOT MATCHED BY SOURCE</code></dt><dd>The key exists in the target only. Use it to <code>DELETE</code> or flag rows removed at the source, but <strong>only when the source is a complete snapshot</strong>. On an incremental batch it removes every row the batch did not mention.</dd>
+    </dl>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 300" role="img" aria-label="Four source and target situations and the MERGE clause that handles each: a new key is inserted, a newer version updates the row, a stale version is skipped, and a target-only row is kept in a delta batch and deleted only on a full snapshot">
+        <defs>
+          <marker id="fig-silver-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <text class="t-h" x="20" y="22">Situation</text>
+        <text class="t-h" x="300" y="22">MERGE clause</text>
+        <text class="t-h" x="680" y="22">Result in Silver</text>
+        <rect class="box gray" x="20" y="34" width="210" height="52" rx="8"/>
+        <text class="t-b" x="125" y="58" text-anchor="middle">Key 7, absent in Silver</text>
+        <text class="t-s" x="125" y="75" text-anchor="middle">new order in the batch</text>
+        <rect class="box purple" x="300" y="34" width="300" height="52" rx="8"/>
+        <text class="t-m" x="450" y="64" text-anchor="middle">WHEN NOT MATCHED INSERT</text>
+        <rect class="box green" x="680" y="34" width="200" height="52" rx="8"/>
+        <text class="t-b" x="780" y="64" text-anchor="middle">Insert new row</text>
+        <rect class="box gray" x="20" y="102" width="210" height="52" rx="8"/>
+        <text class="t-b" x="125" y="126" text-anchor="middle">Key 3, newer version</text>
+        <text class="t-s" x="125" y="143" text-anchor="middle">modified_at is later</text>
+        <rect class="box purple" x="300" y="102" width="300" height="52" rx="8"/>
+        <text class="t-m" x="450" y="125" text-anchor="middle">WHEN MATCHED AND</text>
+        <text class="t-m" x="450" y="142" text-anchor="middle">s.modified_at &gt; t.modified_at</text>
+        <rect class="box blue" x="680" y="102" width="200" height="52" rx="8"/>
+        <text class="t-b" x="780" y="132" text-anchor="middle">Update row</text>
+        <rect class="box gray" x="20" y="170" width="210" height="52" rx="8"/>
+        <text class="t-b" x="125" y="194" text-anchor="middle">Key 5, stale version</text>
+        <text class="t-s" x="125" y="211" text-anchor="middle">arrived out of order</text>
+        <rect class="box purple" x="300" y="170" width="300" height="52" rx="8"/>
+        <text class="t-s" x="450" y="193" text-anchor="middle">Matched, but the guard is false</text>
+        <text class="t-s" x="450" y="209" text-anchor="middle">so no clause fires</text>
+        <rect class="box gray" x="680" y="170" width="200" height="52" rx="8"/>
+        <text class="t-b" x="780" y="200" text-anchor="middle">Keep newer row</text>
+        <rect class="box gray" x="20" y="238" width="210" height="52" rx="8"/>
+        <text class="t-b" x="125" y="262" text-anchor="middle">Key 9, only in Silver</text>
+        <text class="t-s" x="125" y="279" text-anchor="middle">not mentioned by the batch</text>
+        <rect class="box purple" x="300" y="238" width="300" height="52" rx="8"/>
+        <text class="t-m" x="450" y="268" text-anchor="middle">WHEN NOT MATCHED BY SOURCE</text>
+        <rect class="box orange" x="680" y="238" width="200" height="52" rx="8"/>
+        <text class="t-b" x="780" y="260" text-anchor="middle">Keep (delta batch)</text>
+        <text class="t-s" x="780" y="277" text-anchor="middle">delete only on a snapshot</text>
+        <path class="ln" d="M230 60H298" marker-end="url(#fig-silver-1-a)"/>
+        <path class="ln" d="M230 128H298" marker-end="url(#fig-silver-1-a)"/>
+        <path class="ln" d="M230 196H298" marker-end="url(#fig-silver-1-a)"/>
+        <path class="ln" d="M230 264H298" marker-end="url(#fig-silver-1-a)"/>
+        <path class="ln" d="M600 60H678" marker-end="url(#fig-silver-1-a)"/>
+        <path class="ln" d="M600 128H678" marker-end="url(#fig-silver-1-a)"/>
+        <path class="ln" d="M600 196H678" marker-end="url(#fig-silver-1-a)"/>
+        <path class="ln" d="M600 264H678" marker-end="url(#fig-silver-1-a)"/>
+      </svg>
+      <figcaption><b>One MERGE, four outcomes.</b> The guard on the update clause is what makes the merge safe to rerun and safe against out-of-order delivery. The bottom row is the clause that causes outages when misapplied.</figcaption>
+    </figure>
+
+    <div class="tabs">
+      <div class="tab" data-title="PySpark">
+<pre data-title="PySpark · notebook NB_SALES_SLV_UpsertOrders"><code class="language-python">from delta.tables import DeltaTable
+from pyspark.sql import functions as F, Window
+
+silver_cols = ["order_id", "customer_id", "order_date", "status", "total_amount", "modified_at"]
+last_batch = 1041                         # from the watermark table (see Change tracking)
+
+new_rows = spark.table("bronze.orders").where(F.col("_batch_id") &gt; last_batch)
+
+# 1. Exactly one row per key: the most recent version wins
+w = Window.partitionBy("order_id").orderBy(F.col("modified_at").desc(), F.col("_ingest_ts").desc())
+latest = (new_rows.withColumn("_rn", F.row_number().over(w))
+                  .where("_rn = 1")
+                  .select(*silver_cols))
+
+# 2. Upsert; the guard makes reruns and out-of-order batches harmless
+(DeltaTable.forName(spark, "silver.orders").alias("t")
+    .merge(latest.alias("s"), "t.order_id = s.order_id")
+    .whenMatchedUpdateAll(condition="s.modified_at &gt; t.modified_at")
+    .whenNotMatchedInsertAll()
+    .execute())</code></pre>
+      </div>
+      <div class="tab" data-title="Spark SQL">
+<pre data-title="Spark SQL · notebook cell"><code class="language-sql">-- latest_orders: temp view with exactly one row per order_id and exactly the Silver columns
+MERGE INTO silver.orders AS t
+USING latest_orders AS s
+  ON t.order_id = s.order_id
+WHEN MATCHED AND s.modified_at &gt; t.modified_at THEN UPDATE SET *
+WHEN NOT MATCHED THEN INSERT *;</code></pre>
+      </div>
+    </div>
+
+    <h3 id="merge-rules">Rules that keep MERGE correct and cheap</h3>
+    <table>
+      <thead><tr><th>Concern</th><th>What to do</th></tr></thead>
+      <tbody>
+        <tr><td>Unique source keys</td><td>If several source rows match one target row, the merge fails. Deduplicate on the merge key first, as above. Also guard against NULL keys, and normalize case and whitespace in keys during cleansing.</td></tr>
+        <tr><td>Do not rewrite unchanged rows</td><td>Condition the update on a version column (<code>modified_at</code>) or a hash of tracked attributes, so replays and no-op updates do not rewrite files.</td></tr>
+        <tr><td>Reduce files scanned</td><td>Add a predicate on a partition or clustering column to the <code>ON</code> clause when that column cannot change for a given key (an order date, for instance). If it can change, pruning produces duplicates.</td></tr>
+        <tr><td>Write amplification</td><td>A merge rewrites every file that holds a changed row. Keep deletion vectors and auto compaction enabled where your runtime supports them, and align layout with how rows change (see the <a href="../08-delta-partitioning/index.html">partitioning playbook</a>). Check <code>numTargetFilesRemoved</code> in <code>DESCRIBE HISTORY</code>.</td></tr>
+        <tr><td>Concurrent writers</td><td>Two merges that touch the same files conflict, and one fails. Serialize them, or isolate them by a partition column that is part of the merge condition in both statements.</td></tr>
+        <tr><td>Schema evolution</td><td>New source columns are ignored by default. If you want them added, enable schema auto-merge deliberately for the session and review what it adds; do not enable it globally.</td></tr>
+        <tr><td>Idempotency</td><td>The same batch applied twice must give the same table. The version guard and a deterministic deduplication rule provide that.</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="scd2">Slowly changing dimensions (Type 2)</h2>
+    <p>For many dimensions it is not enough to overwrite old values. Analyzing sales by the customer's address <em>at the time of the order</em>, not just the current one, needs history. Type 1 updates in place and loses history. Type 2 keeps it by:</p>
+    <ol>
+      <li><strong>Expiring the old record.</strong> Mark the existing row as no longer current: set <code>is_current = false</code> and close its validity interval with a <code>valid_to</code> timestamp.</li>
+      <li><strong>Inserting a new record.</strong> Add a new row for the same business key with the changed attributes, <code>valid_from</code> set to the change time, <code>valid_to</code> empty and <code>is_current = true</code>.</li>
+    </ol>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 210" role="img" aria-label="Before a change one current dimension row exists for a customer; after the MERGE the old row is expired with a valid_to timestamp and a new current row is inserted, preserving history">
+        <defs>
+          <marker id="fig-silver-2-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar blue" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <text class="t-h" x="20" y="22">Before: customer C-1001 has one row</text>
+        <text class="t-s" x="40" y="58">city</text>
+        <text class="t-s" x="140" y="58">valid_from</text>
+        <text class="t-s" x="226" y="58">valid_to</text>
+        <text class="t-s" x="300" y="58">is_current</text>
+        <rect class="box green" x="30" y="68" width="340" height="30" rx="6"/>
+        <text class="t-m" x="40" y="88">Seattle</text>
+        <text class="t-m" x="140" y="88">t1</text>
+        <text class="t-m" x="226" y="88">NULL</text>
+        <text class="t-m" x="300" y="88">true</text>
+        <path class="ln thick blue" d="M388 118H462" marker-end="url(#fig-silver-2-a)"/>
+        <text class="t-s" x="425" y="108" text-anchor="middle">MERGE</text>
+        <text class="t-s" x="425" y="136" text-anchor="middle">city = Portland</text>
+        <text class="t-h" x="480" y="22">After: history kept, one current row</text>
+        <text class="t-s" x="500" y="58">city</text>
+        <text class="t-s" x="600" y="58">valid_from</text>
+        <text class="t-s" x="686" y="58">valid_to</text>
+        <text class="t-s" x="780" y="58">is_current</text>
+        <rect class="box gray" x="490" y="68" width="390" height="30" rx="6"/>
+        <text class="t-m" x="500" y="88">Seattle</text>
+        <text class="t-m" x="600" y="88">t1</text>
+        <text class="t-m" x="686" y="88">t2</text>
+        <text class="t-m" x="780" y="88">false</text>
+        <rect class="box green" x="490" y="104" width="390" height="30" rx="6"/>
+        <text class="t-m" x="500" y="124">Portland</text>
+        <text class="t-m" x="600" y="124">t2</text>
+        <text class="t-m" x="686" y="124">NULL</text>
+        <text class="t-m" x="780" y="124">true</text>
+        <text class="t-s" x="20" y="176">Facts join on the key and the validity interval of the version in force at the event time.</text>
+        <text class="t-s" x="20" y="194">Expire and insert happen in one atomic MERGE, so readers never see zero or two current rows.</text>
+      </svg>
+      <figcaption><b>SCD Type 2 state change.</b> t1 and t2 stand for effective timestamps. The expire and the insert commit together, which is why the staging trick in the code below is worth the complexity.</figcaption>
+    </figure>
+    <p>A single <code>MERGE</code> can do both steps if you stage each changed row twice: once with the real business key (matches the current row and expires it) and once with a NULL merge key (never matches, so it inserts). New keys are staged only for insertion.</p>
+<pre data-title="PySpark · notebook NB_SALES_SLV_LoadDimCustomer"><code class="language-python">from datetime import datetime, timezone
+from delta.tables import DeltaTable
+from pyspark.sql import functions as F
+
+tracked = ["customer_name", "email", "city", "segment"]
+effective_ts = datetime.now(timezone.utc)          # one timestamp for the whole run
+
+# 1. One row per customer from the new Bronze batch (deduplicated as in the upsert example), plus a hash
+src = (latest_customers
+        .withColumn("row_hash", F.sha2(F.concat_ws("||", *[F.coalesce(F.col(c).cast("string"), F.lit("")) for c in tracked]), 256)))
+
+dim = DeltaTable.forName(spark, "silver.dim_customer")
+current = dim.toDF().where("is_current").select("customer_id", F.col("row_hash").alias("current_hash"))
+
+# 2. Keep only new customers and customers whose tracked attributes changed
+changes = (src.join(current, "customer_id", "left")
+              .where("current_hash IS NULL OR current_hash &lt;&gt; row_hash")
+              .withColumn("is_new", F.col("current_hash").isNull())
+              .drop("current_hash"))
+
+# 3. Stage changed rows twice: keyed (to expire) and with a NULL key (to insert)
+key_type = src.schema["customer_id"].dataType
+to_expire = changes.where(~F.col("is_new")).withColumn("merge_key", F.col("customer_id"))
+to_insert = changes.withColumn("merge_key", F.lit(None).cast(key_type))
+staged = to_expire.unionByName(to_insert)
+
+# 4. Expire and insert in one atomic MERGE
+(dim.alias("t")
+    .merge(staged.alias("s"), "t.customer_id = s.merge_key AND t.is_current = true")
+    .whenMatchedUpdate(set={"is_current": F.lit(False), "valid_to": F.lit(effective_ts)})
+    .whenNotMatchedInsert(values={
+        "customer_id": "s.customer_id", "customer_name": "s.customer_name", "email": "s.email",
+        "city": "s.city", "segment": "s.segment", "row_hash": "s.row_hash",
+        "valid_from": F.lit(effective_ts), "valid_to": F.lit(None).cast("timestamp"),
+        "is_current": F.lit(True)})
+    .execute())</code></pre>
+    <p>Rerunning the same batch finds no hash differences, so the job is idempotent. Query a version in force at a given time with the validity interval:</p>
+<pre data-title="Spark SQL · as-of query"><code class="language-sql">SELECT *
+FROM silver.dim_customer
+WHERE customer_id = 'C-1001'
+  AND valid_from &lt;= TIMESTAMP '&lt;as_of_timestamp&gt;'
+  AND (valid_to IS NULL OR valid_to &gt; TIMESTAMP '&lt;as_of_timestamp&gt;');</code></pre>
+    <ul>
+      <li><strong>Effective time.</strong> The example uses load time. If the source carries a business effective date and changes can arrive late or out of order, use that date for <code>valid_from</code> and <code>valid_to</code> and process changes per key in effective-date order.</li>
+      <li><strong>Surrogate keys.</strong> Writing Delta identity columns is not supported in Fabric Delta tables, so generate surrogate keys in code (for example a hash of business key and <code>valid_from</code>) and test for collisions.</li>
+      <li><strong>Deletes.</strong> A source delete expires the current row (set <code>valid_to</code> and an <code>is_deleted</code> flag) rather than removing history.</li>
+      <li><strong>Low-code alternatives.</strong> Dataflow Gen2 offers a visual route to SCD-style logic. Copy job offers a built-in SCD Type 2 write method for CDC sources, which is marked preview and has connector and schema constraints; check <a href="https://learn.microsoft.com/fabric/data-factory/cdc-copy-job">its documentation</a> before relying on it. Code-first notebooks remain the better choice when you need custom matching rules or testing in CI.</li>
+    </ul>
+
+    <h2 id="deletes">Handling deletes</h2>
+    <p>Propagating source deletions to Silver is one of the hardest parts of incremental loading, and the right approach depends entirely on the change detection mechanism you used at ingestion. A delete strategy that does not match the change signal produces a Silver table that quietly stops representing the source.</p>
+    <table>
+      <thead><tr><th>Change signal</th><th>What Silver receives</th><th>Delete strategy</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Soft delete flag</strong> in the source</td><td>An update with <code>is_deleted = true</code></td><td>Carry the flag into Silver, or physically delete on the flag</td></tr>
+        <tr><td><strong>Log-based CDC</strong></td><td>An explicit delete event per deleted row</td><td>Apply the delete event with <code>MERGE ... THEN DELETE</code></td></tr>
+        <tr><td><strong>Watermark</strong></td><td>Nothing: a deleted row simply stops appearing</td><td>Periodic full snapshot and a snapshot merge with <code>WHEN NOT MATCHED BY SOURCE</code></td></tr>
+        <tr><td><strong>Snapshot-only source</strong></td><td>A complete snapshot each time</td><td>The same snapshot merge, on every load</td></tr>
+      </tbody>
+    </table>
+
+    <h3 id="soft-deletes">Soft deletes</h3>
+    <p>If the source flags rows as inactive instead of removing them, the delete arrives as an ordinary update and the merge handles it. You choose whether Silver keeps the flag (consumers filter on it) or removes the row.</p>
+<pre data-title="Spark SQL · physical delete on a soft-delete flag"><code class="language-sql">MERGE INTO silver.orders AS t
+USING latest_orders AS s
+  ON t.order_id = s.order_id
+WHEN MATCHED AND s.is_deleted = true THEN DELETE
+WHEN MATCHED AND s.modified_at &gt; t.modified_at THEN UPDATE SET *
+WHEN NOT MATCHED AND s.is_deleted = false THEN INSERT *;</code></pre>
+    <p>To keep the flag instead, drop the first clause and the condition on the insert clause; the <code>is_deleted</code> column then flows through <code>UPDATE SET *</code> like any other attribute. Keeping flagged rows is safer for audit; physical deletion is required when erasure obligations apply.</p>
+
+    <h3 id="hard-deletes-cdc">Hard deletes with CDC</h3>
+    <p>When ingestion used log-based CDC, the change stream carries an explicit operation per row. Keep the last event per key, then apply deletes, updates and inserts in one merge.</p>
+<pre data-title="PySpark · applying CDC events (op = I, U or D)"><code class="language-python">from delta.tables import DeltaTable
+from pyspark.sql import functions as F, Window
+
+w = Window.partitionBy("order_id").orderBy(F.col("_commit_seq").desc())
+cdc_latest = (events.withColumn("_rn", F.row_number().over(w)).where("_rn = 1"))   # last event per key
+
+cols = {c: f"s.{c}" for c in silver_cols}
+
+(DeltaTable.forName(spark, "silver.orders").alias("t")
+    .merge(cdc_latest.alias("s"), "t.order_id = s.order_id")
+    .whenMatchedDelete(condition="s.op = 'D'")
+    .whenMatchedUpdate(set=cols)                          # remaining matches are inserts or updates
+    .whenNotMatchedInsert(condition="s.op &lt;&gt; 'D'", values=cols)
+    .execute())</code></pre>
+
+    <h3 id="hard-deletes-hwm">Hard deletes with a watermark: the snapshot merge</h3>
+    <p>A watermark cannot see deleted rows, so the only way to find them is to compare a complete source extract with Silver and remove the rows that are missing. That is a <code>MERGE</code> with <code>WHEN NOT MATCHED BY SOURCE</code>, where the source is the full extract. A watermark-based pipeline therefore needs a hybrid: frequent incremental merges for inserts and updates, plus a less frequent, heavier snapshot merge dedicated to deletes.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 266" role="img" aria-label="Hazard: a delete clause applied to a two-row delta batch removes four valid rows from a six-row table. Safe: the same clause applied to a complete snapshot removes only the one genuinely deleted row">
+        <text class="t-h" x="10" y="22">Hazard: delete clause on a delta batch</text>
+        <rect class="zone red" x="10" y="30" width="430" height="226" rx="12"/>
+        <text class="t-s" x="26" y="62">Silver before</text>
+        <rect class="box gray" x="30" y="68" width="48" height="34" rx="6"/><text class="t-b" x="54" y="90" text-anchor="middle">1</text>
+        <rect class="box gray" x="88" y="68" width="48" height="34" rx="6"/><text class="t-b" x="112" y="90" text-anchor="middle">2</text>
+        <rect class="box gray" x="146" y="68" width="48" height="34" rx="6"/><text class="t-b" x="170" y="90" text-anchor="middle">3</text>
+        <rect class="box gray" x="204" y="68" width="48" height="34" rx="6"/><text class="t-b" x="228" y="90" text-anchor="middle">4</text>
+        <rect class="box gray" x="262" y="68" width="48" height="34" rx="6"/><text class="t-b" x="286" y="90" text-anchor="middle">5</text>
+        <rect class="box gray" x="320" y="68" width="48" height="34" rx="6"/><text class="t-b" x="344" y="90" text-anchor="middle">6</text>
+        <text class="t-s" x="26" y="126">Incoming delta batch: keys 2 and 5 changed</text>
+        <rect class="box blue" x="88" y="132" width="48" height="34" rx="6"/><text class="t-b" x="112" y="154" text-anchor="middle">2</text>
+        <rect class="box blue" x="262" y="132" width="48" height="34" rx="6"/><text class="t-b" x="286" y="154" text-anchor="middle">5</text>
+        <text class="t-s" x="26" y="190">Silver after the delete clause</text>
+        <rect class="box red dashed" x="30" y="196" width="48" height="34" rx="6"/><text class="t-b c-red" x="54" y="218" text-anchor="middle">1</text>
+        <rect class="box green" x="88" y="196" width="48" height="34" rx="6"/><text class="t-b" x="112" y="218" text-anchor="middle">2</text>
+        <rect class="box red dashed" x="146" y="196" width="48" height="34" rx="6"/><text class="t-b c-red" x="170" y="218" text-anchor="middle">3</text>
+        <rect class="box red dashed" x="204" y="196" width="48" height="34" rx="6"/><text class="t-b c-red" x="228" y="218" text-anchor="middle">4</text>
+        <rect class="box green" x="262" y="196" width="48" height="34" rx="6"/><text class="t-b" x="286" y="218" text-anchor="middle">5</text>
+        <rect class="box red dashed" x="320" y="196" width="48" height="34" rx="6"/><text class="t-b c-red" x="344" y="218" text-anchor="middle">6</text>
+        <text class="t-s c-red" x="26" y="250">4 valid rows deleted by mistake</text>
+        <text class="t-h" x="460" y="22">Safe: delete clause on a full snapshot</text>
+        <rect class="zone green" x="460" y="30" width="430" height="226" rx="12"/>
+        <text class="t-s" x="476" y="62">Silver before</text>
+        <rect class="box gray" x="480" y="68" width="48" height="34" rx="6"/><text class="t-b" x="504" y="90" text-anchor="middle">1</text>
+        <rect class="box gray" x="538" y="68" width="48" height="34" rx="6"/><text class="t-b" x="562" y="90" text-anchor="middle">2</text>
+        <rect class="box gray" x="596" y="68" width="48" height="34" rx="6"/><text class="t-b" x="620" y="90" text-anchor="middle">3</text>
+        <rect class="box gray" x="654" y="68" width="48" height="34" rx="6"/><text class="t-b" x="678" y="90" text-anchor="middle">4</text>
+        <rect class="box gray" x="712" y="68" width="48" height="34" rx="6"/><text class="t-b" x="736" y="90" text-anchor="middle">5</text>
+        <rect class="box gray" x="770" y="68" width="48" height="34" rx="6"/><text class="t-b" x="794" y="90" text-anchor="middle">6</text>
+        <text class="t-s" x="476" y="126">Complete snapshot: key 4 no longer exists</text>
+        <rect class="box blue" x="480" y="132" width="48" height="34" rx="6"/><text class="t-b" x="504" y="154" text-anchor="middle">1</text>
+        <rect class="box blue" x="538" y="132" width="48" height="34" rx="6"/><text class="t-b" x="562" y="154" text-anchor="middle">2</text>
+        <rect class="box blue" x="596" y="132" width="48" height="34" rx="6"/><text class="t-b" x="620" y="154" text-anchor="middle">3</text>
+        <rect class="box blue" x="712" y="132" width="48" height="34" rx="6"/><text class="t-b" x="736" y="154" text-anchor="middle">5</text>
+        <rect class="box blue" x="770" y="132" width="48" height="34" rx="6"/><text class="t-b" x="794" y="154" text-anchor="middle">6</text>
+        <text class="t-s" x="476" y="190">Silver after the delete clause</text>
+        <rect class="box green" x="480" y="196" width="48" height="34" rx="6"/><text class="t-b" x="504" y="218" text-anchor="middle">1</text>
+        <rect class="box green" x="538" y="196" width="48" height="34" rx="6"/><text class="t-b" x="562" y="218" text-anchor="middle">2</text>
+        <rect class="box green" x="596" y="196" width="48" height="34" rx="6"/><text class="t-b" x="620" y="218" text-anchor="middle">3</text>
+        <rect class="box red dashed" x="654" y="196" width="48" height="34" rx="6"/><text class="t-b c-red" x="678" y="218" text-anchor="middle">4</text>
+        <rect class="box green" x="712" y="196" width="48" height="34" rx="6"/><text class="t-b" x="736" y="218" text-anchor="middle">5</text>
+        <rect class="box green" x="770" y="196" width="48" height="34" rx="6"/><text class="t-b" x="794" y="218" text-anchor="middle">6</text>
+        <text class="t-s c-green" x="476" y="250">only the deleted key is removed</text>
+      </svg>
+      <figcaption><b>The classic catastrophic error.</b> The delete clause assumes the source lists every surviving row. A delta batch lists only what changed, so every unmentioned row looks deleted.</figcaption>
+    </figure>
+<pre data-title="PySpark · guarded snapshot merge (flag instead of delete)"><code class="language-python">from pyspark.sql import functions as F
+
+snap = spark.table("bronze.customers").where(
+    (F.col("_batch_id") == full_batch_id) &amp; (F.col("_load_type") == "full"))
+snap.createOrReplaceTempView("full_snapshot")
+
+silver_live = spark.table("silver.customers").where("NOT is_deleted")
+snap_rows, live_rows = snap.count(), silver_live.count()
+to_remove = silver_live.join(snap, "customer_id", "left_anti").count()
+
+# Guards: never delete from an empty, implausibly small or implausibly destructive snapshot
+if snap_rows == 0 or snap_rows &lt; 0.9 * live_rows or to_remove &gt; 0.1 * live_rows:
+    raise ValueError(f"Snapshot rejected: {snap_rows} rows vs {live_rows} live; would remove {to_remove}")
+
+spark.sql("""
+MERGE INTO silver.customers AS t
+USING full_snapshot AS s
+  ON t.customer_id = s.customer_id
+WHEN MATCHED AND s.row_hash &lt;&gt; t.row_hash THEN UPDATE SET *
+WHEN NOT MATCHED THEN INSERT *
+WHEN NOT MATCHED BY SOURCE AND NOT t.is_deleted
+  THEN UPDATE SET t.is_deleted = true, t.deleted_at = current_timestamp()
+""")</code></pre>
+    <div class="callout caution"><p class="callout-title">Gate every delete clause</p><p>Run <code>WHEN NOT MATCHED BY SOURCE</code> only against a batch that is verified to be a complete snapshot: recorded <code>_load_type = 'full'</code>, a manifest or control row confirming completeness, and sane row counts against the previous snapshot. Prefer flagging over physical deletion first, so a wrongly rejected snapshot can be undone with an update, not a restore. The thresholds above are examples; set them from your own table's normal variation.</p></div>
+    <p>Because Delta keeps previous versions, a bad delete can be reverted with <code>RESTORE TABLE</code> while the old files still exist, but that reverts every later commit too, so treat it as an emergency measure and rely on the guards.</p>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p><ul>
+      <li>Deduplicate to one row per key and guard updates with a version comparison; that makes <code>MERGE</code> idempotent and safe against out-of-order data.</li>
+      <li>Use <code>replaceWhere</code> to rebuild a slice, because it is atomic and refuses rows outside the predicate.</li>
+      <li>Implement SCD2 with one MERGE using a double-staged source, a hash of tracked attributes, and an explicit effective time.</li>
+      <li>Match the delete strategy to the change signal: flags, CDC events, or a snapshot merge for watermark and snapshot sources.</li>
+      <li>Never run <code>WHEN NOT MATCHED BY SOURCE</code> on anything that is not a verified complete snapshot, and prefer soft deletion first.</li>
+    </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://docs.delta.io/delta-update/">Delta Lake: table deletes, updates and merges</a></li>
+        <li><a href="https://docs.delta.io/concurrency-control/">Delta Lake: concurrency control</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/delta-lake-concurrency-control">Concurrency control for Delta tables in Fabric</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/delta-lake-deletion-vectors">Deletion vectors for Delta tables</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/cdc-copy-job">Change data capture in Copy job (SCD Type 2)</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/delta-lake-vacuum">VACUUM Delta tables</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

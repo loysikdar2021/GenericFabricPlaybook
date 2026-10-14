@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CI/CD with GitHub Actions · Shared Libraries</title>
+<meta name="description" content="A GitHub Actions workflow that tests, builds once and promotes the same wheel through DEV, TST and PRD Fabric Environments using OIDC sign-in, the Environment REST API and approval gates.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="06-shared-libraries" data-page="cicd.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 06 · Shared Python Libraries</p>
+      <h1>CI/CD with GitHub Actions</h1>
+      <p class="lede">Uploading a wheel by hand does not scale past one workspace and one person. This page automates the path from a tagged commit to a published Environment in each stage: tests, one build, OIDC sign-in with no stored secrets, upload and publish through the Fabric REST API, and approvals before TST and PRD.</p>
+    </header>
+
+    <h2 id="design">Pipeline design: build once, promote the same file</h2>
+    <p>The most important design decision is that the wheel is <strong>built exactly once</strong>, from a tag, and that same file is uploaded to every stage. Rebuilding per stage produces three artifacts that are supposed to be identical and sometimes are not (a changed dependency pin, a different Python patch version, a timestamp). If PRD runs a different file than the one TST approved, TST proved nothing.</p>
+    <ul>
+      <li><strong>Pull requests</strong> run the tests only. Nothing is built for release and nothing touches Fabric.</li>
+      <li><strong>A version tag</strong> (<code>v1.4.0</code>) triggers test, build and the first deployment. The tag must equal the version in <code>pyproject.toml</code>.</li>
+      <li><strong>GitHub Environments</strong> named <code>dev</code>, <code>tst</code> and <code>prd</code> hold the per-stage identifiers and the approval rules. Required reviewers on <code>tst</code> and <code>prd</code> are the promotion gate.</li>
+      <li><strong>One Fabric writer.</strong> The workflow owns the Environment's custom library list. Nobody edits it by hand and Git sync of that item is not a second writer (see <a href="environment.html#across-stages">Environments across stages</a>).</li>
+    </ul>
+
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 235" role="img" aria-label="Release flow: pull requests only run tests; a version tag runs tests, builds the wheel once, deploys to DEV, then waits for approval before deploying the same wheel to TST and again before PRD">
+        <defs>
+          <marker id="fig-cicd-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="lane" x="10" y="10" width="880" height="72" rx="10"/>
+        <text class="t-s" x="24" y="28">On every pull request</text>
+        <rect class="box blue" x="24" y="36" width="130" height="38" rx="8"/><text class="t-b" x="89" y="60" text-anchor="middle">Pull request</text>
+        <rect class="box teal" x="204" y="36" width="130" height="38" rx="8"/><text class="t-b" x="269" y="60" text-anchor="middle">Test (pytest)</text>
+        <rect class="box green" x="384" y="36" width="130" height="38" rx="8"/><text class="t-b" x="449" y="60" text-anchor="middle">Merge allowed</text>
+        <path class="ln" d="M154 55H202" marker-end="url(#fig-cicd-1-a)"/>
+        <path class="ln" d="M334 55H382" marker-end="url(#fig-cicd-1-a)"/>
+        <text class="t-s" x="640" y="60">No build, no Fabric access</text>
+        <rect class="lane" x="10" y="98" width="880" height="127" rx="10"/>
+        <text class="t-s" x="24" y="116">On a version tag, for example v1.4.0</text>
+        <rect class="box blue" x="14" y="128" width="92" height="64" rx="8"/>
+        <text class="t-b" x="60" y="154" text-anchor="middle">Tag</text><text class="t-s" x="60" y="174" text-anchor="middle">on main</text>
+        <rect class="box teal" x="126" y="128" width="92" height="64" rx="8"/>
+        <text class="t-b" x="172" y="154" text-anchor="middle">Test</text><text class="t-s" x="172" y="174" text-anchor="middle">pytest, Spark</text>
+        <rect class="box accent" x="238" y="128" width="92" height="64" rx="8"/>
+        <text class="t-b t-w" x="284" y="154" text-anchor="middle">Build once</text><text class="t-s t-w" x="284" y="174" text-anchor="middle">wheel artifact</text>
+        <rect class="box blue" x="350" y="128" width="92" height="64" rx="8"/>
+        <text class="t-b" x="396" y="154" text-anchor="middle">Deploy DEV</text><text class="t-s" x="396" y="174" text-anchor="middle">upload+publish</text>
+        <rect class="box purple" x="462" y="128" width="92" height="64" rx="8"/>
+        <text class="t-b" x="508" y="154" text-anchor="middle">Approve</text><text class="t-s" x="508" y="174" text-anchor="middle">reviewers</text>
+        <rect class="box blue" x="574" y="128" width="92" height="64" rx="8"/>
+        <text class="t-b" x="620" y="154" text-anchor="middle">Deploy TST</text><text class="t-s" x="620" y="174" text-anchor="middle">same wheel</text>
+        <rect class="box purple" x="686" y="128" width="92" height="64" rx="8"/>
+        <text class="t-b" x="732" y="154" text-anchor="middle">Approve</text><text class="t-s" x="732" y="174" text-anchor="middle">reviewers</text>
+        <rect class="box green" x="798" y="128" width="92" height="64" rx="8"/>
+        <text class="t-b" x="844" y="154" text-anchor="middle">Deploy PRD</text><text class="t-s" x="844" y="174" text-anchor="middle">same wheel</text>
+        <path class="ln" d="M106 160H124" marker-end="url(#fig-cicd-1-a)"/>
+        <path class="ln" d="M218 160H236" marker-end="url(#fig-cicd-1-a)"/>
+        <path class="ln" d="M330 160H348" marker-end="url(#fig-cicd-1-a)"/>
+        <path class="ln" d="M442 160H460" marker-end="url(#fig-cicd-1-a)"/>
+        <path class="ln" d="M554 160H572" marker-end="url(#fig-cicd-1-a)"/>
+        <path class="ln" d="M666 160H684" marker-end="url(#fig-cicd-1-a)"/>
+        <path class="ln" d="M778 160H796" marker-end="url(#fig-cicd-1-a)"/>
+      </svg>
+      <figcaption><b>Gates, not rebuilds.</b> Only the first deployment follows a build; TST and PRD deploy the artifact that DEV already ran, after a human approves.</figcaption>
+    </figure>
+
+    <h2 id="identity">Identity, secrets and permissions</h2>
+    <p>The workflow signs in to Microsoft Entra ID with <strong>OpenID Connect</strong>: GitHub issues a short-lived token for the job, Entra exchanges it for an access token against a <strong>federated credential</strong> on an app registration, and no client secret is ever stored in GitHub. The access token is then used as a bearer token against the Fabric REST API.</p>
+    <ol class="steps">
+      <li><strong>Create an app registration per stage</strong><p>One service principal for DEV and TST and a separate one for PRD limits the blast radius of a misconfigured workflow. Note each application (client) ID and the tenant ID.</p></li>
+      <li><strong>Add a federated credential</strong><p>Trust GitHub's token issuer for the repository and the GitHub environment, for example the subject <code>repo:contoso-org/fabric-etl-utils:environment:prd</code>. A credential scoped to an environment means only jobs that passed that environment's protection rules can obtain a token.</p></li>
+      <li><strong>Allow service principals to call Fabric APIs</strong><p>In the Fabric admin portal, enable the tenant setting <strong>Service principals can call Fabric public APIs</strong> and include the service principal (through a security group) in the allowed list.</p></li>
+      <li><strong>Grant workspace access</strong><p>Add the service principal to each target workspace with a role that can write to the Environment item (for example Contributor). The Environment APIs require write permission on the item.</p></li>
+      <li><strong>Create the Environment item once per stage</strong><p>The workflow updates an existing Environment; it does not create one. Record each workspace ID and Environment item ID.</p></li>
+      <li><strong>Store the identifiers in GitHub</strong><p>Create the three GitHub environments and add the names below.</p></li>
+    </ol>
+    <table>
+      <thead><tr><th>Name</th><th>Kind</th><th>Scope</th><th>Value (placeholder)</th></tr></thead>
+      <tbody>
+        <tr><td><code>AZURE_CLIENT_ID</code></td><td>Secret</td><td>Each GitHub environment</td><td><code>&lt;app-registration-client-id&gt;</code></td></tr>
+        <tr><td><code>AZURE_TENANT_ID</code></td><td>Secret</td><td>Repository</td><td><code>&lt;tenant-id&gt;</code></td></tr>
+        <tr><td><code>FABRIC_WORKSPACE_ID</code></td><td>Variable</td><td>Each GitHub environment</td><td><code>00000000-0000-0000-0000-000000000000</code></td></tr>
+        <tr><td><code>FABRIC_ENVIRONMENT_ID</code></td><td>Variable</td><td>Each GitHub environment</td><td><code>00000000-0000-0000-0000-000000000000</code></td></tr>
+      </tbody>
+    </table>
+    <div class="callout important"><p class="callout-title">Protect the tag, not just the branch</p><p>Whoever can push a <code>v*</code> tag can start a release. Restrict tag creation to maintainers with a tag ruleset, require pull-request review on <code>main</code>, and put required reviewers on the <code>tst</code> and <code>prd</code> GitHub environments. Those three controls together are your change-management record.</p></div>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>Tenant setting names and the roles required by each API are maintained in <a href="https://learn.microsoft.com/fabric/admin/service-admin-portal-developer">Developer admin settings</a> and on each REST reference page. Confirm them for your tenant before the first run; a missing setting shows up as an authorization error, not a clear message.</p></div>
+
+    <h2 id="api">The Fabric REST sequence</h2>
+    <p>Four documented Environment operations do all the work. The workflow calls them in this order.</p>
+    <table>
+      <thead><tr><th>Step</th><th>Call</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td>List staged libraries</td><td><code>GET /v1/workspaces/{workspaceId}/environments/{environmentId}/staging/libraries?beta=False</code></td><td>Returns <code>libraries</code> with <code>name</code> and <code>libraryType</code> (<code>Custom</code> or <code>External</code>). Large lists are paged with a continuation token.</td></tr>
+        <tr><td>Delete an old wheel</td><td><code>DELETE .../staging/libraries/{libraryName}</code></td><td>Use the full file name with the extension. One file per call.</td></tr>
+        <tr><td>Upload the new wheel</td><td><code>POST .../staging/libraries/{libraryName}</code></td><td>Body is the file with <code>Content-Type: application/octet-stream</code>. One file at a time. The reference documents a request-size limit; keep the wheel far below it.</td></tr>
+        <tr><td>Publish</td><td><code>POST .../staging/publish?beta=false</code></td><td>Long-running operation: returns 202 with <code>Location</code>, <code>x-ms-operation-id</code> and <code>Retry-After</code>. Only one publish can run at a time.</td></tr>
+        <tr><td>Check state</td><td><code>GET .../environments/{environmentId}</code></td><td><code>properties.publishDetails.state</code> is <code>Running</code>, <code>Waiting</code>, <code>Success</code>, <code>Failed</code>, <code>Cancelling</code> or <code>Cancelled</code>.</td></tr>
+        <tr><td>Verify</td><td><code>GET .../environments/{environmentId}/libraries?beta=False</code></td><td>The <em>published</em> library list. The wheel must be in it.</td></tr>
+      </tbody>
+    </table>
+    <div class="callout warning"><p class="callout-title">Pass the beta parameter explicitly</p><p>The Environment APIs are in a transition from preview contracts to stable ones, controlled by a <code>beta</code> query parameter. Always send <code>beta=false</code> on the calls that document it so your script uses the stable request and response shapes regardless of the service default. Re-check the migration notes in <a href="https://learn.microsoft.com/fabric/data-engineering/environment-public-api">Manage the Environment through public APIs</a> when you maintain the script.</p></div>
+
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 335" role="img" aria-label="Sequence: the runner exchanges an OIDC token with Microsoft Entra for a Fabric access token, deletes the old wheel and uploads the new one through the Fabric REST API into the Environment staging area, triggers a publish that returns 202, polls until success and finally verifies that the published library list contains the wheel">
+        <defs>
+          <marker id="fig-cicd-2-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-cicd-2-ab" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar blue" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box teal" x="35" y="10" width="150" height="40" rx="8"/><text class="t-b" x="110" y="35" text-anchor="middle">GitHub runner</text>
+        <rect class="box gray" x="255" y="10" width="150" height="40" rx="8"/><text class="t-b" x="330" y="35" text-anchor="middle">Microsoft Entra</text>
+        <rect class="box blue" x="485" y="10" width="150" height="40" rx="8"/><text class="t-b" x="560" y="35" text-anchor="middle">Fabric REST API</text>
+        <rect class="box blue" x="715" y="10" width="150" height="40" rx="8"/><text class="t-b" x="790" y="35" text-anchor="middle">Environment</text>
+        <path class="ln dash thin" d="M110 50V325"/>
+        <path class="ln dash thin" d="M330 50V325"/>
+        <path class="ln dash thin" d="M560 50V325"/>
+        <path class="ln dash thin" d="M790 50V325"/>
+        <path class="ln" d="M110 86H326" marker-end="url(#fig-cicd-2-a)"/>
+        <text class="t-s" x="218" y="78" text-anchor="middle">1 · present OIDC token</text>
+        <path class="ln dash" d="M330 114H114" marker-end="url(#fig-cicd-2-a)"/>
+        <text class="t-s" x="222" y="106" text-anchor="middle">2 · Fabric access token</text>
+        <path class="ln" d="M110 156H556" marker-end="url(#fig-cicd-2-a)"/>
+        <text class="t-s" x="333" y="148" text-anchor="middle">3 · delete old wheel, upload new wheel</text>
+        <path class="ln blue" d="M560 184H786" marker-end="url(#fig-cicd-2-ab)"/>
+        <text class="t-s" x="673" y="176" text-anchor="middle">writes staging</text>
+        <path class="ln" d="M110 222H556" marker-end="url(#fig-cicd-2-a)"/>
+        <text class="t-s" x="333" y="214" text-anchor="middle">4 · publish (202, Retry-After)</text>
+        <path class="ln blue" d="M560 240H786" marker-end="url(#fig-cicd-2-ab)"/>
+        <text class="t-s" x="673" y="232" text-anchor="middle">resolves, snapshots</text>
+        <path class="ln" d="M110 266H556" marker-end="url(#fig-cicd-2-a)"/>
+        <text class="t-s" x="333" y="258" text-anchor="middle">5 · poll state until Success</text>
+        <path class="ln" d="M110 306H556" marker-end="url(#fig-cicd-2-a)"/>
+        <text class="t-s" x="333" y="298" text-anchor="middle">6 · verify wheel is in the published list</text>
+      </svg>
+      <figcaption><b>Two tokens, one long wait.</b> Steps 1 and 2 happen in seconds. Step 4 returns immediately; the publish itself runs inside the service and is what step 5 waits for. Step 6 turns "the call returned" into "the library is live".</figcaption>
+    </figure>
+
+    <h2 id="script">The publish script</h2>
+    <p>Keep the Fabric calls in one small script so you can run it locally while debugging. It needs only <code>curl</code> and <code>jq</code>, both present on GitHub-hosted Ubuntu runners.</p>
+<pre data-title="scripts/publish_to_environment.sh"><code class="language-shell">#!/usr/bin/env bash
+# Upload a wheel to a Fabric Environment, publish it, wait, and verify.
+# Usage: publish_to_environment.sh &lt;workspace-id&gt; &lt;environment-id&gt; &lt;wheel-path&gt;
+# Needs: FABRIC_TOKEN (bearer token for https://api.fabric.microsoft.com), curl, jq.
+set -euo pipefail
+
+workspace_id="$1"; environment_id="$2"; wheel="$3"
+name="$(basename "$wheel")"
+distribution="${name%%-*}"                  # e.g. contoso_fabric_utils
+timeout_seconds="${TIMEOUT_SECONDS:-2400}"
+env_url="https://api.fabric.microsoft.com/v1/workspaces/${workspace_id}/environments/${environment_id}"
+
+call() {
+  curl --silent --show-error --fail-with-body \
+       -H "Authorization: Bearer ${FABRIC_TOKEN}" "$@"
+}
+
+echo "1/4 Remove existing ${distribution} wheels from staging"
+call "${env_url}/staging/libraries?beta=False" \
+  | jq -r --arg d "${distribution}-" \
+      '.libraries[]? | select(.libraryType == "Custom") | .name | select(startswith($d))' \
+  | while read -r old; do
+      echo "    deleting ${old}"
+      call --request DELETE --output /dev/null "${env_url}/staging/libraries/${old}"
+    done
+
+echo "2/4 Upload ${name}"
+call --request POST -H "Content-Type: application/octet-stream" \
+     --data-binary "@${wheel}" --output /dev/null \
+     "${env_url}/staging/libraries/${name}"
+
+echo "3/4 Publish"
+headers="$(mktemp)"
+call --request POST --data '' --dump-header "${headers}" --output /dev/null \
+     "${env_url}/staging/publish?beta=false"
+retry_after="$(awk 'tolower($1) == "retry-after:" {print $2}' "${headers}" | tr -d '\r')"
+
+echo "4/4 Wait for the publish, then verify the wheel is in the published list"
+sleep "${retry_after:-30}"
+deadline=$(( $(date +%s) + timeout_seconds ))
+while true; do
+  state="$(call "${env_url}" | jq -r '.properties.publishDetails.state')"
+  echo "    publish state: ${state}"
+  case "${state}" in
+    Success)
+      if call "${env_url}/libraries?beta=False" \
+           | jq -e --arg n "${name}" '.libraries[]? | select(.name == $n)' &gt; /dev/null; then
+        echo "Published ${name}"
+        exit 0
+      fi
+      echo "Publish succeeded but ${name} is not in the published list" &gt;&amp;2
+      exit 1 ;;
+    Failed|Cancelled)
+      echo "Publish ended as ${state}" &gt;&amp;2
+      exit 1 ;;
+  esac
+  if [ "$(date +%s)" -ge "${deadline}" ]; then
+    echo "Timed out waiting for the publish" &gt;&amp;2
+    exit 1
+  fi
+  sleep 30
+done</code></pre>
+    <p>Three details are worth knowing. The script deletes every existing wheel of the same distribution before it uploads, which enforces "exactly one version per Environment" and makes a re-run of the same tag idempotent. It waits for the service's <code>Retry-After</code> interval before the first poll so it cannot read a stale <code>Success</code> from the previous publish. And success is defined by the published library list, not by the HTTP status of the publish call.</p>
+
+    <h2 id="workflow">The workflows</h2>
+    <p>A caller workflow runs tests and the build, then calls a reusable deployment workflow three times. The reusable workflow declares the GitHub environment, which is what triggers the approval rule.</p>
+<pre data-title=".github/workflows/release.yml"><code class="language-yaml">name: release
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - run: python -m pip install -e ".[test]"
+      - run: pytest
+
+  build:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Tag must equal the project version
+        run: |
+          version="$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])")"
+          if [ "v${version}" != "${GITHUB_REF_NAME}" ]; then
+            echo "Tag ${GITHUB_REF_NAME} does not match project version ${version}" &gt;&amp;2
+            exit 1
+          fi
+      - name: Build and check
+        run: |
+          python -m pip install --upgrade build twine
+          python -m build
+          twine check dist/*
+      - name: Smoke-test the wheel in a clean environment
+        run: |
+          python -m venv /tmp/wheel-check
+          /tmp/wheel-check/bin/python -m pip install "$(ls dist/*.whl)[test]"
+          /tmp/wheel-check/bin/python -c "import contoso_fabric_utils as m; print(m.__version__)"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheel
+          path: dist/*.whl
+          if-no-files-found: error
+
+  deploy-dev:
+    needs: build
+    permissions: { id-token: write, contents: read }
+    uses: ./.github/workflows/deploy-environment.yml
+    with:
+      stage: dev
+    secrets: inherit
+
+  deploy-tst:
+    needs: deploy-dev
+    permissions: { id-token: write, contents: read }
+    uses: ./.github/workflows/deploy-environment.yml
+    with:
+      stage: tst
+    secrets: inherit
+
+  deploy-prd:
+    needs: deploy-tst
+    permissions: { id-token: write, contents: read }
+    uses: ./.github/workflows/deploy-environment.yml
+    with:
+      stage: prd
+    secrets: inherit</code></pre>
+
+<pre data-title=".github/workflows/deploy-environment.yml"><code class="language-yaml">name: deploy-environment
+
+on:
+  workflow_call:
+    inputs:
+      stage:
+        description: GitHub environment name (dev, tst or prd)
+        required: true
+        type: string
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.stage }}          # approval rules and per-stage values live here
+    concurrency:
+      group: fabric-environment-${{ inputs.stage }}
+      cancel-in-progress: false               # never cancel a publish half-way
+    permissions:
+      id-token: write                         # required to request the OIDC token
+      contents: read
+    steps:
+      - uses: actions/checkout@v4             # for scripts/publish_to_environment.sh
+      - uses: actions/download-artifact@v4
+        with:
+          name: wheel
+          path: dist
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          allow-no-subscriptions: true        # the identity needs no Azure subscription
+      - name: Get a Fabric access token
+        run: |
+          token="$(az account get-access-token --resource https://api.fabric.microsoft.com --query accessToken -o tsv)"
+          echo "::add-mask::${token}"
+          echo "FABRIC_TOKEN=${token}" &gt;&gt; "$GITHUB_ENV"
+      - name: Upload and publish
+        run: |
+          bash scripts/publish_to_environment.sh \
+            "${{ vars.FABRIC_WORKSPACE_ID }}" \
+            "${{ vars.FABRIC_ENVIRONMENT_ID }}" \
+            dist/*.whl</code></pre>
+
+    <div class="callout tip"><p class="callout-title">Prove the release with a smoke notebook</p><p>After the publish, run a tiny notebook in that stage's workspace through the Fabric <a href="https://learn.microsoft.com/rest/api/fabric/core/job-scheduler/run-on-demand-item-job">Job Scheduler API</a> (the Environment must be attached to it, or be the workspace default). Pass the expected version as a parameter and fail the stage if the import reports a different one. This catches the case the publish check cannot: the Environment is published but the notebook is not attached to it.</p></div>
+<pre data-title="Smoke notebook (PySpark), parameter cell then check"><code class="language-python"># Parameter cell: toggled as "parameters" and overwritten by the caller
+expected_version = "0.0.0"
+
+import contoso_fabric_utils as lib
+
+assert lib.__version__ == expected_version, (
+    f"Expected contoso_fabric_utils {expected_version}, got {lib.__version__}"
+)
+print(f"OK: contoso_fabric_utils {lib.__version__}")</code></pre>
+
+    <h2 id="alternatives">Alternatives to uploading the wheel yourself</h2>
+    <table>
+      <thead><tr><th>Option</th><th>How it works</th><th>Choose it when</th><th>Constraints</th></tr></thead>
+      <tbody>
+        <tr><td><strong>REST upload (this page)</strong></td><td>CI uploads the wheel to each Environment and publishes</td><td>One platform, a handful of workspaces, you want full control of the sequence</td><td>You own the script and the polling logic</td></tr>
+        <tr><td><strong>Private package feed</strong> <span class="badge preview">Preview</span></td><td>CI publishes the wheel to an Azure Artifacts feed; the Environment lists the package under External repositories and resolves it at publish time through a connection</td><td>The library is also used outside Fabric, or you want one versioned catalog with feed-level permissions</td><td>Full mode only; documented for Spark 3.5; not supported where Private Link or outbound access protection is enabled; republish to pick up a new version</td></tr>
+        <tr><td><strong>Fabric Git integration or a deployment library</strong></td><td>Commit the Environment item (including the wheel) and sync, or deploy the item with a Python deployment library</td><td>You already deploy every workspace item from Git and want the Environment in the same flow</td><td>Binary in the workspace repository; changes land in staging and need a publish. Evaluate the tool's Environment support in your version before relying on it</td></tr>
+      </tbody>
+    </table>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>Azure Artifact Feed support is labeled preview and carries version and network restrictions; read <a href="https://learn.microsoft.com/fabric/data-engineering/environment-manage-library">Manage libraries in Fabric environments</a> for the current list. The Python deployment library for Fabric (fabric-cicd) is maintained outside Microsoft Learn; check its own documentation for which item types and library operations it supports.</p></div>
+
+    <h2 id="release-practice">Release practice</h2>
+    <ul class="checklist">
+      <li>Keep a <code>CHANGELOG.md</code> and write breaking changes at the top of the release notes.</li>
+      <li>Use pre-release versions (<code>1.5.0rc1</code>) to try a change in TST without promoting it.</li>
+      <li>Roll back by re-running the deployment for the previous tag; the script replaces the newer wheel with the older one. Keep previous wheels as release assets so rollback does not depend on artifact retention.</li>
+      <li>Allow only one release in flight per Environment (<code>concurrency</code> group) because an Environment accepts a single publish at a time.</li>
+      <li>Set a generous but finite timeout on the publish wait and alert on it; a hung publish blocks every later release.</li>
+      <li>Announce deprecations a release ahead using <code>warnings.warn(..., DeprecationWarning)</code> inside the library.</li>
+    </ul>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p><ul>
+      <li>Build the wheel once from a tag whose name equals the project version, and deploy that exact file to every stage.</li>
+      <li>Use OIDC with a federated credential per GitHub environment; there is no secret to rotate or leak.</li>
+      <li>Define success as "the wheel is in the published library list", not "the publish call returned".</li>
+      <li>Delete older wheels of the same distribution before uploading, and serialize releases per Environment.</li>
+      <li>Gate TST and PRD with required reviewers on the GitHub environment and a protected tag.</li>
+    </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/environment-public-api">Manage the Environment through public APIs</a></li>
+        <li><a href="https://learn.microsoft.com/rest/api/fabric/environment/staging/upload-custom-library">Staging: Upload Custom Library</a></li>
+        <li><a href="https://learn.microsoft.com/rest/api/fabric/environment/items/publish-environment">Items: Publish Environment</a></li>
+        <li><a href="https://learn.microsoft.com/rest/api/fabric/environment/items/get-environment">Items: Get Environment</a></li>
+        <li><a href="https://learn.microsoft.com/rest/api/fabric/articles/long-running-operation">Long running operations</a></li>
+        <li><a href="https://learn.microsoft.com/azure/developer/github/connect-from-azure-openid-connect">Use the Azure Login action with OpenID Connect</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/admin/service-admin-portal-developer">Developer admin settings (service principals and Fabric APIs)</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

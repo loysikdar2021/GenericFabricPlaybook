@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gold layer and Direct Lake · Data Load Strategy</title>
+<meta name="description" content="Gold loading: full recalculation versus incremental aggregation, affected-slice recompute, and how Direct Lake framing, transcoding, fallback, V-Order and row groups shape your write patterns.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="02-data-load-strategy" data-page="gold-direct-lake.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 02 · Data Load Strategy</p>
+      <h1>Gold layer and Direct Lake</h1>
+      <p class="lede">Gold is the business-ready layer, modeled for analytics and consumed by semantic models. The central loading decision is how to keep aggregates and facts correct without recomputing everything, and the consumption layer, especially Direct Lake, adds constraints that reach back into how you write.</p>
+    </header>
+
+    <h2 id="objective">Objective: optimized for analytics and reporting</h2>
+    <p>Gold takes conformed Silver data and prepares it for specific business uses. The work is usually a mix of three things.</p>
+    <ul>
+      <li><strong>Aggregation.</strong> Summarize to a coarser grain, such as daily or monthly sales from individual order lines.</li>
+      <li><strong>Data modeling.</strong> Shape the data into a dimensional model, most often a star schema: central fact tables of measurements surrounded by dimension tables of descriptive attributes. That design matches the query patterns of BI tools.</li>
+      <li><strong>Business logic.</strong> Apply final calculations, KPIs and classifications, such as customer segments and fiscal period labels.</li>
+    </ul>
+    <p>The tables that result should give fast queries and an intuitive model for analysts, which makes Gold the layer where load design and consumption design meet.</p>
+
+    <h2 id="aggregation">The aggregation dilemma</h2>
+    <p>The core Gold decision is how to create and maintain aggregated, modeled tables. There are two classic answers and one practical middle path.</p>
+    <div class="pros-cons">
+      <div class="pros"><h4>Full recalculation: pros</h4><ul><li>Simple logic, highly reliable</li><li>Exactly correct each run, including complex or non-additive measures</li><li>Doubles as the periodic integrity refresh</li></ul></div>
+      <div class="cons"><h4>Full recalculation: cons</h4><ul><li>Slow and capacity-hungry when Silver is large</li><li>Too slow for high-freshness or near real-time needs</li><li>Rewrites every file, which is the worst case for Direct Lake (see below)</li></ul></div>
+    </div>
+    <div class="pros-cons">
+      <div class="pros"><h4>Incremental aggregation: pros</h4><ul><li>Much faster and cheaper, since it processes a small slice</li><li>Supports frequent refreshes and fresher data</li></ul></div>
+      <div class="cons"><h4>Incremental aggregation: cons</h4><ul><li>Considerably more complex logic</li><li>Non-additive measures such as distinct counts need careful design</li><li>A logic flaw causes subtle, accumulating errors</li></ul></div>
+    </div>
+    <p>Use full recalculation for small data marts, dimension tables, logic that is too complex to make incremental reliably, initial builds and periodic integrity refreshes. Use incremental processing for large fact tables and performance-critical systems where both volume and freshness matter.</p>
+
+    <h3 id="slice-recompute">The middle path: recompute the affected slice</h3>
+    <p>"Incremental" does not have to mean adding deltas to existing numbers, which is fragile. A more robust approach finds which slices of the Gold table (dates, periods, regions) the new Silver changes touch, recomputes <em>those slices completely</em> from Silver, and replaces them atomically. Because each affected slice is rebuilt from source rows, the result is correct for any measure, additive or not, and rerunning is safe.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 248" role="img" aria-label="Silver changes identify the affected dates, those dates are recomputed from Silver at full grain, and only those date slices of the Gold table are replaced while all other dates stay untouched">
+        <defs>
+          <marker id="fig-gold-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-gold-1-ab" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar blue" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box silver" x="20" y="20" width="300" height="52" rx="8"/>
+        <text class="t-b" x="170" y="43" text-anchor="middle">Silver order_lines changes</text>
+        <text class="t-s" x="170" y="60" text-anchor="middle">rows changed since the last run</text>
+        <rect class="box purple" x="20" y="100" width="300" height="52" rx="8"/>
+        <text class="t-b" x="170" y="123" text-anchor="middle">Affected dates</text>
+        <text class="t-s" x="170" y="140" text-anchor="middle">d3, d4 and d9</text>
+        <rect class="box blue" x="20" y="180" width="300" height="52" rx="8"/>
+        <text class="t-b" x="170" y="203" text-anchor="middle">Recompute from Silver</text>
+        <text class="t-s" x="170" y="220" text-anchor="middle">full grain, those dates only</text>
+        <path class="ln" d="M170 72V98" marker-end="url(#fig-gold-1-a)"/>
+        <text class="t-s" x="180" y="90">distinct dates</text>
+        <path class="ln" d="M170 152V178" marker-end="url(#fig-gold-1-a)"/>
+        <text class="t-s" x="180" y="170">feed</text>
+        <path class="ln blue thick" d="M320 206H380V144H416" marker-end="url(#fig-gold-1-ab)"/>
+        <text class="t-s" x="328" y="224">replaceWhere</text>
+        <text class="t-h" x="420" y="48">gold.daily_sales, one cell per order_date</text>
+        <rect class="box gray" x="420" y="62" width="68" height="44" rx="6"/><text class="t-b" x="454" y="89" text-anchor="middle">d1</text>
+        <rect class="box gray" x="496" y="62" width="68" height="44" rx="6"/><text class="t-b" x="530" y="89" text-anchor="middle">d2</text>
+        <rect class="box blue" x="572" y="62" width="68" height="44" rx="6"/><text class="t-b" x="606" y="89" text-anchor="middle">d3</text>
+        <rect class="box blue" x="648" y="62" width="68" height="44" rx="6"/><text class="t-b" x="682" y="89" text-anchor="middle">d4</text>
+        <rect class="box gray" x="724" y="62" width="68" height="44" rx="6"/><text class="t-b" x="758" y="89" text-anchor="middle">d5</text>
+        <rect class="box gray" x="800" y="62" width="68" height="44" rx="6"/><text class="t-b" x="834" y="89" text-anchor="middle">d6</text>
+        <rect class="box gray" x="420" y="116" width="68" height="44" rx="6"/><text class="t-b" x="454" y="143" text-anchor="middle">d7</text>
+        <rect class="box gray" x="496" y="116" width="68" height="44" rx="6"/><text class="t-b" x="530" y="143" text-anchor="middle">d8</text>
+        <rect class="box blue" x="572" y="116" width="68" height="44" rx="6"/><text class="t-b" x="606" y="143" text-anchor="middle">d9</text>
+        <rect class="box gray" x="648" y="116" width="68" height="44" rx="6"/><text class="t-b" x="682" y="143" text-anchor="middle">d10</text>
+        <rect class="box gray" x="724" y="116" width="68" height="44" rx="6"/><text class="t-b" x="758" y="143" text-anchor="middle">d11</text>
+        <rect class="box gray" x="800" y="116" width="68" height="44" rx="6"/><text class="t-b" x="834" y="143" text-anchor="middle">d12</text>
+        <text class="t-s" x="420" y="190">Blue cells are replaced in one atomic commit; gray cells are not touched.</text>
+        <text class="t-s" x="420" y="208">A late correction reaches back only as far as the dates it changes.</text>
+      </svg>
+      <figcaption><b>Affected-slice recompute.</b> The slice, not the arithmetic, is the unit of incremental work. Distinct counts, ranks and ratios stay correct because every replaced slice is rebuilt from its source rows.</figcaption>
+    </figure>
+<pre data-title="PySpark · notebook NB_SALES_GLD_RefreshDailySales"><code class="language-python">from pyspark.sql import functions as F
+
+last_version = 41        # last Silver version processed, from the control table
+changes = (spark.read.format("delta")
+             .option("readChangeFeed", "true")
+             .option("startingVersion", last_version + 1)
+             .table("silver.order_lines"))
+
+# Include pre-images and deletes so a row that moved between dates refreshes its old date as well
+dates = [r["order_date"] for r in
+         changes.where("_change_type IN ('insert','update_preimage','update_postimage','delete')")
+                .select("order_date").distinct().collect()]
+
+if not dates:
+    print("No Silver changes; Gold is up to date")
+elif len(dates) &gt; 400:
+    raise RuntimeError("Too many affected dates for a slice refresh; run the full recalculation")
+else:
+    date_list = ", ".join(f"DATE'{d.isoformat()}'" for d in dates)
+    daily = (spark.table("silver.order_lines")
+               .where(F.col("order_date").isin(dates))
+               .groupBy("order_date", "region")
+               .agg(F.sum("line_amount").alias("revenue"),
+                    F.sum("quantity").alias("units"),
+                    F.countDistinct("customer_id").alias("customers")))   # non-additive, still correct
+
+    (daily.write.format("delta")
+          .mode("overwrite")
+          .option("replaceWhere", f"order_date IN ({date_list})")
+          .saveAsTable("gold.daily_sales"))
+    # then store the new Silver version in the control table</code></pre>
+    <p>A date whose source rows were all deleted produces no rows in <code>daily</code>, so <code>replaceWhere</code> correctly removes it from Gold. The guard on the number of dates keeps a historical restatement from turning into an accidental near-full rewrite, and the change feed requires CDF to be enabled and retained (see <a href="change-tracking.html#cdf">Change tracking</a>).</p>
+
+    <h3 id="measure-types">Which measures can be incremental?</h3>
+    <table>
+      <thead><tr><th>Measure type</th><th>Examples</th><th>Merge deltas?</th><th>Recommended approach</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Additive</strong></td><td>Revenue, units, line counts</td><td class="yes">Yes, with signed deltas</td><td>Slice recompute, or delta merge if volumes demand it</td></tr>
+        <tr><td><strong>Distinct counts</strong></td><td>Customers per day or per month</td><td class="no">No</td><td>Counts cannot be summed across slices. Recompute the whole affected period at the target grain, for example the affected month</td></tr>
+        <tr><td><strong>Ratios</strong></td><td>Margin percent, average order value</td><td class="no">No: ratios cannot be summed</td><td>Store additive numerator and denominator in Gold; compute the ratio as a DAX measure</td></tr>
+        <tr><td><strong>Rank and percentile</strong></td><td>Customer rank by total sales</td><td class="no">No</td><td>One new order can re-rank everyone. Recompute the full population on a schedule, or compute in the model</td></tr>
+        <tr><td><strong>Snapshots and balances</strong></td><td>Month-end inventory</td><td class="maybe">Depends</td><td>Period-scoped recompute, closing periods as they complete</td></tr>
+      </tbody>
+    </table>
+    <p>If you do merge deltas, build them from the change feed with signs (post-image and insert positive, pre-image and delete negative), and remember that the merge is <strong>not idempotent</strong>: applying the same delta twice double-counts. Store the processed version transactionally with the write, or prefer slice recompute.</p>
+<pre data-title="PySpark and Spark SQL · additive delta merge (advanced; not idempotent)"><code class="language-python">from pyspark.sql import functions as F
+
+signed = (changes
+    .withColumn("sign", F.when(F.col("_change_type").isin("insert", "update_postimage"), 1)
+                         .when(F.col("_change_type").isin("delete", "update_preimage"), -1)
+                         .otherwise(0))
+    .groupBy("order_date", "region")
+    .agg(F.sum(F.col("sign") * F.col("line_amount")).alias("revenue_delta"),
+         F.sum(F.col("sign") * F.col("quantity")).alias("units_delta")))
+signed.createOrReplaceTempView("delta_by_day")
+
+spark.sql("""
+MERGE INTO gold.daily_sales AS t
+USING delta_by_day AS d
+  ON t.order_date = d.order_date AND t.region = d.region
+WHEN MATCHED THEN UPDATE SET t.revenue = t.revenue + d.revenue_delta, t.units = t.units + d.units_delta
+WHEN NOT MATCHED THEN INSERT (order_date, region, revenue, units)
+     VALUES (d.order_date, d.region, d.revenue_delta, d.units_delta)
+""")</code></pre>
+
+    <h3 id="gold-options">Options for keeping Gold current</h3>
+    <table>
+      <thead><tr><th>Option</th><th>How it works</th><th>Watch for</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Spark slice recompute</strong></td><td>Notebook finds affected slices, recomputes, <code>replaceWhere</code></td><td>You own the change detection and the state</td></tr>
+        <tr><td><strong>Materialized lake views</strong></td><td>Declarative SQL definitions that Fabric refreshes on a schedule, choosing no refresh, incremental or full</td><td>Incremental needs CDF on all sources; window functions, <code>DISTINCT</code> and non-deterministic functions force a full refresh (see <a href="tooling.html#mlv">tooling</a>)</td></tr>
+        <tr><td><strong>Warehouse stored procedures (T-SQL)</strong></td><td>Delete and insert, or <code>MERGE</code>, by period in a Warehouse Gold</td><td>Warehouse uses table-level locking; avoid concurrent <code>UPDATE</code>, <code>DELETE</code> and <code>MERGE</code> on one table</td></tr>
+        <tr><td><strong>Dataflow Gen2 incremental refresh</strong></td><td>Bucketed date windows; changed buckets are deleted and re-inserted at the destination</td><td>Replace-only semantics, fixed destination schema, and no <code>OPTIMIZE</code> on the destination table</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="direct-lake">Direct Lake: what it needs from your loads</h2>
+    <p>Direct Lake is a Power BI semantic model storage mode that loads columns from Delta tables in OneLake into memory on demand and queries them with the same VertiPaq engine as Import mode. It avoids an import refresh, but it ties query performance to the physical state of your Delta tables, so Gold loading decisions become BI performance decisions. Five concepts explain nearly all of it.</p>
+    <dl class="kv">
+      <dt>Transcoding</dt><dd>On the first query that needs a column, Direct Lake loads the whole column from Parquet into memory, merging the per-file Parquet dictionaries into one global dictionary. Many small row groups mean many dictionaries to merge, which makes a cold load slower.</dd>
+      <dt>Framing</dt><dd>A refresh of a Direct Lake model is a metadata operation that points the model at the latest Delta log version and its Parquet files. It takes seconds, sets a point-in-time baseline, and evicts only the memory whose underlying files changed.</dd>
+      <dt>Incremental framing</dt><dd>If a table changed only by added files, resident data stays valid and only new data is loaded. If files were replaced, the corresponding memory is evicted and must be transcoded again.</dd>
+      <dt>Automatic updates</dt><dd>The model setting "Keep your Direct Lake data up to date" is on by default and reframes whenever it detects table changes. Turn it off when you need a pipeline to finish before consumers see new data, then trigger a refresh yourself after the load.</dd>
+      <dt>Fallback</dt><dd>Only Direct Lake on SQL analytics endpoints can fall back to DirectQuery. Direct Lake on OneLake never does, and is the documented option for new models.</dd>
+    </dl>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 290" role="img" aria-label="A report query goes to the semantic model, which reads Delta tables in OneLake directly in both Direct Lake modes, and can additionally fall back to DirectQuery through the SQL analytics endpoint only in the SQL-endpoint mode when security, views or guardrails require it">
+        <defs>
+          <marker id="fig-gold-2-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-gold-2-ag" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-gold-2-ao" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar orange" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box gray" x="20" y="112" width="130" height="64" rx="10"/>
+        <text class="t-b" x="85" y="140" text-anchor="middle">Report visual</text>
+        <text class="t-s" x="85" y="158" text-anchor="middle">DAX query</text>
+        <rect class="box blue" x="210" y="102" width="180" height="84" rx="10"/>
+        <text class="t-h" x="300" y="136" text-anchor="middle">Semantic model</text>
+        <text class="t-s" x="300" y="156" text-anchor="middle">VertiPaq in memory</text>
+        <rect class="box green" x="520" y="24" width="220" height="64" rx="10"/>
+        <text class="t-b" x="630" y="50" text-anchor="middle">Delta tables in OneLake</text>
+        <text class="t-s" x="630" y="68" text-anchor="middle">columns transcoded on demand</text>
+        <rect class="box orange" x="520" y="200" width="220" height="64" rx="10"/>
+        <text class="t-b" x="630" y="226" text-anchor="middle">SQL analytics endpoint</text>
+        <text class="t-s" x="630" y="244" text-anchor="middle">DirectQuery, slower</text>
+        <rect class="box gray" x="764" y="190" width="126" height="84" rx="8"/>
+        <text class="t-b" x="827" y="208" text-anchor="middle">Triggers</text>
+        <text class="t-s" x="827" y="226" text-anchor="middle">SQL RLS, OLS, DDM</text>
+        <text class="t-s" x="827" y="242" text-anchor="middle">unmaterialized view</text>
+        <text class="t-s" x="827" y="258" text-anchor="middle">guardrail exceeded</text>
+        <path class="ln" d="M150 144H208" marker-end="url(#fig-gold-2-a)"/>
+        <path class="ln green thick" d="M390 128L440 56H518" marker-end="url(#fig-gold-2-ag)"/>
+        <text class="t-s" x="402" y="44">both Direct Lake modes</text>
+        <path class="ln orange dash" d="M390 160L440 232H518" marker-end="url(#fig-gold-2-ao)"/>
+        <text class="t-s" x="402" y="268">SQL-endpoint mode only</text>
+      </svg>
+      <figcaption><b>Where queries are served from.</b> Direct Lake on OneLake reads Delta files only; if a guardrail is exceeded, refresh fails until the table is optimized. Direct Lake on SQL analytics endpoints can fall back to DirectQuery, silently by default, which is why fallback should be diagnosed and designed out.</figcaption>
+    </figure>
+
+    <h3 id="direct-lake-fallback">Fallback control and diagnosis</h3>
+    <p>For Direct Lake on SQL analytics endpoints, the <strong>Direct Lake behavior</strong> model property controls what happens when Direct Lake conditions are not met: <code>Automatic</code> (default) falls back silently, <code>DirectLakeOnly</code> fails the query so you find and fix the cause, and <code>DirectQueryOnly</code> always uses DirectQuery. Use <code>DirectLakeOnly</code> in development and consider keeping fallback available in production for user continuity. To see which tables fall back and why, run this DAX query against the model.</p>
+<pre data-title="DAX query view"><code class="language-dax">EVALUATE TABLETRAITS()</code></pre>
+    <p>The <code>DirectLakeFallbackInfo</code> column shows the reason per table, and <code>None</code> means the table is served by Direct Lake. Typical causes and fixes:</p>
+    <table>
+      <thead><tr><th>Cause</th><th>Fix</th></tr></thead>
+      <tbody>
+        <tr><td>Table not framed (new or changed model, tables added through TOM or TMSL)</td><td>Refresh the model, always after adding tables programmatically</td></tr>
+        <tr><td>Table based on a non-materialized SQL view</td><td>Materialize the view as a Delta table</td></tr>
+        <tr><td>Row-level, object-level security or dynamic data masking defined at the SQL analytics endpoint</td><td>Move the security to the semantic model, or accept DirectQuery</td></tr>
+        <tr><td>Table exceeds guardrails (files, row groups, rows)</td><td>Run <code>OPTIMIZE</code> and <code>VACUUM</code>; if still over, redesign the table or use a larger capacity</td></tr>
+        <tr><td>Capacity under memory pressure</td><td>Reduce concurrent workloads, optimize other models, or scale the capacity</td></tr>
+      </tbody>
+    </table>
+
+    <h3 id="guardrails">Guardrails</h3>
+    <p>Each capacity SKU caps files, row groups and rows per table, evaluated per query, plus a model size limit on smaller SKUs. For Direct Lake on OneLake, exceeding a guardrail makes refresh fail and blocks queries until you optimize; on SQL analytics endpoints the model falls back to DirectQuery if fallback is enabled. A single table over a limit disables Direct Lake mode for the entire model.</p>
+    <table>
+      <thead><tr><th>SKU</th><th>Parquet files per table</th><th>Row groups per table</th><th>Rows per table</th></tr></thead>
+      <tbody>
+        <tr><td>F2 to F32</td><td>1,000</td><td>1,000</td><td>300 million</td></tr>
+        <tr><td>F64</td><td>5,000</td><td>5,000</td><td>1.5 billion</td></tr>
+        <tr><td>F128</td><td>5,000</td><td>5,000</td><td>3 billion</td></tr>
+        <tr><td>F256</td><td>5,000</td><td>5,000</td><td>6 billion</td></tr>
+        <tr><td>F512</td><td>10,000</td><td>10,000</td><td>12 billion</td></tr>
+        <tr><td>F1024 and larger</td><td>10,000</td><td>10,000</td><td>24 billion</td></tr>
+      </tbody>
+    </table>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>Guardrails, per-SKU memory limits and the list of supported features change. Confirm the values for your SKU in <a href="https://learn.microsoft.com/fabric/fundamentals/direct-lake-overview">Direct Lake overview</a>, especially the model-size and memory columns not shown here.</p></div>
+
+    <h3 id="direct-lake-layout">Table layout Direct Lake rewards</h3>
+    <table>
+      <thead><tr><th>Factor</th><th>Guidance</th></tr></thead>
+      <tbody>
+        <tr><td><strong>V-Order</strong></td><td>Apply it to Gold tables that Direct Lake reads. It improves compression and loading speed. New Fabric workspaces default to the write-heavy resource profile with V-Order off, so enable it explicitly: set <code>spark.sql.parquet.vorder.default</code> to true, use the <code>readHeavyForPBI</code> resource profile, or set the <code>delta.parquet.vorder.enabled</code> table property. Existing files keep their layout until rewritten (for example by <code>OPTIMIZE ... VORDER</code>).</td></tr>
+        <tr><td><strong>Row groups</strong></td><td>Direct Lake generally performs best with row groups of roughly 1 million to 16 million rows. Very small row groups cause performance problems; larger ones are acceptable. Avoid large variation in size.</td></tr>
+        <tr><td><strong>File count</strong></td><td>Fewer, larger files transcode faster and stay within guardrails. Let adaptive target file size and compaction manage sizes rather than hand-setting row limits.</td></tr>
+        <tr><td><strong>Data types</strong></td><td>Complex Delta types and binary or GUID semantic types are unsupported; convert to strings or other supported types. Prefer integers over integer-like strings, and keep high-cardinality columns to those you need.</td></tr>
+        <tr><td><strong>Partitioning and clustering</strong></td><td>Direct Lake does not use Parquet statistics to skip row groups or files when loading, so layout features that exist for file skipping do not speed up Direct Lake. Low-cardinality partitions can still limit how much a rewrite disturbs (below). See the <a href="../08-delta-partitioning/index.html">partitioning playbook</a>.</td></tr>
+      </tbody>
+    </table>
+
+    <h3 id="update-patterns">Write patterns: what keeps framing incremental</h3>
+    <p>Parquet files are immutable, so an update or delete is a rewrite. What matters to Direct Lake is how much of the table's file set changes in one commit.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 272" role="img" aria-label="Overwriting a Gold table replaces every file, so framing evicts all resident column segments and the next queries are cold; appending or replacing one slice keeps most files, so only the new file is loaded on demand">
+        <text class="t-h" x="10" y="22">Overwrite the whole table</text>
+        <rect class="zone red" x="10" y="30" width="430" height="232" rx="12"/>
+        <text class="t-s" x="26" y="58">Delta files after the load</text>
+        <rect class="box red" x="30" y="64" width="80" height="34" rx="6"/><text class="t-b" x="70" y="86" text-anchor="middle">F1 new</text>
+        <rect class="box red" x="126" y="64" width="80" height="34" rx="6"/><text class="t-b" x="166" y="86" text-anchor="middle">F2 new</text>
+        <rect class="box red" x="222" y="64" width="80" height="34" rx="6"/><text class="t-b" x="262" y="86" text-anchor="middle">F3 new</text>
+        <rect class="box red" x="318" y="64" width="80" height="34" rx="6"/><text class="t-b" x="358" y="86" text-anchor="middle">F4 new</text>
+        <text class="t-s" x="26" y="122">Column segments in memory after framing</text>
+        <rect class="box red dashed" x="30" y="128" width="80" height="34" rx="6"/><text class="t-s" x="70" y="149" text-anchor="middle">evicted</text>
+        <rect class="box red dashed" x="126" y="128" width="80" height="34" rx="6"/><text class="t-s" x="166" y="149" text-anchor="middle">evicted</text>
+        <rect class="box red dashed" x="222" y="128" width="80" height="34" rx="6"/><text class="t-s" x="262" y="149" text-anchor="middle">evicted</text>
+        <rect class="box red dashed" x="318" y="128" width="80" height="34" rx="6"/><text class="t-s" x="358" y="149" text-anchor="middle">evicted</text>
+        <text class="t-b c-red" x="26" y="196">Cold state</text>
+        <text class="t-s" x="26" y="214">Every queried column is transcoded again,</text>
+        <text class="t-s" x="26" y="230">and the first users after each load wait.</text>
+        <text class="t-h" x="460" y="22">Append, or replace one slice</text>
+        <rect class="zone green" x="460" y="30" width="430" height="232" rx="12"/>
+        <text class="t-s" x="476" y="58">Delta files after the load</text>
+        <rect class="box gray" x="480" y="64" width="80" height="34" rx="6"/><text class="t-b" x="520" y="86" text-anchor="middle">F1 kept</text>
+        <rect class="box gray" x="576" y="64" width="80" height="34" rx="6"/><text class="t-b" x="616" y="86" text-anchor="middle">F2 kept</text>
+        <rect class="box gray" x="672" y="64" width="80" height="34" rx="6"/><text class="t-b" x="712" y="86" text-anchor="middle">F3 kept</text>
+        <rect class="box blue" x="768" y="64" width="80" height="34" rx="6"/><text class="t-b" x="808" y="86" text-anchor="middle">F4 new</text>
+        <text class="t-s" x="476" y="122">Column segments in memory after framing</text>
+        <rect class="box green" x="480" y="128" width="80" height="34" rx="6"/><text class="t-s" x="520" y="149" text-anchor="middle">reused</text>
+        <rect class="box green" x="576" y="128" width="80" height="34" rx="6"/><text class="t-s" x="616" y="149" text-anchor="middle">reused</text>
+        <rect class="box green" x="672" y="128" width="80" height="34" rx="6"/><text class="t-s" x="712" y="149" text-anchor="middle">reused</text>
+        <rect class="box blue dashed" x="768" y="128" width="80" height="34" rx="6"/><text class="t-s" x="808" y="149" text-anchor="middle">on demand</text>
+        <text class="t-b c-green" x="476" y="196">Mostly warm</text>
+        <text class="t-s" x="476" y="214">Only the new file is transcoded; resident</text>
+        <text class="t-s" x="476" y="230">dictionaries and segments stay valid.</text>
+      </svg>
+      <figcaption><b>Why overwrite hurts Direct Lake.</b> Framing compares the Delta log: files that survive keep their in-memory data. A full overwrite leaves no survivors.</figcaption>
+    </figure>
+    <table>
+      <thead><tr><th>Update pattern</th><th>Effect on Direct Lake</th><th>Guidance</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Incremental append</strong></td><td>Existing files and row groups untouched; incremental framing works</td><td>Best case. Partitioning is not needed. Compact periodically</td></tr>
+        <tr><td><strong>Streaming or frequent micro-batches</strong></td><td>Many small files and row groups</td><td>Partitioning is not needed, but run <code>OPTIMIZE</code> often (daily or more) to stay inside guardrails</td></tr>
+        <tr><td><strong>Batch with delete or update, unpartitioned</strong></td><td>Deleting one day of thirty can rewrite nearly every file, forcing a near-total reload</td><td>Avoid for large tables, or isolate the change to a slice</td></tr>
+        <tr><td><strong>Batch with delete or update, partitioned by a low-cardinality column</strong></td><td>The rewrite is limited to the partitions touched</td><td>Choose a column with fewer than about 100 to 200 distinct values (a month, not a day, for multi-year tables); more partitions inflate files and row groups</td></tr>
+        <tr><td><strong>Overwrite of a large table</strong></td><td>All files replaced, so every column segment is evicted</td><td>Use only for small tables; otherwise replace slices with <code>replaceWhere</code></td></tr>
+      </tbody>
+    </table>
+    <p><code>OPTIMIZE</code> is itself a rewrite: it replaces small files with large ones, which invalidates the matching in-memory segments and costs a short cold-state penalty in exchange for better long-term performance. Run it after loads during quiet periods, scoped to the partitions touched by the latest load where possible. <code>VACUUM</code> has one more constraint: a framed model references a specific Delta version, and removing files that version needs causes query errors until the next framing. Keep the retention period longer than the longest gap between framings (the default of seven days is usually safe).</p>
+    <p>Because every Gold write you choose either preserves or discards what Direct Lake has loaded, check the result rather than assuming. The Delta Analyzer in the semantic-link-labs library, or a DAX query over <code>INFO.STORAGETABLECOLUMNSEGMENTS()</code> after a load, shows whether segments were reused or evicted.</p>
+
+    <h3 id="calculated-columns">Business logic: what must be materialized</h3>
+    <p>Direct Lake on SQL analytics endpoints does not support calculated columns or calculated tables on Direct Lake tables, and Direct Lake on OneLake supports them only in limited, preview form (calculated columns with user context only). Plan as if derived columns must be produced upstream and stored in the Gold Delta table. The practical rule is more precise than "pre-compute everything":</p>
+    <ul>
+      <li><strong>Materialize row-level and attribute derivations</strong> that models slice by: customer segment, age band, fiscal period label, a customer's rank, a product category rollup.</li>
+      <li><strong>Keep ratios and aggregates as DAX measures</strong> over additive base columns. A profit margin percentage is <code>(SUM(revenue) - SUM(cost)) / SUM(revenue)</code> computed at query time at whatever grain the visual uses. Storing a per-row margin percentage and summing or averaging it gives wrong totals.</li>
+    </ul>
+    <p>This is also where the load strategy feels the constraint: a materialized column that depends on the whole population, such as a customer's sales rank, changes for many rows whenever one order arrives. Such tables often justify a scheduled full recalculation even when the rest of Gold is incremental, trading pipeline efficiency for correct, queryable columns.</p>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>Support for calculated columns, calculated tables and composite models in Direct Lake is evolving and differs between the two Direct Lake options. Check the comparison and limitations tables in the <a href="https://learn.microsoft.com/fabric/fundamentals/direct-lake-overview">Direct Lake overview</a> before you commit a design.</p></div>
+
+    <h3 id="after-the-load">After the load: reframing</h3>
+    <p>With automatic updates on, the model reframes itself when it sees new Delta versions, which suits independent tables and small models. When a load writes several tables that must be consistent (a fact and its aggregates), a model that reframes between the writes can show a mixed state. In that case turn automatic updates off, run the whole load, and finish the pipeline with a refresh of the semantic model through a pipeline refresh activity, the REST API or semantic link. That gives consumers one consistent cut-over.</p>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p><ul>
+      <li>Prefer affected-slice recompute for incremental Gold: it is correct for non-additive measures and safe to rerun.</li>
+      <li>Store additive base columns in Gold and compute ratios as DAX measures; materialize only attribute-level derivations.</li>
+      <li>For Direct Lake, append or replace slices; do not overwrite large tables, because every file replaced is data the model must reload.</li>
+      <li>Enable V-Order for Gold tables read by Direct Lake, keep row groups large, and stay within SKU guardrails.</li>
+      <li>Use Direct Lake on OneLake for new models, and design out fallback if you use SQL analytics endpoints.</li>
+      <li>Turn automatic updates off and refresh once at the end of multi-table loads that must be consistent.</li>
+    </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/fabric/fundamentals/direct-lake-overview">Direct Lake overview</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/fundamentals/direct-lake-how-it-works">How Direct Lake works</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/fundamentals/direct-lake-understand-storage">Understand Direct Lake query performance</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/fundamentals/table-maintenance-optimization">Cross-workload table maintenance and optimization</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/delta-optimization-and-v-order">Delta Lake table optimization and V-Order</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/configure-resource-profile-configurations">Configure resource profile configurations</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/materialized-lake-views/refresh-materialized-lake-view">Optimal refresh for materialized lake views</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/dataflow-gen2-incremental-refresh">Incremental refresh in Dataflow Gen2</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

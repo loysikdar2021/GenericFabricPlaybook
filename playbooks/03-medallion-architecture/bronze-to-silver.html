@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bronze to Silver · Medallion Architecture</title>
+<meta name="description" content="Expose Bronze tables in the Silver lakehouse with shortcuts, set up the load notebook, choose full or incremental per table and use the reusable full-load function.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="03-medallion-architecture" data-page="bronze-to-silver.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 03 · Implementation</p>
+      <h1>Bronze to Silver</h1>
+      <p class="lede">Moving data from Bronze to Silver takes two actions: make the Bronze tables visible in the Silver lakehouse with shortcuts, then run a notebook that filters, conforms and writes owned Silver tables. This page covers both, how to choose a load pattern per table, and the reusable full-load function with its per-table variants.</p>
+      <ul class="chips"><li><b>Audience</b> data engineers</li><li><b>Focus</b> shortcuts, full loads</li><li><b>Pages</b> 6 of 10</li></ul>
+    </header>
+    <h2 id="two-actions">Two actions</h2>
+    <p>The Silver workspace never writes to Bronze and never copies Bronze tables. It borrows them through shortcuts in a dedicated schema, and the Silver notebook is the only process that materializes data in the Silver lakehouse. Keeping borrowed and owned tables in separate schemas means anyone reading the lakehouse explorer can tell at a glance which tables Silver is responsible for.</p>
+<figure class="diagram">
+<svg class="dg" viewBox="0 0 900 250" role="img" aria-label="Two actions move data from Bronze to Silver: create shortcuts to the Bronze tables in the Silver lakehouse, then run a notebook that reads the shortcuts and writes owned Silver tables">
+<defs>
+<marker id="fig-b2s-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+</defs>
+<rect class="zone" x="10" y="14" width="200" height="222" rx="12"/>
+<text class="t-h" x="24" y="33">DEV_SALES_BRZ</text>
+<rect class="zone" x="250" y="14" width="640" height="222" rx="12"/>
+<text class="t-h" x="264" y="33">DEV_SALES_SLV</text>
+<rect class="box bronze" x="26" y="80" width="168" height="64" rx="10"/>
+<text class="t-b" x="110" y="107.5" text-anchor="middle">LH_SALES_BRZ</text>
+<text class="t-s" x="110" y="124.5" text-anchor="middle">dbo.customers, orders</text>
+<rect class="box plain" x="266" y="80" width="170" height="64" rx="10"/>
+<text class="t-b" x="351" y="107.5" text-anchor="middle">Schema brz</text>
+<text class="t-s" x="351" y="124.5" text-anchor="middle">shortcuts, read-only</text>
+<rect class="box blue" x="476" y="80" width="170" height="64" rx="10"/>
+<text class="t-b" x="561" y="107.5" text-anchor="middle">Load notebook</text>
+<text class="t-s" x="561" y="124.5" text-anchor="middle">filter, conform, write</text>
+<rect class="box silver" x="686" y="80" width="190" height="64" rx="10"/>
+<text class="t-b" x="781" y="107.5" text-anchor="middle">Schema dbo</text>
+<text class="t-s" x="781" y="124.5" text-anchor="middle">owned Delta tables</text>
+<path class="ln" d="M194 112H266" marker-end="url(#fig-b2s-1-a)"/>
+<path class="ln" d="M436 112H476" marker-end="url(#fig-b2s-1-a)"/>
+<path class="ln" d="M646 112H686" marker-end="url(#fig-b2s-1-a)"/>
+<text class="t-s" x="266" y="184">Action 1: create the shortcuts</text>
+<text class="t-s" x="476" y="184">Action 2: write the notebook</text>
+</svg>
+<figcaption><b>Bronze to Silver in two actions.</b> The shortcut schema is a read-only window onto Bronze. The notebook is the only writer of the Silver tables in the default schema, so owned and borrowed tables never mix.</figcaption>
+</figure>
+    <p>Before you start, the Silver workspace (<code>DEV_SALES_SLV</code>) should have a schema-enabled lakehouse (<code>LH_SALES_SLV</code>) and a published Environment set as the workspace default. See <a href="notebooks.html">Fabric notebooks</a> and <a href="environment.html">The Environment item</a> for the standards these notebooks follow.</p>
+
+    <h2 id="create-shortcuts">Create shortcuts to the Bronze lakehouse</h2>
+    <p>A OneLake shortcut is a pointer, not a copy. Reads through it go to the Bronze Delta files, so Silver always sees the current Bronze version and you pay for storage once. In a schema-enabled lakehouse you have two ways to create them.</p>
+    <table>
+      <thead><tr><th>Option</th><th>What you get</th><th>Use when</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Schema shortcut</strong></td><td>A new schema (<code>brz</code>) that references a whole schema of the Bronze lakehouse; tables added to Bronze appear automatically</td><td>Silver reads most of the Bronze schema. Least maintenance.</td></tr>
+        <tr><td><strong>Table shortcuts inside a schema</strong></td><td>One shortcut per selected table, created in the schema you choose</td><td>Silver should see only an approved subset of Bronze tables, for example when Bronze holds sensitive tables Silver does not need</td></tr>
+      </tbody>
+    </table>
+    <h3 id="shortcut-naming">Naming the shortcuts</h3>
+    <p>Name each shortcut exactly like the Bronze table it points to and let the schema carry the meaning: <code>brz.customers</code> in Silver is the Bronze <code>customers</code> table. An earlier version of this pattern encoded the direction in a long prefix on every shortcut name (a "shortcut to Bronze from Silver" prefix). The schema makes the prefix redundant, keeps names short enough to read in lineage views, and means the notebook code differs from production code only in the schema name, which is a parameter.</p>
+    <ul>
+      <li>Letters, digits and underscores only: no spaces, <code>%</code> or <code>+</code>, which break unquoted references and some tools.</li>
+      <li>Keep target paths stable. Renaming or moving a Bronze table breaks every shortcut that points to it; treat Bronze table names as a contract.</li>
+      <li>One shortcut schema per upstream layer: <code>brz</code> in Silver, <code>slv</code> in Gold, <code>gld</code> in Consumption lakehouses (see <a href="workspace-pattern.html#schema-and-table-names">schema and table names</a>).</li>
+    </ul>
+    <h3 id="shortcut-steps">Steps in the lakehouse explorer</h3>
+    <ol class="steps">
+      <li><strong>Open the Silver lakehouse</strong><p>In <code>DEV_SALES_SLV</code>, open <code>LH_SALES_SLV</code>.</p></li>
+      <li><strong>Start a shortcut under Tables</strong><p>In the explorer, open the menu next to <strong>Tables</strong> (or next to an existing schema) and choose <strong>New schema shortcut</strong> for a whole schema, or <strong>New table shortcut</strong> for individual tables. Shortcuts for Delta tables belong under Tables; shortcuts under Files are treated as folders and are not registered as tables.</p></li>
+      <li><strong>Choose Microsoft OneLake</strong><p>From the internal sources, select <strong>Microsoft OneLake</strong>. ADLS Gen2, Amazon S3 and other external sources are for data outside Fabric and need a connection.</p></li>
+      <li><strong>Select the Bronze lakehouse</strong><p>Pick <code>LH_SALES_BRZ</code> in <code>DEV_SALES_BRZ</code>. You can only see items your identity can read.</p></li>
+      <li><strong>Select the schema or tables</strong><p>For a schema shortcut select <code>dbo</code>; for table shortcuts select each table, then choose <strong>Next</strong>.</p></li>
+      <li><strong>Review names and create</strong><p>On the review page, use the edit action to rename a shortcut or set the schema name (<code>brz</code>), then confirm and choose <strong>Create</strong>.</p></li>
+      <li><strong>Validate</strong><p>Expand <code>brz</code> and preview a table. Then run <code>spark.table("brz.customers").limit(5)</code> in a notebook with the identity that will run the scheduled load: access is checked at the Bronze side for that identity, not for you.</p></li>
+    </ol>
+    <div class="callout warning"><p class="callout-title">Access is checked at the target</p><p>Holding a role in the Silver workspace does not grant access to Bronze data. The identity that reads the shortcut, including the one that runs the notebook under a pipeline schedule, needs read access on the Bronze lakehouse. See <a href="architecture.html#shortcut-security">how access works through a shortcut</a>.</p></div>
+    <h3 id="shortcut-automation">Creating shortcuts as code</h3>
+    <p>For more than a handful of tables, or to recreate the same shortcuts in test and production, create them with the OneLake shortcuts REST API from a deployment script or a notebook. The request below creates <code>brz.customers</code> in the Silver lakehouse; <code>path</code> is where the shortcut lives, <code>target.oneLake.path</code> is the Bronze table.</p>
+<pre data-title="OneLake Shortcuts: Create Shortcut (REST)"><code class="language-text">POST https://api.fabric.microsoft.com/v1/workspaces/&lt;silver-workspace-id&gt;/items/&lt;silver-lakehouse-id&gt;/shortcuts?shortcutConflictPolicy=Abort
+Authorization: Bearer &lt;token&gt;
+Content-Type: application/json
+
+{
+  "path": "Tables/brz",
+  "name": "customers",
+  "target": {
+    "oneLake": {
+      "workspaceId": "&lt;bronze-workspace-id&gt;",
+      "itemId": "&lt;bronze-lakehouse-id&gt;",
+      "path": "Tables/dbo/customers"
+    }
+  }
+}</code></pre>
+    <p>Shortcuts are part of the lakehouse definition in Git integration and deployment pipelines, and deployment rules can repoint them per stage. That is the declarative alternative to scripts once your promotion process is in place; see <a href="../07-deployment/index.html">Deployment Pipelines and Promotion</a>.</p>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>Check the allowed values of <code>shortcutConflictPolicy</code>, whether your caller type (user or service principal) is supported, and how shortcuts in schema-enabled lakehouses are represented in Git, on <a href="https://learn.microsoft.com/rest/api/fabric/core/onelake-shortcuts/create-shortcut">OneLake Shortcuts: Create Shortcut</a> and <a href="https://learn.microsoft.com/fabric/onelake/onelake-shortcuts">OneLake shortcuts</a>.</p></div>
+<figure class="diagram">
+<svg class="dg" viewBox="0 0 900 296" role="img" aria-label="Three ways a Silver notebook can read Bronze: a shortcut in a shortcut schema, a four-part cross-workspace name in the query, or a physical copy">
+<defs>
+<marker id="fig-b2s-2-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+</defs>
+<rect class="zone" x="10" y="14" width="880" height="80" rx="12"/>
+<text class="t-h" x="24" y="48">A. Shortcut schema</text>
+<text class="t-s" x="24" y="68">recommended</text>
+<rect class="box bronze" x="210" y="28" width="130" height="52" rx="10"/>
+<text class="t-b" x="275" y="58" text-anchor="middle">Bronze table</text>
+<rect class="box green" x="380" y="28" width="170" height="52" rx="10"/>
+<text class="t-b" x="465" y="49.5" text-anchor="middle">brz.customers</text>
+<text class="t-s" x="465" y="66.5" text-anchor="middle">shortcut object</text>
+<rect class="box blue" x="590" y="28" width="110" height="52" rx="10"/>
+<text class="t-b" x="645" y="49.5" text-anchor="middle">Silver</text>
+<text class="t-s" x="645" y="66.5" text-anchor="middle">notebook</text>
+<path class="ln" d="M340 54H380" marker-end="url(#fig-b2s-2-a)"/>
+<path class="ln" d="M550 54H590" marker-end="url(#fig-b2s-2-a)"/>
+<text class="t-s" x="722" y="48">no copy, read-only</text>
+<text class="t-s" x="722" y="66">visible as an object</text>
+<rect class="zone" x="10" y="106" width="880" height="80" rx="12"/>
+<text class="t-h" x="24" y="140">B. Four-part name</text>
+<text class="t-s" x="24" y="160">ad-hoc reads</text>
+<rect class="box bronze" x="210" y="120" width="130" height="52" rx="10"/>
+<text class="t-b" x="275" y="150" text-anchor="middle">Bronze table</text>
+<rect class="box blue" x="380" y="120" width="170" height="52" rx="10"/>
+<text class="t-b" x="465" y="141.5" text-anchor="middle">in the query text</text>
+<text class="t-s" x="465" y="158.5" text-anchor="middle">workspace.lakehouse...</text>
+<rect class="box blue" x="590" y="120" width="110" height="52" rx="10"/>
+<text class="t-b" x="645" y="141.5" text-anchor="middle">Silver</text>
+<text class="t-s" x="645" y="158.5" text-anchor="middle">notebook</text>
+<path class="ln" d="M340 146H380" marker-end="url(#fig-b2s-2-a)"/>
+<path class="ln" d="M550 146H590" marker-end="url(#fig-b2s-2-a)"/>
+<text class="t-s" x="722" y="140">no object to manage</text>
+<text class="t-s" x="722" y="158">access checked at run</text>
+<rect class="zone" x="10" y="198" width="880" height="80" rx="12"/>
+<text class="t-h" x="24" y="232">C. Physical copy</text>
+<text class="t-s" x="24" y="252">when sharing is not possible</text>
+<rect class="box bronze" x="210" y="212" width="130" height="52" rx="10"/>
+<text class="t-b" x="275" y="242" text-anchor="middle">Bronze table</text>
+<rect class="box orange" x="380" y="212" width="170" height="52" rx="10"/>
+<text class="t-b" x="465" y="233.5" text-anchor="middle">Copy job or pipeline</text>
+<text class="t-s" x="465" y="250.5" text-anchor="middle">second physical copy</text>
+<rect class="box blue" x="590" y="212" width="110" height="52" rx="10"/>
+<text class="t-b" x="645" y="233.5" text-anchor="middle">Silver</text>
+<text class="t-s" x="645" y="250.5" text-anchor="middle">notebook</text>
+<path class="ln" d="M340 238H380" marker-end="url(#fig-b2s-2-a)"/>
+<path class="ln" d="M550 238H590" marker-end="url(#fig-b2s-2-a)"/>
+<text class="t-s" x="722" y="232">duplicate storage</text>
+<text class="t-s" x="722" y="250">stale until reloaded</text>
+</svg>
+<figcaption><b>Three ways to read the layer upstream.</b> A shortcut is the default in this playbook: no copy, one visible object per table and lineage that can be drawn. A four-part name is fine for one-off work. A physical copy is for the cases where the source cannot be shared in place.</figcaption>
+</figure>
+
+    <h2 id="notebook-setup">Set up the load notebook</h2>
+    <ol class="steps">
+      <li><strong>Create the notebook in the Silver workspace</strong><p>Name it by the standard, one notebook per table or per small group of related tables: <code>NB_SALES_SLV_LoadCustomers</code>, <code>NB_SALES_SLV_LoadReference</code>.</p></li>
+      <li><strong>Attach the Silver lakehouse as the default</strong><p>Unqualified names (<code>dbo.customers</code>, <code>brz.customers</code>) then resolve against <code>LH_SALES_SLV</code>. Keep the default lakehouse the same in every notebook of a run; child notebooks with a different default lakehouse are blocked under <code>runMultiple</code>.</p></li>
+      <li><strong>Confirm the Environment</strong><p>The notebook should inherit the workspace default Environment. Do not attach a different one per notebook unless you have a reason you can write down.</p></li>
+      <li><strong>Lay out the cells</strong><p>A Markdown cell that states what the notebook loads, from where and with which pattern; a parameter cell; one cell that defines or imports the load function; one cell per table call. Comments explain why, not what.</p></li>
+      <li><strong>Mark development-only cells</strong><p>Row-count and preview cells exist to prove the logic during development. Keep them behind a <code>validate</code> or <code>debug</code> parameter that defaults to off, so the scheduled run does not pay for extra full scans.</p></li>
+    </ol>
+
+    <h2 id="load-patterns">Choosing a load pattern</h2>
+    <p>Two patterns cover nearly every table. A <strong>full load</strong> (destructive load) replaces the target with the current source content on every run. An <strong>incremental load</strong> applies only the rows that changed since the last run, using a watermark and a key. The choice is per table, and the <a href="../02-data-load-strategy/index.html">Data Load Strategy</a> playbook gives the full decision framework; the summary is below.</p>
+<figure class="diagram">
+<svg class="dg" viewBox="0 0 760 330" role="img" aria-label="Decision tree for Bronze to Silver: reload small tables in full; use an incremental merge for large tables with a reliable watermark or key; handle physical deletes explicitly; otherwise fall back to a full load or fix the source">
+<defs>
+<marker id="fig-b2s-4-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+<marker id="fig-b2s-4-a-green" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+<marker id="fig-b2s-4-a-orange" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar orange" d="M0 0L10 5L0 10z"/></marker>
+<marker id="fig-b2s-4-a-gold" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar gold" d="M0 0L10 5L0 10z"/></marker>
+</defs>
+<rect class="box purple" x="12" y="130" width="200" height="64" rx="10"/>
+<text class="t-b" x="112" y="157.5" text-anchor="middle">Small enough to</text>
+<text class="t-s" x="112" y="174.5" text-anchor="middle">reload in the window?</text>
+<rect class="box purple" x="272" y="130" width="200" height="64" rx="10"/>
+<text class="t-b" x="372" y="157.5" text-anchor="middle">Reliable watermark</text>
+<text class="t-s" x="372" y="174.5" text-anchor="middle">or unique key?</text>
+<rect class="box purple" x="532" y="130" width="200" height="64" rx="10"/>
+<text class="t-b" x="632" y="157.5" text-anchor="middle">Source deletes rows</text>
+<text class="t-s" x="632" y="174.5" text-anchor="middle">physically?</text>
+<rect class="box green" x="12" y="20" width="200" height="56" rx="10"/>
+<text class="t-b" x="112" y="43.5" text-anchor="middle">Full load</text>
+<text class="t-s" x="112" y="60.5" text-anchor="middle">simplest, destructive</text>
+<rect class="box orange" x="272" y="250" width="200" height="56" rx="10"/>
+<text class="t-b" x="372" y="273.5" text-anchor="middle">Full load, or fix source</text>
+<text class="t-s" x="372" y="290.5" text-anchor="middle">add a modified column</text>
+<rect class="box gold" x="532" y="20" width="200" height="56" rx="10"/>
+<text class="t-b" x="632" y="43.5" text-anchor="middle">Incremental + deletes</text>
+<text class="t-s" x="632" y="60.5" text-anchor="middle">flag or reconcile</text>
+<rect class="box green" x="532" y="250" width="200" height="56" rx="10"/>
+<text class="t-b" x="632" y="273.5" text-anchor="middle">Incremental MERGE</text>
+<text class="t-s" x="632" y="290.5" text-anchor="middle">watermark and key</text>
+<path class="ln" d="M212 162H272" marker-end="url(#fig-b2s-4-a)"/>
+<rect class="pill-bg" x="229.1" y="143.5" width="25.9" height="16"/>
+<text class="t-s" x="242" y="156" text-anchor="middle">no</text>
+<path class="ln" d="M472 162H532" marker-end="url(#fig-b2s-4-a)"/>
+<rect class="pill-bg" x="486.1" y="143.5" width="31.8" height="16"/>
+<text class="t-s" x="502" y="156" text-anchor="middle">yes</text>
+<path class="ln green" d="M112 130V76" marker-end="url(#fig-b2s-4-a-green)"/>
+<rect class="pill-bg" x="96.1" y="95.5" width="31.8" height="16"/>
+<text class="t-s" x="112" y="108" text-anchor="middle">yes</text>
+<path class="ln orange" d="M372 194V250" marker-end="url(#fig-b2s-4-a-orange)"/>
+<rect class="pill-bg" x="359.1" y="211.5" width="25.9" height="16"/>
+<text class="t-s" x="372" y="224" text-anchor="middle">no</text>
+<path class="ln gold" d="M632 130V76" marker-end="url(#fig-b2s-4-a-gold)"/>
+<rect class="pill-bg" x="616.1" y="95.5" width="31.8" height="16"/>
+<text class="t-s" x="632" y="108" text-anchor="middle">yes</text>
+<path class="ln green" d="M632 194V250" marker-end="url(#fig-b2s-4-a-green)"/>
+<rect class="pill-bg" x="619.1" y="211.5" width="25.9" height="16"/>
+<text class="t-s" x="632" y="224" text-anchor="middle">no</text>
+</svg>
+<figcaption><b>Choosing a load pattern.</b> Size is a guide, not a rule: reload whatever fits the load window, and move a table to incremental when its load time or cost no longer does. A watermark cannot see physical deletes, so deletes always need an explicit answer.</figcaption>
+</figure>
+    <table>
+      <thead><tr><th>Criterion</th><th>Full load</th><th>Incremental MERGE</th></tr></thead>
+      <tbody>
+        <tr><td>Logic</td><td>Read, filter, overwrite</td><td>Watermark, key, deduplication, MERGE, delete handling</td></tr>
+        <tr><td>Cost per run</td><td>Proportional to table size</td><td>Proportional to change volume, plus the MERGE join</td></tr>
+        <tr><td>Correctness risk</td><td>Low; deletes handled implicitly</td><td>Higher; depends on watermark discipline and delete signals</td></tr>
+        <tr><td>Retry</td><td>Always safe</td><td>Safe if the key is right and the mark only moves after commit</td></tr>
+        <tr><td>Time travel and history</td><td>One version per run, all files rewritten</td><td>Small versions; untouched files kept</td></tr>
+        <tr><td>Good fit</td><td>Reference data, small dimensions, any table that fits the load window</td><td>Large facts and dimensions with a reliable modified timestamp or increasing key</td></tr>
+      </tbody>
+    </table>
+    <div class="callout note"><p class="callout-title">No fixed row threshold</p><p>Earlier guidance put the switch to incremental at around 100 million rows. Row count alone is a poor rule: a wide 20 million row table can take longer to rewrite than a narrow 200 million row one, and capacity size changes the answer. Measure the full load. When its duration or capacity use no longer fits the window, and the source has a usable watermark, move the table to the <a href="incremental-merge.html">incremental MERGE</a> pattern.</p></div>
+
+    <h2 id="full-load-function">The reusable full-load function</h2>
+    <p>Where a full load is appropriate, use one function for every table rather than writing a new cell per table. The same function works in any layer: Silver reading <code>brz</code>, Gold reading <code>slv</code>.</p>
+<figure class="diagram">
+<svg class="dg" viewBox="0 0 900 232" role="img" aria-label="The reusable full-load function reads the source table, applies an optional filter, overwrites the target Delta table, optionally validates row counts and returns a small result">
+<defs>
+<marker id="fig-b2s-3-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+</defs>
+<rect class="box blue" x="15" y="30" width="150" height="76" rx="10"/>
+<text class="t-b" x="90" y="55" text-anchor="middle">1 Read</text>
+<text class="t-s" x="90" y="72" text-anchor="middle">spark.table</text>
+<text class="t-s" x="90" y="89" text-anchor="middle">(source)</text>
+<rect class="box blue" x="191" y="30" width="150" height="76" rx="10"/>
+<text class="t-b" x="266" y="55" text-anchor="middle">2 Filter</text>
+<text class="t-s" x="266" y="72" text-anchor="middle">optional SQL</text>
+<text class="t-s" x="266" y="89" text-anchor="middle">predicate</text>
+<rect class="box silver" x="367" y="30" width="150" height="76" rx="10"/>
+<text class="t-b" x="442" y="55" text-anchor="middle">3 Overwrite</text>
+<text class="t-s" x="442" y="72" text-anchor="middle">mode overwrite,</text>
+<text class="t-s" x="442" y="89" text-anchor="middle">overwriteSchema</text>
+<rect class="box plain dashed" x="543" y="30" width="150" height="76" rx="10"/>
+<text class="t-b" x="618" y="55" text-anchor="middle">4 Validate</text>
+<text class="t-s" x="618" y="72" text-anchor="middle">row counts,</text>
+<text class="t-s" x="618" y="89" text-anchor="middle">development only</text>
+<rect class="box green" x="719" y="30" width="150" height="76" rx="10"/>
+<text class="t-b" x="794" y="55" text-anchor="middle">5 Return</text>
+<text class="t-s" x="794" y="72" text-anchor="middle">dict with source</text>
+<text class="t-s" x="794" y="89" text-anchor="middle">and target names</text>
+<path class="ln" d="M165 68H191" marker-end="url(#fig-b2s-3-a)"/>
+<path class="ln" d="M341 68H367" marker-end="url(#fig-b2s-3-a)"/>
+<path class="ln" d="M517 68H543" marker-end="url(#fig-b2s-3-a)"/>
+<path class="ln" d="M693 68H719" marker-end="url(#fig-b2s-3-a)"/>
+<rect class="box orange" x="15" y="142" width="850" height="64" rx="10"/>
+<text class="t-b" x="440" y="169.5" text-anchor="middle">Exceptions are deliberately not caught</text>
+<text class="t-s" x="440" y="186.5" text-anchor="middle">a failed load fails the notebook, so the pipeline activity and the run history show the failure</text>
+</svg>
+<figcaption><b>The reusable full-load function.</b> Overwrite is a single Delta commit, so readers see the old table or the new one and never a half-loaded state. The validation step runs a full scan on each side and belongs to development only. Exceptions are not caught.</figcaption>
+</figure>
+    <dl class="kv">
+      <dt><code>spark</code></dt><dd>The active SparkSession (the notebook's <code>spark</code>).</dd>
+      <dt><code>target_table</code></dt><dd>Silver table to create or replace, schema-qualified: <code>dbo.departments</code>.</dd>
+      <dt><code>source_table</code></dt><dd>Shortcut to read: <code>brz.departments</code>.</dd>
+      <dt><code>filter_condition</code></dt><dd>Optional SQL predicate applied before the write, for example <code>"is_active = true AND is_deleted = false"</code>. Default: no filter.</dd>
+      <dt><code>overwrite_schema</code></dt><dd>Let the overwrite replace the table schema when Bronze adds or changes columns. Default <code>True</code>; set it to <code>False</code> where downstream consumers depend on a fixed schema and you would rather fail.</dd>
+      <dt><code>validate</code></dt><dd>Development only. Counts source and target and raises on a mismatch. Each count is a full scan.</dd>
+    </dl>
+<pre data-title="Reusable full-load function (Silver notebook, first code cell)"><code class="language-python">from typing import Any, Dict, Optional
+
+from pyspark.sql import SparkSession
+
+
+def full_load_table(
+    spark: SparkSession,
+    target_table: str,
+    source_table: str,
+    filter_condition: Optional[str] = None,
+    overwrite_schema: bool = True,
+    validate: bool = False,
+) -&gt; Dict[str, Any]:
+    """Replace target_table with the (optionally filtered) contents of source_table.
+
+    Exceptions are deliberately not caught: a failed load must fail the notebook
+    activity so the pipeline run shows the failure.
+    """
+    df = spark.table(source_table)
+    if filter_condition:
+        df = df.where(filter_condition)       # SQL predicate, e.g. "is_active = true"
+
+    writer = df.write.format("delta").mode("overwrite")
+    if overwrite_schema:
+        writer = writer.option("overwriteSchema", "true")
+    writer.saveAsTable(target_table)          # creates the table on the first run
+
+    result: Dict[str, Any] = {"source": source_table, "target": target_table}
+    if validate:                              # development only: every count() is a full scan
+        expected = df.count()
+        actual = spark.table(target_table).count()
+        result.update(source_rows=expected, target_rows=actual)
+        if expected != actual:
+            raise AssertionError(f"Row count mismatch: source {expected}, target {actual}")
+    return result</code></pre>
+    <p>Call it once per table. The schemas are parameters, so a pipeline can point the same notebook at a different shortcut schema without code changes.</p>
+<pre data-title="Per-table calls"><code class="language-python"># Parameters cell (a pipeline can override these through notebook parameters)
+SRC_SCHEMA = "brz"      # schema holding the shortcuts to Bronze
+TGT_SCHEMA = "dbo"      # Silver tables
+
+full_load_table(
+    spark,
+    target_table=f"{TGT_SCHEMA}.departments",
+    source_table=f"{SRC_SCHEMA}.departments",
+    filter_condition="is_active = true AND is_deleted = false",
+    validate=True,        # remove once the notebook is tested
+)
+
+full_load_table(
+    spark,
+    target_table=f"{TGT_SCHEMA}.employees",
+    source_table=f"{SRC_SCHEMA}.employees",
+    filter_condition="is_deleted = false AND department_id IS NOT NULL",
+)</code></pre>
+    <h3 id="full-load-changes">What changed from the original function</h3>
+    <table>
+      <thead><tr><th>Original behavior</th><th>Problem</th><th>Now</th></tr></thead>
+      <tbody>
+        <tr><td>Caught every exception and printed it</td><td>A failed load reported success to the pipeline; nobody noticed until a report was wrong</td><td>Exceptions propagate; the notebook activity fails and the run history shows why</td></tr>
+        <tr><td>Built a SQL string, cached the DataFrame and counted it on every run</td><td>Cache and count cost a full scan and memory for a number only development needs</td><td>Reads with <code>spark.table</code>, filters with <code>where</code>, counts only when <code>validate=True</code></td></tr>
+        <tr><td>Overwrote without <code>overwriteSchema</code></td><td>A new Bronze column failed the load with a schema mismatch</td><td>Schema overwrite is explicit and switchable</td></tr>
+        <tr><td>Printed source and target counts and their difference</td><td>Output nobody reads in a scheduled run; mismatches did not stop anything</td><td>Returns a small result and raises on mismatch in validation mode</td></tr>
+        <tr><td>Instructions to comment out print lines before production</td><td>Manual edits between test and production are how environments drift</td><td>One <code>validate</code> flag, set by a parameter</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="per-table-method">Per-table method: Spark SQL or PySpark</h2>
+    <p>Some tables need more than a filter: renamed columns, derived values, a join to a reference table. Write those loads individually, in Spark SQL or PySpark, and follow the same four steps during development.</p>
+    <ol>
+      <li>Count the rows in the source shortcut.</li>
+      <li>Count the rows the filter and transformation logic will keep, so you know what to expect.</li>
+      <li>Transform and load the Silver table.</li>
+      <li>Count the target and confirm it equals the number from step 2.</li>
+    </ol>
+    <div class="tabs">
+      <div class="tab" data-title="Spark SQL">
+<pre data-title="Customers full load (Silver notebook, %%sql cells)"><code class="language-sql">%%sql
+-- Cell 1 (development only): how many rows will the filter keep?
+SELECT COUNT(*) AS src_rows FROM brz.customers;
+
+SELECT COUNT(*) AS src_rows_filtered
+FROM brz.customers
+WHERE customer_id &gt; 0
+  AND COALESCE(TRIM(email), '') &lt;&gt; ''
+  AND COALESCE(TRIM(customer_name), '') &lt;&gt; '';
+
+-- Cell 2: create or replace the Silver table in one statement
+CREATE OR REPLACE TABLE dbo.customers
+USING DELTA
+AS
+SELECT *
+FROM brz.customers
+WHERE customer_id &gt; 0
+  AND COALESCE(TRIM(email), '') &lt;&gt; ''
+  AND COALESCE(TRIM(customer_name), '') &lt;&gt; '';
+
+-- Cell 3 (development only): the target must match the filtered count above
+SELECT COUNT(*) AS tgt_rows FROM dbo.customers;</code></pre>
+      </div>
+      <div class="tab" data-title="PySpark">
+<pre data-title="Customers full load (Silver notebook)"><code class="language-python">from pyspark.sql import functions as F
+
+source_table = "brz.customers"
+target_table = "dbo.customers"
+
+def non_empty(c: str):
+    """True when the column is neither null nor blank."""
+    return F.trim(F.coalesce(F.col(c), F.lit(""))) != ""
+
+src = spark.table(source_table)
+filtered = src.filter(
+    (F.col("customer_id") &gt; 0) &amp; non_empty("email") &amp; non_empty("customer_name")
+)
+
+# Development-only checks: each count() is a full scan.
+print(f"source rows: {src.count():,}; after filter: {filtered.count():,}")
+
+# Replaces data and, with overwriteSchema, the schema. Use the SQL variant when you also
+# want CREATE OR REPLACE semantics for table properties.
+(filtered.write
+    .format("delta")
+    .mode("overwrite")
+    .option("overwriteSchema", "true")
+    .saveAsTable(target_table))
+
+print(f"target rows: {spark.table(target_table).count():,}")</code></pre>
+      </div>
+    </div>
+    <table>
+      <thead><tr><th>Behavior</th><th><code>CREATE OR REPLACE TABLE ... AS SELECT</code></th><th><code>mode("overwrite")</code> with <code>overwriteSchema</code></th></tr></thead>
+      <tbody>
+        <tr><td>Data</td><td>Replaced atomically</td><td>Replaced atomically</td></tr>
+        <tr><td>Schema</td><td>Replaced by the query's schema</td><td>Replaced by the DataFrame's schema</td></tr>
+        <tr><td>Table history</td><td>Kept; the replace is a new version</td><td>Kept; the overwrite is a new version</td></tr>
+        <tr><td>Table properties and partitioning</td><td>Defined by the statement; restate any table properties you depend on</td><td>Existing properties kept unless changed by options</td></tr>
+        <tr><td>Best for</td><td>SQL-first teams, readable set logic</td><td>Logic shared as Python functions</td></tr>
+      </tbody>
+    </table>
+    <h3 id="dev-checks">From development counts to automated reconciliation</h3>
+    <p>Row-count cells are a development tool. Once a load is tested, switch them off and rely on automated checks: a reconciliation step after each load (see <a href="silver-to-gold.html#reconciliation">reconciliation</a>), and post-deployment validation in test and production run as a pipeline step or from your CI/CD workflow. The <a href="../15-qa-validation/index.html">QA Validation Frameworks</a> playbook covers the check catalogue; the <a href="../07-deployment/index.html">deployment</a> playbook covers where the checks run during promotion.</p>
+
+    <h2 id="troubleshooting">Troubleshooting</h2>
+    <table>
+      <thead><tr><th>Symptom</th><th>Likely cause</th><th>Fix</th></tr></thead>
+      <tbody>
+        <tr><td>Shortcut appears under Tables as an unidentified folder</td><td>The target is not a Delta table, or the shortcut points at a folder above the table</td><td>Point the shortcut at the table folder itself, or at a schema for a schema shortcut</td></tr>
+        <tr><td>Works interactively, fails under the pipeline with an access error</td><td>The pipeline runs the notebook with a different identity that has no access to Bronze</td><td>Grant that identity read on the Bronze lakehouse; test with it before scheduling</td></tr>
+        <tr><td><code>Table or view not found: brz.customers</code></td><td>Notebook default lakehouse is not <code>LH_SALES_SLV</code>, or the shortcut schema has another name</td><td>Fix the default lakehouse; keep schema names as parameters</td></tr>
+        <tr><td>Overwrite fails with a schema mismatch</td><td>Bronze added or changed a column</td><td>Pass <code>overwrite_schema=True</code> deliberately, or fail and review the change</td></tr>
+        <tr><td>Silver row count lower than expected</td><td>Filter treats NULL as false (<code>is_deleted &lt;&gt; true</code> drops NULLs)</td><td>Use <code>COALESCE(is_deleted, false) = false</code> or <code>is_deleted IS NOT TRUE</code></td></tr>
+        <tr><td>Load got slower over weeks</td><td>Many small files from frequent overwrites of a growing table</td><td>Check file counts, run OPTIMIZE, review whether the table should move to incremental</td></tr>
+      </tbody>
+    </table>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p>
+      <ul>
+        <li>Expose Bronze through a <code>brz</code> shortcut schema with the same table names; let the schema, not a name prefix, say where a table comes from.</li>
+        <li>Test shortcut reads with the identity the schedule will use; access is checked at the Bronze side.</li>
+        <li>Use one full-load function for every table that fits the window; let failures fail the activity.</li>
+        <li>Decide full versus incremental by measured load time and watermark quality, not a row-count rule.</li>
+        <li>Count rows while developing; switch counts off and reconcile automatically afterwards.</li>
+      </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/fabric/onelake/onelake-shortcuts">OneLake shortcuts</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/onelake/create-onelake-shortcut">Create a OneLake shortcut</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/lakehouse-schemas">Lakehouse schemas</a></li>
+        <li><a href="https://learn.microsoft.com/rest/api/fabric/core/onelake-shortcuts/create-shortcut">OneLake Shortcuts: Create Shortcut (REST API)</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/onelake/onelake-shortcut-security">Secure and manage OneLake shortcuts</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/lakehouse-notebook-load-data">Load data into your lakehouse with a notebook</a></li>
+        <li><a href="https://docs.delta.io/latest/delta-batch.html">Delta Lake: table batch reads and writes</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

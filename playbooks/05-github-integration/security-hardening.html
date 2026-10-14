@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Access model and repository hardening · GitHub Integration</title>
+<meta name="description" content="Teams and repository roles for a Fabric repository, Entra ID single sign-on and team sync, rulesets that protect main, a hardening checklist and optional automated scanning.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="05-github-integration" data-page="security-hardening.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+
+    <header class="page-header">
+      <p class="eyebrow">Playbook 05 · GitHub Integration</p>
+      <h1>Access model and repository hardening</h1>
+      <p class="lede">The workflow on the previous page is only as safe as the controls behind it. This page covers who gets which role, how identity flows from Entra ID, and how to make <code>main</code> impossible to change except through a reviewed pull request.</p>
+      <ul class="chips"><li><b>Audience</b> repository admins, platform and security owners</li><li><b>Use it for</b> role design, SSO, rulesets, hardening, scanning</li></ul>
+    </header>
+
+    <h2 id="least-privilege">Least privilege, in two tiers</h2>
+    <p>A Fabric developer needs two independent sets of permissions: a <strong>GitHub</strong> role that decides what they can do in the repository, and a <strong>Fabric workspace</strong> role that decides what they can do in the workspace. Neither implies the other (see the <a href="foundations.html#two-tiers">two-tier identity model</a>). Design both from the same functional roles, and give each person the smallest role that lets them do their job:</p>
+    <ul>
+      <li><strong>Developers and analysts</strong> write item changes on feature branches and open pull requests.</li>
+      <li><strong>Leads and architects</strong> review and approve, and own the merge decision.</li>
+      <li><strong>Platform and DevOps owners</strong> configure the repository, rulesets, environments and pipelines. This is a small group.</li>
+      <li><strong>Auditors, project managers and business analysts</strong> need to see the code and the history, not change it.</li>
+    </ul>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 880 340" role="img" aria-label="Four Entra ID groups map one to one to four GitHub teams, which are granted the Admin, Maintain, Write and Read repository roles; a note says Fabric workspace roles are granted separately in Fabric from the same groups">
+        <defs>
+          <marker id="fig-sh-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <text class="t-h" x="130" y="34" text-anchor="middle">Entra ID groups</text>
+        <text class="t-s" x="130" y="52" text-anchor="middle">source of truth</text>
+        <text class="t-h" x="430" y="34" text-anchor="middle">GitHub teams</text>
+        <text class="t-s" x="430" y="52" text-anchor="middle">membership synced</text>
+        <text class="t-h" x="740" y="34" text-anchor="middle">Repository roles</text>
+        <text class="t-s" x="740" y="52" text-anchor="middle">granted per team</text>
+        <rect class="box orange" x="20" y="68" width="220" height="44" rx="8"/>
+        <text class="t-b" x="130" y="95" text-anchor="middle">grp-fabric-admins</text>
+        <rect class="box purple" x="20" y="124" width="220" height="44" rx="8"/>
+        <text class="t-b" x="130" y="151" text-anchor="middle">grp-fabric-maintainers</text>
+        <rect class="box blue" x="20" y="180" width="220" height="44" rx="8"/>
+        <text class="t-b" x="130" y="207" text-anchor="middle">grp-fabric-developers</text>
+        <rect class="box gray" x="20" y="236" width="220" height="44" rx="8"/>
+        <text class="t-b" x="130" y="263" text-anchor="middle">grp-fabric-auditors</text>
+        <rect class="box orange" x="330" y="68" width="200" height="44" rx="8"/>
+        <text class="t-b" x="430" y="95" text-anchor="middle">fabric-admins</text>
+        <rect class="box purple" x="330" y="124" width="200" height="44" rx="8"/>
+        <text class="t-b" x="430" y="151" text-anchor="middle">fabric-maintainers</text>
+        <rect class="box blue" x="330" y="180" width="200" height="44" rx="8"/>
+        <text class="t-b" x="430" y="207" text-anchor="middle">fabric-developers</text>
+        <rect class="box gray" x="330" y="236" width="200" height="44" rx="8"/>
+        <text class="t-b" x="430" y="263" text-anchor="middle">fabric-auditors</text>
+        <rect class="box orange" x="620" y="68" width="240" height="44" rx="8"/>
+        <text class="t-b" x="740" y="95" text-anchor="middle">Admin</text>
+        <rect class="box purple" x="620" y="124" width="240" height="44" rx="8"/>
+        <text class="t-b" x="740" y="151" text-anchor="middle">Maintain</text>
+        <rect class="box blue" x="620" y="180" width="240" height="44" rx="8"/>
+        <text class="t-b" x="740" y="207" text-anchor="middle">Write</text>
+        <rect class="box gray" x="620" y="236" width="240" height="44" rx="8"/>
+        <text class="t-b" x="740" y="263" text-anchor="middle">Read</text>
+        <path class="ln" d="M242 90H328" marker-end="url(#fig-sh-1-a)"/>
+        <path class="ln" d="M242 146H328" marker-end="url(#fig-sh-1-a)"/>
+        <path class="ln" d="M242 202H328" marker-end="url(#fig-sh-1-a)"/>
+        <path class="ln" d="M242 258H328" marker-end="url(#fig-sh-1-a)"/>
+        <path class="ln" d="M532 90H618" marker-end="url(#fig-sh-1-a)"/>
+        <path class="ln" d="M532 146H618" marker-end="url(#fig-sh-1-a)"/>
+        <path class="ln" d="M532 202H618" marker-end="url(#fig-sh-1-a)"/>
+        <path class="ln" d="M532 258H618" marker-end="url(#fig-sh-1-a)"/>
+        <rect class="box gray dashed" x="20" y="296" width="840" height="34" rx="8"/>
+        <text class="t-s" x="440" y="317" text-anchor="middle">Fabric workspace roles are granted in Fabric, from the same groups. A GitHub role never grants them.</text>
+      </svg>
+      <figcaption><b>One group, one team, one role.</b> Assign roles to teams, never to individuals, and keep membership in the identity provider.</figcaption>
+    </figure>
+
+    <h2 id="team-structure">Teams and repository roles</h2>
+    <table>
+      <thead><tr><th>Team</th><th>Role</th><th>Who and why</th></tr></thead>
+      <tbody>
+        <tr><td><code>fabric-admins</code></td><td>Admin</td><td>Platform owners and DevOps leads: repository settings, rulesets, environments and secrets, team access. Keep this to a few people and review it regularly.</td></tr>
+        <tr><td><code>fabric-maintainers</code></td><td>Maintain</td><td>Tech leads who manage merge settings and day-to-day repository hygiene without access to security settings, secrets or the rulesets.</td></tr>
+        <tr><td><code>fabric-developers</code></td><td>Write</td><td>Data engineers and analysts: push to feature branches, open pull requests, review and merge once the rules allow it.</td></tr>
+        <tr><td><code>fabric-auditors</code></td><td>Read</td><td>Compliance, project management and business stakeholders: view code, history and pull requests only.</td></tr>
+      </tbody>
+    </table>
+    <p>The roles in the table behave as follows. Note two points that are commonly misunderstood:</p>
+    <table>
+      <thead><tr><th>Action</th><th>Read</th><th>Write</th><th>Maintain</th><th>Admin</th></tr></thead>
+      <tbody>
+        <tr><td>View code, history, pull requests and rulesets</td><td>Yes</td><td>Yes</td><td>Yes</td><td>Yes</td></tr>
+        <tr><td>Push to branches that no rule protects</td><td>No</td><td>Yes</td><td>Yes</td><td>Yes</td></tr>
+        <tr><td>Submit a review that counts toward required approvals</td><td>No</td><td>Yes</td><td>Yes</td><td>Yes</td></tr>
+        <tr><td>Merge a pull request that satisfies every rule</td><td>No</td><td>Yes</td><td>Yes</td><td>Yes</td></tr>
+        <tr><td>Configure merge methods and other merge settings</td><td>No</td><td>No</td><td>Yes</td><td>Yes</td></tr>
+        <tr><td>Create or edit rulesets, secrets, variables and environments</td><td>No</td><td>No</td><td>No</td><td>Yes</td></tr>
+      </tbody>
+    </table>
+    <ul>
+      <li><strong>Write can merge.</strong> What stops a developer merging their own change into <code>main</code> is not the role, it is the ruleset: required approvals, required checks and, where used, code owner review. Without a ruleset, Write is enough to merge anything.</li>
+      <li><strong>Reviewers need Write, not Maintain.</strong> Only reviews from people with at least Write count toward required approvals, so Maintain is a convenience for settings, not a prerequisite for reviewing.</li>
+      <li><strong>Bypass is not a role.</strong> Rulesets are bypassed only by the actors named in each ruleset's bypass list, so keeping that list short and explicit matters more than the role names.</li>
+    </ul>
+
+    <h2 id="identity">Identity: Entra ID, single sign-on and team sync</h2>
+    <p>Individual role assignments do not scale and leave stale access behind. Drive membership from Microsoft Entra ID instead:</p>
+    <table>
+      <thead><tr><th>Capability</th><th>What you get</th></tr></thead>
+      <tbody>
+        <tr><td>Single sign-on</td><td>People sign in to GitHub with their corporate identity and the policies attached to it, such as MFA and conditional access.</td></tr>
+        <tr><td>SCIM provisioning</td><td>Joiners are provisioned and leavers are deprovisioned automatically, which closes the most common gap: a departed developer's access lingering.</td></tr>
+        <tr><td>Team sync</td><td>A GitHub team follows the membership of an Entra group. Once connected, membership is managed only in the identity provider.</td></tr>
+        <tr><td>Auditing</td><td>Access questions are answered from one place, and membership changes made through the provider are recorded in the GitHub audit log.</td></tr>
+      </tbody>
+    </table>
+    <div class="callout learn"><p class="callout-title">Verify against GitHub documentation</p><p>Single sign-on, SCIM and team sync depend on the GitHub plan and on the account model (organization with SAML, or Enterprise Managed Users). Team sync has limits, for example on the number of groups per team, and a team that is a parent of other teams cannot be synced. Confirm the current requirements in <a href="https://docs.github.com/organizations/organizing-members-into-teams/synchronizing-a-team-with-an-identity-provider-group">Synchronizing a team with an identity provider group</a> before you design the team layout.</p></div>
+    <div class="callout warning"><p class="callout-title">Single sign-on and tokens</p><p>When the organization enforces SAML single sign-on, a personal access token must be authorized for that organization before it can reach its repositories. A token that works for a personal repository and fails for the organization is almost always this. Tokens also belong to the person who created them: when that person leaves, the Fabric connection that uses the token stops working, which is one more reason automation uses a service principal. See the <a href="service-principals-automation.html">automation page</a>.</p></div>
+    <h3 id="access-review">Review access on a schedule</h3>
+    <ul class="checklist">
+      <li>Review membership of the admin and maintainer groups, and the bypass lists of every ruleset, at least quarterly. Use Entra access reviews for the groups.</li>
+      <li>List outside collaborators and installed GitHub Apps and remove those without an owner.</li>
+      <li>Review active personal access tokens and approved token requests for the organization.</li>
+      <li>Check that nobody holds access through an individual assignment that a team already covers.</li>
+    </ul>
+
+    <h2 id="rulesets">Rulesets: protecting main</h2>
+    <p>A ruleset is a named set of rules that applies to a set of branches or tags. It is the current replacement for classic branch protection rules, and it should be your only mechanism for protecting <code>main</code>.</p>
+    <h3 id="rulesets-vs-protection">Why rulesets</h3>
+    <ul>
+      <li><strong>Layering.</strong> Several rulesets can apply to the same branch at once. GitHub aggregates them and, where they overlap, the most restrictive rule applies. Classic protection allowed only one rule per pattern.</li>
+      <li><strong>Visibility.</strong> Anyone with read access can view the active rulesets, so a developer can see why an action is blocked without asking an admin.</li>
+      <li><strong>Manageability.</strong> Rulesets have an enforcement status (active, disabled and, on plans that offer it, evaluate) so you can trial them, and they have an explicit bypass list.</li>
+      <li><strong>Reach.</strong> Rulesets can be defined at organization level and applied to many repositories, subject to plan.</li>
+    </ul>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 880 300" role="img" aria-label="An organization ruleset, a main ruleset and a release-tag ruleset combine into the effective rules on main, where the strictest value wins; a bypass list of named actors is exempt; a pull request that passes every gate is allowed and a direct or force push is rejected">
+        <defs>
+          <marker id="fig-sh-2-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-sh-2-o" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar orange" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box blue" x="20" y="40" width="240" height="60" rx="10"/>
+        <text class="t-b" x="140" y="66" text-anchor="middle">Organization ruleset</text>
+        <text class="t-s" x="140" y="84" text-anchor="middle">baseline for every repository</text>
+        <rect class="box teal" x="20" y="115" width="240" height="60" rx="10"/>
+        <text class="t-b" x="140" y="141" text-anchor="middle">Ruleset: main</text>
+        <text class="t-s" x="140" y="159" text-anchor="middle">pull requests, approvals, checks</text>
+        <rect class="box purple" x="20" y="190" width="240" height="60" rx="10"/>
+        <text class="t-b" x="140" y="216" text-anchor="middle">Ruleset: release tags</text>
+        <text class="t-s" x="140" y="234" text-anchor="middle">tags cannot be moved or deleted</text>
+        <rect class="box accent" x="340" y="85" width="240" height="130" rx="12"/>
+        <text class="t-h t-w" x="460" y="122" text-anchor="middle">Effective rules</text>
+        <text class="t-s t-w" x="460" y="146" text-anchor="middle">the union of all rulesets</text>
+        <text class="t-s t-w" x="460" y="164" text-anchor="middle">the strictest value wins</text>
+        <text class="t-s t-w" x="460" y="182" text-anchor="middle">visible to every reader</text>
+        <rect class="box orange dashed" x="340" y="243" width="240" height="46" rx="10"/>
+        <text class="t-b" x="460" y="262" text-anchor="middle">Bypass list</text>
+        <text class="t-s" x="460" y="279" text-anchor="middle">named actors only</text>
+        <rect class="box green" x="650" y="40" width="210" height="60" rx="10"/>
+        <text class="t-b" x="755" y="66" text-anchor="middle">Allowed</text>
+        <text class="t-s" x="755" y="84" text-anchor="middle">PR that passes all gates</text>
+        <rect class="box red" x="650" y="175" width="210" height="60" rx="10"/>
+        <text class="t-b" x="755" y="201" text-anchor="middle">Rejected</text>
+        <text class="t-s" x="755" y="219" text-anchor="middle">direct or force push</text>
+        <path class="ln" d="M262 70H300V115H338" marker-end="url(#fig-sh-2-a)"/>
+        <path class="ln" d="M262 145H338" marker-end="url(#fig-sh-2-a)"/>
+        <path class="ln" d="M262 220H300V185H338" marker-end="url(#fig-sh-2-a)"/>
+        <path class="ln" d="M582 120H615V70H648" marker-end="url(#fig-sh-2-a)"/>
+        <path class="ln" d="M582 180H615V205H648" marker-end="url(#fig-sh-2-a)"/>
+        <path class="ln dash orange" d="M460 241V217" marker-end="url(#fig-sh-2-o)"/>
+      </svg>
+      <figcaption><b>Rulesets add up, they do not compete.</b> Put the baseline in an organization ruleset and the repository-specific rules in the repository, and keep the bypass list as short as you can.</figcaption>
+    </figure>
+
+    <h3 id="ruleset-setup">Creating the ruleset for main</h3>
+    <ol class="steps">
+      <li><strong>Open the rules.</strong><p>In the repository, go to <em>Settings</em>, then <em>Rules</em>, then <em>Rulesets</em>, and choose <em>New ruleset</em> followed by <em>New branch ruleset</em>.</p></li>
+      <li><strong>Name it and choose the enforcement status.</strong><p>Name it for what it protects, such as <code>protect-main</code>. Start as Active if the baseline is already committed (see the callout below); use Evaluate first on plans that offer it if you want to see what would be blocked.</p></li>
+      <li><strong>Keep the bypass list nearly empty.</strong><p>Add only an explicitly named admin team or a deployment app that genuinely must write to <code>main</code>, and record why. Anyone on the list can ignore every rule.</p></li>
+      <li><strong>Target the default branch.</strong><p>Use the default-branch target rather than a pattern. Do not target all branches: feature branches must stay open, because Fabric commits straight to them.</p></li>
+      <li><strong>Select the rules</strong> in the table below, then <strong>Create</strong>.</li>
+      <li><strong>Test it.</strong><p>As a normal developer, try a direct push to <code>main</code> (it must fail), then merge a pull request that has an approval (it must succeed).</p></li>
+    </ol>
+    <table>
+      <thead><tr><th>Rule</th><th>Setting</th><th>Why, and the Fabric angle</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Restrict deletions</strong></td><td>On</td><td>The branch that feeds every environment cannot be removed.</td></tr>
+        <tr><td><strong>Block force pushes</strong></td><td>On</td><td>History stays immutable and auditable. Recover with a revert, not a rewrite (see the <a href="operations-rollback.html#revert-vs-reset">rollback page</a>).</td></tr>
+        <tr><td><strong>Require a pull request before merging</strong></td><td>On</td><td>This rule, not Restrict updates, is what stops direct pushes while still allowing merges.</td></tr>
+        <tr><td>&nbsp;&nbsp;Required approvals</td><td>1, or 2 for critical repositories</td><td>Peer review by someone other than the author.</td></tr>
+        <tr><td>&nbsp;&nbsp;Dismiss stale approvals on new commits</td><td>On</td><td>An approval applies to the code that was reviewed, not to whatever is pushed later.</td></tr>
+        <tr><td>&nbsp;&nbsp;Require approval of the most recent push</td><td>On</td><td>The last person to push cannot be the only approver.</td></tr>
+        <tr><td>&nbsp;&nbsp;Require conversation resolution</td><td>On</td><td>Open review threads block the merge.</td></tr>
+        <tr><td>&nbsp;&nbsp;Require review from code owners</td><td>On, with a CODEOWNERS file</td><td>Folder-level ownership for item folders; see the <a href="../17-pr-notifications-codeowners/index.html">CODEOWNERS playbook</a>.</td></tr>
+        <tr><td>&nbsp;&nbsp;Allowed merge methods</td><td>Squash (optionally merge)</td><td>One commit per change keeps history readable and a revert a single step.</td></tr>
+        <tr><td><strong>Require status checks to pass</strong></td><td>On once checks exist</td><td>Link the ruleset to your validation workflow. "Require branches to be up to date" is the stricter option; it costs re-runs on busy repositories.</td></tr>
+        <tr><td><strong>Restrict file paths, extensions and size</strong></td><td>Optional</td><td>Block credential-like files (<code>*.pfx</code>, <code>*.pem</code>, <code>.env</code>). Fabric itself limits a single file to 25 MB.</td></tr>
+        <tr><td><strong>Require signed commits</strong></td><td>Test first</td><td>Fabric creates the commits, so developers cannot sign them. Prove that commits from Fabric satisfy the rule in a scratch repository before relying on it.</td></tr>
+        <tr><td><strong>Restrict updates</strong></td><td>Off</td><td>See the warning below.</td></tr>
+        <tr><td><strong>Restrict creations</strong></td><td>Off</td><td>It would block creation of the feature branches that branch-out and developers rely on.</td></tr>
+      </tbody>
+    </table>
+    <div class="callout warning"><p class="callout-title">Restrict updates also blocks the merge button</p><p>Older guidance enables both <em>Restrict updates</em> and <em>Require a pull request</em>. <em>Restrict updates</em> allows only bypass actors to update the branch, and a merged pull request is an update, so reviewers who are not on the bypass list may find the merge rejected. Require a pull request already prevents direct pushes. Enable <em>Restrict updates</em> only when you deliberately route every merge through a named bypass actor, and test it before you roll it out.</p></div>
+    <div class="callout important"><p class="callout-title">Commit the baseline before you enable the ruleset</p><p>Fabric's first commit goes straight to the connected branch with the connecting user's token, so a ruleset on <code>main</code> that already requires pull requests blocks it. Commit the baseline to <code>main</code> first, then turn the ruleset on. If the ruleset must exist from day one, connect the workspace to a temporary baseline branch, commit there, merge it through a pull request, and then use <em>Switch branch</em> to attach the workspace to <code>main</code>. Details are in the <a href="connect-safely.html#first-sync">first-sync rules</a>.</p></div>
+
+    <h2 id="hardening">Hardening the repository</h2>
+    <p>The ruleset protects one branch. The rest of the repository and its surroundings need protecting too, and each control assumes the others may fail.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 880 270" role="img" aria-label="Five layers of defence from identity to pipeline, each with four controls: identity, organization, repository, content and pipeline">
+        <defs>
+          <marker id="fig-sh-3-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box blue" x="20" y="30" width="152" height="36" rx="8"/>
+        <text class="t-b" x="96" y="53" text-anchor="middle">Identity</text>
+        <rect class="box plain" x="20" y="72" width="152" height="150" rx="8"/>
+        <text class="t-s" x="96" y="98" text-anchor="middle">SSO and MFA</text>
+        <text class="t-s" x="96" y="126" text-anchor="middle">Groups drive teams</text>
+        <text class="t-s" x="96" y="154" text-anchor="middle">Leavers lose access</text>
+        <text class="t-s" x="96" y="182" text-anchor="middle">Short-lived tokens</text>
+        <rect class="box teal" x="192" y="30" width="152" height="36" rx="8"/>
+        <text class="t-b" x="268" y="53" text-anchor="middle">Organization</text>
+        <rect class="box plain" x="192" y="72" width="152" height="150" rx="8"/>
+        <text class="t-s" x="268" y="98" text-anchor="middle">Base permission none</text>
+        <text class="t-s" x="268" y="126" text-anchor="middle">Token policy enforced</text>
+        <text class="t-s" x="268" y="154" text-anchor="middle">Approved actions only</text>
+        <text class="t-s" x="268" y="182" text-anchor="middle">Repo creation limited</text>
+        <rect class="box purple" x="364" y="30" width="152" height="36" rx="8"/>
+        <text class="t-b" x="440" y="53" text-anchor="middle">Repository</text>
+        <rect class="box plain" x="364" y="72" width="152" height="150" rx="8"/>
+        <text class="t-s" x="440" y="98" text-anchor="middle">Least-privilege roles</text>
+        <text class="t-s" x="440" y="126" text-anchor="middle">Ruleset on main</text>
+        <text class="t-s" x="440" y="154" text-anchor="middle">Deletion blocked</text>
+        <text class="t-s" x="440" y="182" text-anchor="middle">Force pushes blocked</text>
+        <rect class="box orange" x="536" y="30" width="152" height="36" rx="8"/>
+        <text class="t-b" x="612" y="53" text-anchor="middle">Content</text>
+        <rect class="box plain" x="536" y="72" width="152" height="150" rx="8"/>
+        <text class="t-s" x="612" y="98" text-anchor="middle">Secret scanning</text>
+        <text class="t-s" x="612" y="126" text-anchor="middle">Push protection</text>
+        <text class="t-s" x="612" y="154" text-anchor="middle">Code owners by folder</text>
+        <text class="t-s" x="612" y="182" text-anchor="middle">No secrets in notebooks</text>
+        <rect class="box green" x="708" y="30" width="152" height="36" rx="8"/>
+        <text class="t-b" x="784" y="53" text-anchor="middle">Pipeline</text>
+        <rect class="box plain" x="708" y="72" width="152" height="150" rx="8"/>
+        <text class="t-s" x="784" y="98" text-anchor="middle">OIDC, no stored keys</text>
+        <text class="t-s" x="784" y="126" text-anchor="middle">Environment approval</text>
+        <text class="t-s" x="784" y="154" text-anchor="middle">Least-privilege token</text>
+        <text class="t-s" x="784" y="182" text-anchor="middle">Pinned action versions</text>
+        <path class="ln" d="M174 48H190" marker-end="url(#fig-sh-3-a)"/>
+        <path class="ln" d="M346 48H362" marker-end="url(#fig-sh-3-a)"/>
+        <path class="ln" d="M518 48H534" marker-end="url(#fig-sh-3-a)"/>
+        <path class="ln" d="M690 48H706" marker-end="url(#fig-sh-3-a)"/>
+        <text class="t-s" x="440" y="252" text-anchor="middle">Each layer assumes the one before it can fail.</text>
+      </svg>
+      <figcaption><b>Defence in depth.</b> The ruleset is the repository layer; most real incidents come from the identity, content and pipeline layers around it.</figcaption>
+    </figure>
+    <h3 id="org-controls">Organization controls</h3>
+    <ul class="checklist">
+      <li>Require two-factor authentication or single sign-on for every member, and remove members and outside collaborators who no longer need access.</li>
+      <li>Set the base repository permission to <em>No permission</em>, so access comes only from team grants.</li>
+      <li>Set a personal access token policy: allow fine-grained tokens, restrict or disable classic tokens, and require approval of tokens that reach organization resources. See the <a href="foundations.html#authentication">authentication section</a>.</li>
+      <li>Allow only approved GitHub Actions and reusable workflows, and set the default workflow token to read-only.</li>
+      <li>Restrict who can create repositories and teams, so the repository and team layout stays deliberate.</li>
+    </ul>
+    <h3 id="repo-controls">Repository controls</h3>
+    <ul class="checklist">
+      <li>Keep one default branch (<code>main</code>), enable <em>Automatically delete head branches</em> so merged branches do not accumulate, and disable forking for private repositories.</li>
+      <li>Add a <code>CODEOWNERS</code> file that assigns each item folder, and the <code>.github/</code> folder that holds workflows, to the right team. Workflow files are code that runs with your credentials, so they deserve the strictest review.</li>
+      <li>Add a <code>.gitignore</code> that keeps local tooling output and credentials out of the repository, and a short <code>SECURITY.md</code> that says where to report a leaked secret.</li>
+      <li>Give workflows the least privilege: declare <code>permissions</code> explicitly, grant only what each job needs, and pin third-party actions to a full commit SHA.</li>
+      <li>Never store connection strings, keys or tokens in notebooks, pipelines or parameter files. Use Key Vault references and variable libraries.</li>
+    </ul>
+
+    <h2 id="scanning">Optional automated scanning</h2>
+    <p>Automated scanning catches mistakes that reviewers miss, and a ruleset can make the result a merge requirement.</p>
+    <table>
+      <thead><tr><th>Control</th><th>What it catches</th><th>Fabric relevance</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Secret scanning and push protection</strong></td><td>Tokens, keys and connection strings committed to the repository; push protection stops them before they land.</td><td>The most likely leak is a credential pasted into a notebook cell or a parameter file. Fabric commits are pushes, so push protection applies to them too.</td></tr>
+        <tr><td><strong>Code scanning (for example CodeQL)</strong></td><td>Vulnerability patterns in source code.</td><td>Notebook and script items are stored as text source, so code in supported languages can be scanned like any other code.</td></tr>
+        <tr><td><strong>Dependency alerts</strong></td><td>Known-vulnerable libraries in manifests.</td><td>Applies to repositories that hold requirement files for environments or custom libraries.</td></tr>
+        <tr><td><strong>Custom validation workflow</strong></td><td>Things only you know to check: hard-coded GUIDs, malformed JSON, missing <code>.platform</code> files, forbidden item types.</td><td>Cheap to write and the best fit for Fabric-specific rules. Make it a required status check.</td></tr>
+      </tbody>
+    </table>
+    <div class="callout learn"><p class="callout-title">Verify against GitHub documentation</p><p>Which scanning features are available for private repositories, and how they are licensed, changes over time. Several ruleset rules that gate on scanning results are marked as preview in GitHub's documentation. Check <a href="https://docs.github.com/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/available-rules-for-rulesets">Available rules for rulesets</a> and your plan before relying on them.</p></div>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p><ul>
+      <li>Grant roles to teams, drive team membership from Entra ID, and give each person the smallest GitHub and Fabric role that works.</li>
+      <li>Write can merge. The ruleset, not the role, is what makes review mandatory.</li>
+      <li>Protect <code>main</code> with a ruleset: pull request required, approvals, stale approvals dismissed, conversations resolved, code owners, no force pushes, no deletion.</li>
+      <li>Do not enable Restrict updates by reflex, do not target feature branches, and commit the baseline before enabling the ruleset.</li>
+      <li>Harden around the branch: token policy, approved actions, code owners on workflows, no secrets in items, and scanning with push protection.</li>
+    </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://docs.github.com/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/about-rulesets">About rulesets</a></li>
+        <li><a href="https://docs.github.com/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/available-rules-for-rulesets">Available rules for rulesets</a></li>
+        <li><a href="https://docs.github.com/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/creating-rulesets-for-a-repository">Creating rulesets for a repository</a></li>
+        <li><a href="https://docs.github.com/organizations/managing-user-access-to-your-organizations-repositories/managing-repository-roles/repository-roles-for-an-organization">Repository roles for an organization</a></li>
+        <li><a href="https://docs.github.com/organizations/organizing-members-into-teams/synchronizing-a-team-with-an-identity-provider-group">Synchronizing a team with an identity provider group</a></li>
+        <li><a href="https://docs.github.com/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners">About code owners</a></li>
+        <li><a href="https://docs.github.com/actions/reference/security/secure-use">Secure use reference for GitHub Actions</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/cicd/git-integration/git-integration-process">Basic concepts in Git integration</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

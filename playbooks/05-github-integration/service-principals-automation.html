@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Service principals and Actions · GitHub Integration</title>
+<meta name="description" content="Automation identities for Fabric: a service principal per environment, OIDC federation instead of stored secrets, GitHub secret scopes and environments with required reviewers, example GitHub Actions workflows with fabric-cicd, and the Fabric Git APIs.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="05-github-integration" data-page="service-principals-automation.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+
+    <header class="page-header">
+      <p class="eyebrow">Playbook 05 · GitHub Integration</p>
+      <h1>Service principals and Actions</h1>
+      <p class="lede">Developers use their own identity in the Fabric UI. Everything that runs without a person, such as validation, deployment to TST and PRD and scheduled housekeeping, needs an identity of its own. This page shows how to give automation exactly the access it needs and no stored password at all.</p>
+      <ul class="chips"><li><b>Audience</b> platform and DevOps engineers, security reviewers</li><li><b>Use it for</b> service principals, OIDC, secrets, environments, workflows</li></ul>
+    </header>
+
+    <h2 id="identities">Who authenticates to what</h2>
+    <p>A pipeline run touches three separate trust relationships. Keeping them separate is what keeps the blast radius small.</p>
+    <table>
+      <thead><tr><th>Step in the run</th><th>Credential</th><th>Lifetime and scope</th></tr></thead>
+      <tbody>
+        <tr><td>Check out the repository, post a status</td><td><code>GITHUB_TOKEN</code>, issued automatically for each run</td><td>Expires when the job ends. Scope is whatever the workflow's <code>permissions</code> block grants.</td></tr>
+        <tr><td>Sign in to Microsoft Entra ID</td><td>A GitHub OIDC token, presented by <code>azure/login</code></td><td>Minutes. Valid only for the repository, environment or branch named in its subject claim.</td></tr>
+        <tr><td>Call the Fabric REST APIs</td><td>An Entra access token for the service principal</td><td>About an hour. Powerless unless the service principal has a workspace role.</td></tr>
+        <tr><td>Drive the Fabric <em>Git</em> APIs (optional)</td><td>The service principal, <strong>plus</strong> a Fabric connection that holds a GitHub token</td><td>The GitHub token is long-lived and tied to a person. This is the weak link, so avoid the Git APIs in the pipeline where you can.</td></tr>
+      </tbody>
+    </table>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 880 290" role="img" aria-label="Four numbered steps: the GitHub job requests an OIDC token and presents it to the federated credential in Entra ID; Entra validates it; the service principal returns an access token to the job; the job calls the Fabric API with that token, reaching a workspace where the service principal has a role">
+        <defs>
+          <marker id="fig-sp-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-sp-1-g" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <text class="t-h" x="145" y="24" text-anchor="middle">GitHub Actions</text>
+        <text class="t-h" x="445" y="24" text-anchor="middle">Microsoft Entra ID</text>
+        <text class="t-h" x="740" y="24" text-anchor="middle">Fabric</text>
+        <rect class="zone purple" x="20" y="34" width="250" height="236" rx="14"/>
+        <rect class="zone teal" x="330" y="34" width="230" height="236" rx="14"/>
+        <rect class="zone green" x="620" y="34" width="240" height="236" rx="14"/>
+        <rect class="box purple" x="40" y="90" width="210" height="56" rx="10"/>
+        <text class="t-b" x="145" y="114" text-anchor="middle">Job targeting prd</text>
+        <text class="t-s" x="145" y="132" text-anchor="middle">permissions: id-token: write</text>
+        <rect class="box teal" x="350" y="84" width="190" height="56" rx="10"/>
+        <text class="t-b" x="445" y="108" text-anchor="middle">Federated credential</text>
+        <text class="t-s" x="445" y="126" text-anchor="middle">issuer, audience, subject</text>
+        <rect class="box blue" x="350" y="180" width="190" height="56" rx="10"/>
+        <text class="t-b" x="445" y="204" text-anchor="middle">Service principal</text>
+        <text class="t-s" x="445" y="222" text-anchor="middle">no secret stored</text>
+        <rect class="box green" x="640" y="120" width="200" height="76" rx="10"/>
+        <text class="t-b" x="740" y="148" text-anchor="middle">PRD_SALES_GLD</text>
+        <text class="t-s" x="740" y="168" text-anchor="middle">service principal is</text>
+        <text class="t-s" x="740" y="184" text-anchor="middle">Contributor here</text>
+        <path class="ln" d="M252 112H348" marker-end="url(#fig-sp-1-a)"/>
+        <rect class="pill-bg" x="264" y="94" width="72" height="14"/>
+        <text class="t-s" x="300" y="105" text-anchor="middle">1 ID token</text>
+        <path class="ln" d="M445 142V178" marker-end="url(#fig-sp-1-a)"/>
+        <text class="t-s" x="456" y="164">2 validated</text>
+        <path class="ln" d="M348 208H150V148" marker-end="url(#fig-sp-1-a)"/>
+        <rect class="pill-bg" x="196" y="200" width="90" height="16"/>
+        <text class="t-s" x="241" y="212" text-anchor="middle">3 access token</text>
+        <path class="ln green thick" d="M145 88V58H740V118" marker-end="url(#fig-sp-1-g)"/>
+        <rect class="pill-bg" x="372" y="50" width="136" height="16"/>
+        <text class="t-s" x="440" y="62" text-anchor="middle">4 call the Fabric API</text>
+      </svg>
+      <figcaption><b>No password anywhere.</b> The job proves who it is with a short-lived token that Entra ID will honour only for one named repository and environment.</figcaption>
+    </figure>
+
+    <h2 id="create-sp">Creating and authorising the service principal</h2>
+    <p>Create one service principal per environment, for example <code>sp-fabric-deploy-tst</code> and <code>sp-fabric-deploy-prd</code>. A credential that can only reach TST cannot damage PRD, and each identity shows up separately in audit logs.</p>
+    <ol class="steps">
+      <li><strong>Register the application.</strong><p>In Microsoft Entra ID, register a single-tenant application. Record the <strong>Application (client) ID</strong> and the <strong>Directory (tenant) ID</strong>. These are identifiers, not secrets.</p></li>
+      <li><strong>Do not create a client secret.</strong><p>Add a federated credential instead (next section). If an exceptional case forces a secret, see the fallback in the <a href="#secrets">secrets section</a>.</p></li>
+      <li><strong>Put the service principals in a security group.</strong><p>For example <code>grp-fabric-automation</code>. Tenant settings can then be scoped to that group rather than opened to the whole organization.</p></li>
+      <li><strong>Enable the tenant setting.</strong><p>A Fabric administrator turns on the Developer setting that lets service principals call Fabric public APIs, restricted to the security group. Without it every call returns an authorization error, whatever roles the principal holds.</p></li>
+      <li><strong>Grant a workspace role.</strong><p>Add each service principal to the target workspaces and give it the lowest role that works: Contributor for publishing items, higher only if a specific call demands it. Connecting a workspace to Git requires Admin, which is one more reason deployment pipelines should not do it.</p></li>
+      <li><strong>Grant access to dependencies.</strong><p>Items deployed to a workspace often reference connections, gateways or Key Vault secrets. The service principal needs permission on each connection it must bind, and the items it creates will be owned by it, so decide who owns refresh and data source credentials.</p></li>
+      <li><strong>Verify with a read-only call.</strong><p>Sign in as the service principal and list the workspace. Only then wire it into a workflow.</p></li>
+    </ol>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>The setting is named <em>Service principals can call Fabric public APIs</em> in the admin portal's Developer settings, and some older articles use a different wording. Support also varies by API and by item type: each API reference page states whether service principals are supported, and a supported API still fails when it touches an item type that does not support them. Check <a href="https://learn.microsoft.com/rest/api/fabric/articles/identity-support">Identity support</a> and the reference page of every call before you commit to a design.</p></div>
+
+    <h2 id="oidc">OIDC federation instead of a stored secret</h2>
+    <p>With OpenID Connect, GitHub issues each job a signed token that states exactly where the job came from. Entra ID trusts that token if its claims match a <em>federated credential</em> configured on the application. Nothing needs to be stored in GitHub, so there is nothing to leak, rotate or expire.</p>
+    <table>
+      <thead><tr><th></th><th>Client secret</th><th>OIDC federated credential</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Stored in GitHub</strong></td><td>Yes, as a secret</td><td>Only the client and tenant IDs, which are identifiers</td></tr>
+        <tr><td><strong>Lifetime</strong></td><td>Months, until it expires or is rotated</td><td>Minutes, per job</td></tr>
+        <tr><td><strong>Can be reused elsewhere</strong></td><td>Yes, by anyone who obtains it</td><td>No. It only works from a matching job.</td></tr>
+        <tr><td><strong>Operational burden</strong></td><td>Rotation, expiry alerts, secret sprawl</td><td>A one-time credential per environment</td></tr>
+      </tbody>
+    </table>
+    <h3 id="federated-credential">Configuring the federated credential</h3>
+    <p>On the application registration, add a federated credential for <em>GitHub Actions deploying Azure resources</em>. The values that matter are the issuer, the audience and the subject:</p>
+    <table>
+      <thead><tr><th>Field</th><th>Value</th></tr></thead>
+      <tbody>
+        <tr><td>Issuer</td><td><code>https://token.actions.githubusercontent.com</code></td></tr>
+        <tr><td>Audience</td><td><code>api://AzureADTokenExchange</code></td></tr>
+        <tr><td>Subject, job that targets an environment</td><td><code>repo:&lt;org&gt;/&lt;repo&gt;:environment:&lt;environment&gt;</code></td></tr>
+        <tr><td>Subject, job on a branch</td><td><code>repo:&lt;org&gt;/&lt;repo&gt;:ref:refs/heads/main</code></td></tr>
+        <tr><td>Subject, pull request job</td><td><code>repo:&lt;org&gt;/&lt;repo&gt;:pull_request</code></td></tr>
+      </tbody>
+    </table>
+    <p>The subject must match exactly. Bind each service principal to the <strong>environment</strong> subject: it is the strongest claim, because the environment's required reviewers and branch restrictions are enforced before GitHub issues a token that carries it.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 880 300" role="img" aria-label="Three jobs on the left: a pull request job, a deploy TST job and a deploy PRD job. The TST job reaches the TST credential, the PRD job reaches the PRD credential; the pull request job gets no Fabric credential and the TST job cannot use the PRD credential">
+        <defs>
+          <marker id="fig-sp-2-g" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-sp-2-r" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar red" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <text class="t-h" x="145" y="24" text-anchor="middle">Workflow jobs</text>
+        <text class="t-h" x="710" y="24" text-anchor="middle">Entra credentials</text>
+        <rect class="box gray" x="20" y="40" width="250" height="56" rx="10"/>
+        <text class="t-b" x="145" y="64" text-anchor="middle">Pull request job</text>
+        <text class="t-s" x="145" y="82" text-anchor="middle">subject: pull_request</text>
+        <rect class="box blue" x="20" y="120" width="250" height="56" rx="10"/>
+        <text class="t-b" x="145" y="144" text-anchor="middle">Deploy TST job</text>
+        <text class="t-s" x="145" y="162" text-anchor="middle">subject: environment tst</text>
+        <rect class="box purple" x="20" y="200" width="250" height="56" rx="10"/>
+        <text class="t-b" x="145" y="224" text-anchor="middle">Deploy PRD job</text>
+        <text class="t-s" x="145" y="242" text-anchor="middle">environment prd, after approval</text>
+        <rect class="box red dashed" x="560" y="40" width="300" height="56" rx="10"/>
+        <text class="t-b" x="710" y="64" text-anchor="middle">No Fabric credential</text>
+        <text class="t-s" x="710" y="82" text-anchor="middle">pull requests never reach Fabric</text>
+        <rect class="box teal" x="560" y="120" width="300" height="56" rx="10"/>
+        <text class="t-b" x="710" y="144" text-anchor="middle">sp-fabric-deploy-tst</text>
+        <text class="t-s" x="710" y="162" text-anchor="middle">trusts environment tst only</text>
+        <rect class="box green" x="560" y="200" width="300" height="56" rx="10"/>
+        <text class="t-b" x="710" y="224" text-anchor="middle">sp-fabric-deploy-prd</text>
+        <text class="t-s" x="710" y="242" text-anchor="middle">trusts environment prd only</text>
+        <path class="ln dash red" d="M272 68H558" marker-end="url(#fig-sp-2-r)"/>
+        <path class="ln green thick" d="M272 140H558" marker-end="url(#fig-sp-2-g)"/>
+        <path class="ln green thick" d="M272 228H558" marker-end="url(#fig-sp-2-g)"/>
+        <path class="ln dash red" d="M272 160L558 212" marker-end="url(#fig-sp-2-r)"/>
+        <rect class="pill-bg" x="378" y="176" width="64" height="16"/>
+        <text class="t-s c-red" x="410" y="188" text-anchor="middle">no match</text>
+      </svg>
+      <figcaption><b>The subject is the boundary.</b> A job can only obtain a token for the credential whose subject matches the job, so a compromised or careless workflow on a feature branch has no route to production.</figcaption>
+    </figure>
+
+    <h2 id="secrets">GitHub secrets: scope matters</h2>
+    <p>GitHub stores encrypted secrets at three scopes. Choosing the wrong one is the most common way production credentials end up readable by people who should never see them.</p>
+    <table>
+      <thead><tr><th>Scope</th><th>Readable by</th><th>Use for</th><th>For Fabric</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Repository</strong></td><td>Every workflow in the repository, on any branch</td><td>Low-sensitivity values needed everywhere</td><td>Not for deployment credentials. A workflow pushed to a feature branch could read them.</td></tr>
+        <tr><td><strong>Environment</strong></td><td>Only jobs that target that environment, and only after its protection rules pass</td><td>Anything that differs by environment</td><td>The default home for client and tenant IDs and, in a fallback, any secret.</td></tr>
+        <tr><td><strong>Organization</strong></td><td>The repositories you select</td><td>Values genuinely shared across repositories</td><td>Avoid, unless many repositories deliberately share one identity.</td></tr>
+      </tbody>
+    </table>
+    <p>Use <strong>variables</strong>, not secrets, for non-sensitive configuration such as workspace IDs, so they stay visible in logs and reviews. Define them on the environment too: <code>WS_SALES_GLD</code> in <code>tst</code> and in <code>prd</code> hold different IDs, and the workflow file stays identical.</p>
+    <table>
+      <thead><tr><th>Name</th><th>Kind</th><th>Where</th><th>Holds</th></tr></thead>
+      <tbody>
+        <tr><td><code>AZURE_CLIENT_ID</code></td><td>Secret (or variable)</td><td>Each environment</td><td>Client ID of that environment's service principal</td></tr>
+        <tr><td><code>AZURE_TENANT_ID</code></td><td>Secret (or variable)</td><td>Each environment</td><td>The Entra tenant ID</td></tr>
+        <tr><td><code>WS_SALES_GLD</code> and the other workspace variables</td><td>Variable</td><td>Each environment</td><td>Workspace ID of that environment's workspace</td></tr>
+      </tbody>
+    </table>
+    <div class="callout warning"><p class="callout-title">If you must use a client secret</p><p>Create it for the <em>environment</em> service principal only, store it as an environment secret, give it the shortest practical expiry, assign a named owner and a calendar reminder for rotation, and turn on secret scanning with push protection so a copy cannot be committed by accident. Treat this as a temporary exception with an end date, not a design.</p></div>
+
+    <h2 id="environments">Environments with required reviewers</h2>
+    <p>A GitHub <em>environment</em> is a named deployment target with its own secrets, variables and protection rules. A job that declares <code>environment: prd</code> pauses until the rules are satisfied, and only then receives the environment's secrets and an OIDC token carrying that environment in its subject.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 880 250" role="img" aria-label="Pipeline from merge to main, validate, deploy to TST, an approval gate with required reviewers, and deploy to PRD; each stage has a note underneath describing what credentials and rules apply there">
+        <defs>
+          <marker id="fig-sp-3-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box blue" x="40" y="40" width="140" height="60" rx="10"/>
+        <text class="t-b" x="110" y="66" text-anchor="middle">Merge to main</text>
+        <text class="t-s" x="110" y="84" text-anchor="middle">after review</text>
+        <rect class="box gray" x="210" y="40" width="140" height="60" rx="10"/>
+        <text class="t-b" x="280" y="66" text-anchor="middle">Validate</text>
+        <text class="t-s" x="280" y="84" text-anchor="middle">checks on main</text>
+        <rect class="box green" x="380" y="40" width="140" height="60" rx="10"/>
+        <text class="t-b" x="450" y="66" text-anchor="middle">Deploy TST</text>
+        <text class="t-s" x="450" y="84" text-anchor="middle">environment tst</text>
+        <rect class="box orange" x="550" y="40" width="140" height="60" rx="10"/>
+        <text class="t-b" x="620" y="66" text-anchor="middle">Approval gate</text>
+        <text class="t-s" x="620" y="84" text-anchor="middle">required reviewers</text>
+        <rect class="box purple" x="720" y="40" width="140" height="60" rx="10"/>
+        <text class="t-b" x="790" y="66" text-anchor="middle">Deploy PRD</text>
+        <text class="t-s" x="790" y="84" text-anchor="middle">environment prd</text>
+        <path class="ln" d="M182 70H208" marker-end="url(#fig-sp-3-a)"/>
+        <path class="ln" d="M352 70H378" marker-end="url(#fig-sp-3-a)"/>
+        <path class="ln" d="M522 70H548" marker-end="url(#fig-sp-3-a)"/>
+        <path class="ln" d="M692 70H718" marker-end="url(#fig-sp-3-a)"/>
+        <path class="ln dash thin" d="M110 102V138"/>
+        <path class="ln dash thin" d="M280 102V138"/>
+        <path class="ln dash thin" d="M450 102V138"/>
+        <path class="ln dash thin" d="M620 102V138"/>
+        <path class="ln dash thin" d="M790 102V138"/>
+        <rect class="box plain" x="40" y="140" width="140" height="84" rx="8"/>
+        <text class="t-s" x="110" y="164" text-anchor="middle">Ruleset on main</text>
+        <text class="t-s" x="110" y="184" text-anchor="middle">PR, approvals,</text>
+        <text class="t-s" x="110" y="204" text-anchor="middle">checks passed</text>
+        <rect class="box plain" x="210" y="140" width="140" height="84" rx="8"/>
+        <text class="t-s" x="280" y="164" text-anchor="middle">No Fabric access</text>
+        <text class="t-s" x="280" y="184" text-anchor="middle">read-only token</text>
+        <text class="t-s" x="280" y="204" text-anchor="middle">lint and tests</text>
+        <rect class="box plain" x="380" y="140" width="140" height="84" rx="8"/>
+        <text class="t-s" x="450" y="164" text-anchor="middle">Secrets: tst only</text>
+        <text class="t-s" x="450" y="184" text-anchor="middle">OIDC subject tst</text>
+        <text class="t-s" x="450" y="204" text-anchor="middle">runs automatically</text>
+        <rect class="box plain" x="550" y="140" width="140" height="84" rx="8"/>
+        <text class="t-s" x="620" y="164" text-anchor="middle">Waits for a human</text>
+        <text class="t-s" x="620" y="184" text-anchor="middle">not the author</text>
+        <text class="t-s" x="620" y="204" text-anchor="middle">up to six reviewers</text>
+        <rect class="box plain" x="720" y="140" width="140" height="84" rx="8"/>
+        <text class="t-s" x="790" y="164" text-anchor="middle">Secrets: prd only</text>
+        <text class="t-s" x="790" y="184" text-anchor="middle">OIDC subject prd</text>
+        <text class="t-s" x="790" y="204" text-anchor="middle">branch must be main</text>
+      </svg>
+      <figcaption><b>Every gate is enforced by the platform, not by convention.</b> The PRD credentials do not exist for a job until a reviewer approves, and only a job on <code>main</code> is allowed to ask.</figcaption>
+    </figure>
+    <h3 id="environment-setup">Setting up an environment</h3>
+    <ol class="steps">
+      <li><strong>Create it.</strong><p>Repository <em>Settings</em>, then <em>Environments</em>, then <em>New environment</em>. Create <code>tst</code> and <code>prd</code>. Names are not case sensitive and must be unique in the repository.</p></li>
+      <li><strong>Required reviewers.</strong><p>Add the people or teams who approve deployments to that environment, up to six; one approval is enough to proceed. These reviewers approve <em>deployments</em>, not pull requests: pull-request review is governed by the ruleset.</p></li>
+      <li><strong>Prevent self-review.</strong><p>Select it so the person who triggered the run cannot approve their own deployment.</p></li>
+      <li><strong>Restrict deployment branches.</strong><p>Choose <em>Selected branches and tags</em> and allow only <code>main</code> for <code>tst</code> and <code>prd</code>. Without this, a workflow on any branch can target the environment.</p></li>
+      <li><strong>Decide on administrator bypass.</strong><p>For <code>prd</code>, deselect <em>Allow administrators to bypass configured protection rules</em> unless you have a documented break-glass process, and record who may use it.</p></li>
+      <li><strong>Add the environment's secrets and variables.</strong><p>Client and tenant IDs and the workspace IDs for that environment. Secrets and variables are released to the job only after the protection rules pass.</p></li>
+    </ol>
+    <div class="callout important"><p class="callout-title">Anyone who can edit workflows can create environments</p><p>A workflow that names an environment that does not exist creates it, with no reviewers, no branch restrictions and no secrets. A typo in a workflow can therefore produce an unprotected environment that looks like the real one. Pre-create every environment you use, and require code owner review on <code>.github/workflows/</code> (see the <a href="../17-pr-notifications-codeowners/index.html">CODEOWNERS playbook</a>) so changing a deployment workflow needs the platform team's approval.</p></div>
+    <div class="callout learn"><p class="callout-title">Verify against GitHub documentation</p><p>On GitHub Free, Pro and Team plans, required reviewers and wait timers are available only for public repositories, and for private repositories they need GitHub Enterprise. If your plan lacks them, rely on the ruleset, the branch restriction and OIDC subjects, and add a manual approval step elsewhere. Confirm in <a href="https://docs.github.com/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments">Managing environments for deployment</a>.</p></div>
+
+    <h2 id="mechanisms">Choosing how the pipeline deploys</h2>
+    <p>Fabric can reach TST and PRD by several routes. The service principal and OIDC pattern above is the same for all of them; the difference is what the job does once it is signed in.</p>
+    <table>
+      <thead><tr><th>Mechanism</th><th>What it does</th><th>Fits when</th><th>Watch for</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Deployment pipelines</strong> (Fabric)</td><td>Promote content between stages inside Fabric, with deployment rules per stage.</td><td>You want Fabric-native promotion and stage-level rules.</td><td>Deployment rules and supported items differ from Git. See the <a href="../07-deployment/index.html">deployment playbook</a>.</td></tr>
+        <tr><td><strong>fabric-cicd</strong></td><td>Open-source Python library that publishes item definitions from a repository folder into a workspace, with find-and-replace parameterisation per environment.</td><td>The repository is the source of truth and you want code-first, repeatable releases to TST and PRD.</td><td>Orphan cleanup deletes items missing from the repository. Item-type coverage and options change between releases.</td></tr>
+        <tr><td><strong>Fabric REST item APIs or the Fabric CLI</strong></td><td>Create and update items from their definitions, one call at a time.</td><td>You need an operation the library does not cover, or want full control.</td><td>You own the ordering, dependency handling and retries.</td></tr>
+        <tr><td><strong>Fabric Git APIs</strong></td><td>Connect a workspace, initialize it and run update from Git.</td><td>Downstream workspaces are deliberately connected to Git.</td><td>For GitHub, the service principal still needs a connection that holds a GitHub token. See below.</td></tr>
+      </tbody>
+    </table>
+    <div class="callout learn"><p class="callout-title">Verify against the tools' own documentation</p><p>fabric-cicd and the Fabric CLI evolve quickly: supported item types, parameter-file features and authentication options all change. Read the current <a href="https://microsoft.github.io/fabric-cicd/">fabric-cicd documentation</a> and the <a href="https://microsoft.github.io/fabric-cli/">Fabric CLI documentation</a>, and pin the version you tested. The CLI signs in non-interactively as a service principal, including with a federated token passed through environment variables.</p></div>
+
+    <h2 id="workflows">Workflows</h2>
+    <p>Two workflows are enough to start. Both live in <code>.github/workflows/</code>, which is outside every connected workspace folder, so Git sync never touches them.</p>
+    <h3 id="pr-validation">Validation on pull requests</h3>
+    <p>This workflow needs no Fabric access at all: it reads the repository and reports a status. Name the job <code>validate</code> and add it as a required status check in the ruleset.</p>
+<pre data-title=".github/workflows/pr-validation.yml"><code class="language-yaml">name: pr-validation
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Every item folder has a valid .platform file
+        run: |
+          status=0
+          for d in $(find . -type d -regextype posix-extended \
+              -regex '.*\.(Notebook|DataPipeline|Lakehouse|Warehouse|SemanticModel|Report|Environment)'); do
+            if [ ! -f "$d/.platform" ]; then
+              echo "Missing .platform in $d"; status=1
+            elif ! python3 -m json.tool "$d/.platform" > /dev/null; then
+              echo "Invalid JSON in $d/.platform"; status=1
+            fi
+          done
+          exit $status</code></pre>
+    <p>Grow it with the checks only you know to write: forbidden item types, hard-coded workspace names, a unit-test run for the notebook helper code in <code>_tests/</code>.</p>
+    <h3 id="deploy-workflow">Deployment after merge</h3>
+    <p>The deployment workflow runs on every push to <code>main</code>. It deploys to TST automatically, then waits at the <code>prd</code> environment's gate. The folders are listed in dependency order and run one at a time, so a layer never deploys before the layer it reads from.</p>
+<pre data-title=".github/workflows/deploy.yml"><code class="language-yaml">name: deploy
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fabric-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy-tst:
+    runs-on: ubuntu-latest
+    environment: tst
+    permissions:
+      id-token: write
+      contents: read
+    strategy:
+      max-parallel: 1
+      matrix:
+        folder: [SALES_BRZ, SALES_SLV, SALES_GLD]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          allow-no-subscriptions: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install fabric-cicd
+      - run: python _deploy/deploy.py --folder "$FOLDER" --workspace-id "$WORKSPACE_ID" --environment TST
+        env:
+          FOLDER: ${{ matrix.folder }}
+          WORKSPACE_ID: ${{ vars[format('WS_{0}', matrix.folder)] }}
+
+  deploy-prd:
+    needs: deploy-tst
+    runs-on: ubuntu-latest
+    environment: prd          # pauses here until a required reviewer approves
+    permissions:
+      id-token: write
+      contents: read
+    strategy:
+      max-parallel: 1
+      matrix:
+        folder: [SALES_BRZ, SALES_SLV, SALES_GLD]
+    steps:
+      # identical to deploy-tst, but with --environment PRD
+      - uses: actions/checkout@v4
+      - uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          allow-no-subscriptions: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install fabric-cicd
+      - run: python _deploy/deploy.py --folder "$FOLDER" --workspace-id "$WORKSPACE_ID" --environment PRD
+        env:
+          FOLDER: ${{ matrix.folder }}
+          WORKSPACE_ID: ${{ vars[format('WS_{0}', matrix.folder)] }}</code></pre>
+    <ul>
+      <li><strong><code>id-token: write</code> only on the deploy jobs.</strong> Every other job gets read-only access. Without this permission <code>azure/login</code> cannot request the OIDC token.</li>
+      <li><strong><code>allow-no-subscriptions: true</code></strong> because the service principal has Fabric roles but no Azure subscription. Without it the login step fails looking for a subscription.</li>
+      <li><strong>Secrets only appear as inputs and environment variables.</strong> Never build a shell command by pasting <code>${{ }}</code> expressions that contain untrusted text such as branch names or pull-request titles; pass them through <code>env</code> as shown.</li>
+      <li><strong>Pin actions to a full commit SHA.</strong> The version tags above keep the example readable; in your repository replace them with the SHA of the release you reviewed.</li>
+      <li><strong><code>concurrency</code></strong> stops two merges from deploying over each other.</li>
+    </ul>
+    <h3 id="deploy-script">The deployment script</h3>
+    <p>The script signs in through the Azure CLI session that <code>azure/login</code> created, then publishes one workspace folder. It lives in <code>_deploy/</code>, outside every workspace folder.</p>
+<pre data-title="_deploy/deploy.py"><code class="language-python">import argparse
+from azure.identity import AzureCliCredential
+from fabric_cicd import FabricWorkspace, publish_all_items, unpublish_all_orphan_items
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--folder", required=True)
+parser.add_argument("--workspace-id", required=True)
+parser.add_argument("--environment", required=True)
+args = parser.parse_args()
+
+workspace = FabricWorkspace(
+    workspace_id=args.workspace_id,
+    environment=args.environment,
+    repository_directory=args.folder,
+    item_type_in_scope=["Notebook", "DataPipeline", "Environment"],
+    token_credential=AzureCliCredential(),
+)
+
+publish_all_items(workspace)
+unpublish_all_orphan_items(workspace)</code></pre>
+    <p>Environment-specific values are swapped at publish time by a parameter file in the folder, so the item definitions in Git stay identical across environments:</p>
+<pre data-title="SALES_GLD/parameter.yml"><code class="language-yaml">find_replace:
+  - find_value: "&lt;dev-lakehouse-id&gt;"
+    replace_value:
+      TST: "&lt;tst-lakehouse-id&gt;"
+      PRD: "&lt;prd-lakehouse-id&gt;"</code></pre>
+    <div class="callout warning"><p class="callout-title">Orphan cleanup deletes items</p><p><code>unpublish_all_orphan_items</code> removes items from the target workspace that are not in the repository. That is how a deletion in Git reaches PRD, and also how a mistake does. Keep data-bearing types such as lakehouses and warehouses out of <code>item_type_in_scope</code> unless you have thought it through, run the script in TST first, and consider excluding specific names. The cross-workspace binding rules on the <a href="repository-design.html#dependencies">repository page</a> still apply.</p></div>
+
+    <h2 id="git-apis">Driving the Git APIs from automation</h2>
+    <p>Everything the source control pane does has a REST equivalent. That is useful for reconnecting a rebuilt workspace, scripting branch-out, or keeping a downstream workspace connected to Git. It comes with one catch for GitHub.</p>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 880 250" role="img" aria-label="Five steps: create a GitHub connection that holds a token, connect the workspace, initialize the connection, update from Git if required, and poll the long-running operation until it finishes; notes below each step give the permission or condition">
+        <defs>
+          <marker id="fig-sp-4-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="box orange" x="40" y="40" width="140" height="60" rx="10"/>
+        <text class="t-b" x="110" y="66" text-anchor="middle">1 Connection</text>
+        <text class="t-s" x="110" y="84" text-anchor="middle">holds a GitHub token</text>
+        <rect class="box blue" x="210" y="40" width="140" height="60" rx="10"/>
+        <text class="t-b" x="280" y="66" text-anchor="middle">2 Connect</text>
+        <text class="t-s" x="280" y="84" text-anchor="middle">workspace to branch</text>
+        <rect class="box blue" x="380" y="40" width="140" height="60" rx="10"/>
+        <text class="t-b" x="450" y="66" text-anchor="middle">3 Initialize</text>
+        <text class="t-s" x="450" y="84" text-anchor="middle">compare both sides</text>
+        <rect class="box green" x="550" y="40" width="140" height="60" rx="10"/>
+        <text class="t-b" x="620" y="66" text-anchor="middle">4 Update</text>
+        <text class="t-s" x="620" y="84" text-anchor="middle">from Git, if required</text>
+        <rect class="box gray" x="720" y="40" width="140" height="60" rx="10"/>
+        <text class="t-b" x="790" y="66" text-anchor="middle">5 Poll</text>
+        <text class="t-s" x="790" y="84" text-anchor="middle">until it finishes</text>
+        <path class="ln" d="M182 70H208" marker-end="url(#fig-sp-4-a)"/>
+        <path class="ln" d="M352 70H378" marker-end="url(#fig-sp-4-a)"/>
+        <path class="ln" d="M522 70H548" marker-end="url(#fig-sp-4-a)"/>
+        <path class="ln" d="M692 70H718" marker-end="url(#fig-sp-4-a)"/>
+        <rect class="box plain" x="40" y="130" width="140" height="84" rx="8"/>
+        <text class="t-s" x="110" y="154" text-anchor="middle">Created once, by a</text>
+        <text class="t-s" x="110" y="174" text-anchor="middle">person. The token is</text>
+        <text class="t-s" x="110" y="194" text-anchor="middle">the weak link.</text>
+        <rect class="box plain" x="210" y="130" width="140" height="84" rx="8"/>
+        <text class="t-s" x="280" y="154" text-anchor="middle">Caller must be a</text>
+        <text class="t-s" x="280" y="174" text-anchor="middle">workspace admin and</text>
+        <text class="t-s" x="280" y="194" text-anchor="middle">use the connection.</text>
+        <rect class="box plain" x="380" y="130" width="140" height="84" rx="8"/>
+        <text class="t-s" x="450" y="154" text-anchor="middle">The response says</text>
+        <text class="t-s" x="450" y="174" text-anchor="middle">which action is</text>
+        <text class="t-s" x="450" y="194" text-anchor="middle">required, if any.</text>
+        <rect class="box plain" x="550" y="130" width="140" height="84" rx="8"/>
+        <text class="t-s" x="620" y="154" text-anchor="middle">Send the commit</text>
+        <text class="t-s" x="620" y="174" text-anchor="middle">hash and workspace</text>
+        <text class="t-s" x="620" y="194" text-anchor="middle">head from step 3.</text>
+        <rect class="box plain" x="720" y="130" width="140" height="84" rx="8"/>
+        <text class="t-s" x="790" y="154" text-anchor="middle">Wait the number of</text>
+        <text class="t-s" x="790" y="174" text-anchor="middle">seconds the response</text>
+        <text class="t-s" x="790" y="194" text-anchor="middle">header gives you.</text>
+        <path class="ln dash thin" d="M110 102V128"/>
+        <path class="ln dash thin" d="M280 102V128"/>
+        <path class="ln dash thin" d="M450 102V128"/>
+        <path class="ln dash thin" d="M620 102V128"/>
+        <path class="ln dash thin" d="M790 102V128"/>
+      </svg>
+      <figcaption><b>Connect, initialize, then act.</b> Commit and update are long-running operations: the call returns an operation ID, and you poll that operation until it reports success or failure.</figcaption>
+    </figure>
+    <p>Connecting a workspace to a GitHub branch looks like this. The connection ID comes from a connection created once, by a person, that stores a GitHub token; the call cannot use the automatic credential source for GitHub or for a service principal.</p>
+<pre data-title="POST /v1/workspaces/{workspaceId}/git/connect"><code class="language-json">{
+  "gitProviderDetails": {
+    "gitProviderType": "GitHub",
+    "ownerName": "contoso-org",
+    "repositoryName": "fabric-analytics",
+    "branchName": "main",
+    "directoryName": "SALES_GLD"
+  },
+  "myGitCredentials": {
+    "source": "ConfiguredConnection",
+    "connectionId": "&lt;connection-id&gt;"
+  }
+}</code></pre>
+    <ul>
+      <li><strong>Who may call it.</strong> The caller must be an admin of the workspace and have permission on the connection. A service principal is supported only through a configured connection.</li>
+      <li><strong>The token problem.</strong> For GitHub the configured connection holds a personal access token, so the service principal is only as safe as that token. Use a fine-grained token limited to the one repository with read access to contents, give it an expiry, and plan its renewal. If you can, avoid the problem: deploy definitions with fabric-cicd instead of connecting TST and PRD to Git.</li>
+      <li><strong>Enterprise Cloud with data residency.</strong> Add <code>customDomainName</code> to <code>gitProviderDetails</code> for a <code>ghe.com</code> domain. Other custom domains are not supported.</li>
+      <li><strong>Same rules as the UI.</strong> The API has the same limits, the same conflicts and the same quirks as the pane. Updates also fail on logical ID conflicts, which you resolve by renaming the item or aligning the ID in Git.</li>
+    </ul>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p><ul>
+      <li>Automation gets its own identity: one service principal per environment, in a security group, with the lowest workspace role that works.</li>
+      <li>Use OIDC federation so no Azure secret is stored. Bind each credential to an environment subject, and a feature branch cannot reach production.</li>
+      <li>Keep deployment credentials in environment scope, never repository or organization scope, and keep workspace IDs as environment variables.</li>
+      <li>Environments add the human gate: required reviewers, prevent self-review, deployment branches limited to <code>main</code>, and protected workflow files.</li>
+      <li>Prefer definition-based deployment to TST and PRD. If you drive the Git APIs, remember that GitHub still needs a connection holding a personal token.</li>
+    </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/rest/api/fabric/articles/identity-support">Identity support for the Fabric REST APIs</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/cicd/git-integration/git-automation">Automate Git integration by using APIs</a></li>
+        <li><a href="https://learn.microsoft.com/rest/api/fabric/core/git/connect">Git - Connect (REST API)</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/cicd/git-integration/git-integration-with-service-principal">Git integration with service principal</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/cicd/best-practices-cicd">Best practices for lifecycle management in Fabric</a></li>
+        <li><a href="https://docs.github.com/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments">Managing environments for deployment</a></li>
+        <li><a href="https://docs.github.com/actions/how-tos/secure-your-work/security-harden-deployments/oidc-in-azure">Configuring OpenID Connect in Azure</a></li>
+        <li><a href="https://docs.github.com/actions/reference/security/secure-use">Secure use reference for GitHub Actions</a></li>
+        <li><a href="https://github.com/Azure/login">azure/login action</a></li>
+        <li><a href="https://microsoft.github.io/fabric-cicd/">fabric-cicd documentation</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

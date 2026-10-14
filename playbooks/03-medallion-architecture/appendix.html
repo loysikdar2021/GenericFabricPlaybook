@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Appendix: loader internals · Medallion Architecture</title>
+<meta name="description" content="A generic full-load snapshot loader with filters, transforms and schema control, and a line-by-line walkthrough of the Silver incremental MERGE utility and the Gold engine.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="03-medallion-architecture" data-page="appendix.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 03 · Reference</p>
+      <h1>Appendix: loader internals</h1>
+      <p class="lede">Reference material for engineers who maintain the loaders: a generic full-load snapshot function with usage examples for filters and for transformations, and a walkthrough of the Silver and Gold merge engines that explains each step and what changed from the original code.</p>
+      <ul class="chips"><li><b>Audience</b> data engineers</li><li><b>Focus</b> code walkthrough</li><li><b>Pages</b> 10 of 10</li></ul>
+    </header>
+    <h2 id="generic-full-load">Generic full load with filters</h2>
+    <p><code>full_load_overwrite</code> is a full-replace (snapshot) loader: a safer <code>CREATE TABLE AS SELECT</code> written in PySpark, with guardrails, an optional filter, an optional transform, schema control and optional metrics. It extends the simpler <a href="bronze-to-silver.html#full-load-function">full-load function</a> for tables that need more than a filter.</p>
+<figure class="diagram">
+<svg class="dg" viewBox="0 0 900 262" role="img" aria-label="The generic full-load loader reads the source, validates required columns, filters, transforms, projects or casts to a target schema, optionally repartitions, overwrites the Delta table in one commit and optionally counts rows">
+<defs>
+<marker id="fig-app-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+</defs>
+<rect class="box blue" x="16" y="20" width="180" height="70" rx="10"/>
+<text class="t-b" x="106" y="42" text-anchor="middle">1 Read</text>
+<text class="t-s" x="106" y="59" text-anchor="middle">spark.table</text>
+<text class="t-s" x="106" y="76" text-anchor="middle">(source)</text>
+<rect class="box orange dashed" x="238" y="20" width="180" height="70" rx="10"/>
+<text class="t-b" x="328" y="42" text-anchor="middle">2 Validate</text>
+<text class="t-s" x="328" y="59" text-anchor="middle">required columns</text>
+<text class="t-s" x="328" y="76" text-anchor="middle">present?</text>
+<rect class="box blue dashed" x="460" y="20" width="180" height="70" rx="10"/>
+<text class="t-b" x="550" y="42" text-anchor="middle">3 Filter</text>
+<text class="t-s" x="550" y="59" text-anchor="middle">SQL, Column</text>
+<text class="t-s" x="550" y="76" text-anchor="middle">or callable</text>
+<rect class="box blue dashed" x="682" y="20" width="180" height="70" rx="10"/>
+<text class="t-b" x="772" y="42" text-anchor="middle">4 Transform</text>
+<text class="t-s" x="772" y="59" text-anchor="middle">transform_fn,</text>
+<text class="t-s" x="772" y="76" text-anchor="middle">identity default</text>
+<rect class="box purple dashed" x="16" y="150" width="180" height="70" rx="10"/>
+<text class="t-b" x="106" y="172" text-anchor="middle">5 Project</text>
+<text class="t-s" x="106" y="189" text-anchor="middle">select_cols or</text>
+<text class="t-s" x="106" y="206" text-anchor="middle">select_and_cast</text>
+<rect class="box plain dashed" x="238" y="150" width="180" height="70" rx="10"/>
+<text class="t-b" x="328" y="172" text-anchor="middle">6 Repartition</text>
+<text class="t-s" x="328" y="189" text-anchor="middle">num_repartitions</text>
+<text class="t-s" x="328" y="206" text-anchor="middle">before write</text>
+<rect class="box silver" x="460" y="150" width="180" height="70" rx="10"/>
+<text class="t-b" x="550" y="172" text-anchor="middle">7 Overwrite</text>
+<text class="t-s" x="550" y="189" text-anchor="middle">one commit,</text>
+<text class="t-s" x="550" y="206" text-anchor="middle">partition_by</text>
+<rect class="box plain dashed" x="682" y="150" width="180" height="70" rx="10"/>
+<text class="t-b" x="772" y="172" text-anchor="middle">8 Metrics</text>
+<text class="t-s" x="772" y="189" text-anchor="middle">counts if</text>
+<text class="t-s" x="772" y="206" text-anchor="middle">print_counts</text>
+<path class="ln" d="M196 55H238" marker-end="url(#fig-app-1-a)"/>
+<path class="ln" d="M418 55H460" marker-end="url(#fig-app-1-a)"/>
+<path class="ln" d="M640 55H682" marker-end="url(#fig-app-1-a)"/>
+<path class="ln" d="M196 185H238" marker-end="url(#fig-app-1-a)"/>
+<path class="ln" d="M418 185H460" marker-end="url(#fig-app-1-a)"/>
+<path class="ln" d="M640 185H682" marker-end="url(#fig-app-1-a)"/>
+<path class="ln" d="M772 90V120H106V150" marker-end="url(#fig-app-1-a)"/>
+<text class="t-s" x="16" y="246">A missing required column or a column absent after the transform raises before anything is written.</text>
+</svg>
+<figcaption><b>The generic full-load loader.</b> Dashed steps are optional. Filtering happens before the transform so the transform sees fewer rows, and the overwrite is one Delta commit, which makes a retry safe.</figcaption>
+</figure>
+<pre data-title="full_load_overwrite (library module or first code cell)"><code class="language-python">from typing import Any, Callable, Dict, Mapping, Optional, Sequence, Union
+
+from pyspark.sql import Column, DataFrame, SparkSession
+from pyspark.sql import functions as F
+
+RowFilter = Union[str, Column, Callable[[DataFrame], Column]]
+
+
+def apply_row_filter(df: DataFrame, cond: Optional[RowFilter]) -&gt; DataFrame:
+    """Apply a SQL string, a Column, or a callable(df) -&gt; Column."""
+    if cond is None:
+        return df
+    if isinstance(cond, Column):
+        return df.filter(cond)
+    if isinstance(cond, str):
+        return df.filter(F.expr(cond))
+    if callable(cond):
+        result = cond(df)
+        if not isinstance(result, Column):
+            raise TypeError("A callable row_filter must return a pyspark.sql.Column")
+        return df.filter(result)
+    raise TypeError("row_filter must be a SQL string, a Column or a callable(df) -&gt; Column")
+
+
+def full_load_overwrite(
+    spark: SparkSession,
+    source_table: str,
+    target_table: str,
+    *,
+    row_filter: Optional[RowFilter] = None,
+    transform_fn: Callable[[DataFrame], DataFrame] = lambda df: df,
+    select_cols: Optional[Sequence[str]] = None,
+    select_and_cast: Optional[Mapping[str, str]] = None,
+    validate_required_cols: Sequence[str] = (),
+    partition_by: Sequence[str] = (),
+    num_repartitions: Optional[int] = None,
+    overwrite_schema: bool = False,
+    print_counts: bool = False,
+) -&gt; Dict[str, Any]:
+    """Replace target_table with a filtered, transformed and typed snapshot of source_table."""
+    if select_cols and select_and_cast:
+        raise ValueError("Pass select_cols or select_and_cast, not both")
+
+    # 1. Read and fail fast on missing columns (names compared case-sensitively).
+    src = spark.table(source_table)
+    missing = [c for c in validate_required_cols if c not in src.columns]
+    if missing:
+        raise ValueError(f"{source_table} is missing required columns {missing}")
+
+    # 2. Filter early, then transform. transform_fn defaults to the identity function.
+    out = transform_fn(apply_row_filter(src, row_filter))
+
+    # 3. Projection: a declared, typed schema or a strict column list.
+    if select_and_cast:
+        out = out.select(*[
+            (F.col(name) if name in out.columns else F.lit(None)).cast(dtype).alias(name)
+            for name, dtype in select_and_cast.items()
+        ])
+    elif select_cols:
+        absent = [c for c in select_cols if c not in out.columns]
+        if absent:
+            raise ValueError(f"Columns {absent} are not present after the transform")
+        out = out.select(*select_cols)
+
+    # 4. One overwrite commit: readers see the old snapshot or the new one, never a mix.
+    if num_repartitions:
+        out = out.repartition(num_repartitions)
+    writer = out.write.format("delta").mode("overwrite")
+    if overwrite_schema:
+        writer = writer.option("overwriteSchema", "true")
+    if partition_by:
+        writer = writer.partitionBy(*partition_by)
+    writer.saveAsTable(target_table)
+
+    # 5. Optional metrics. Each count() is a full scan: development and bring-up only.
+    metrics: Dict[str, Any] = {"source": source_table, "target": target_table}
+    if print_counts:
+        metrics["source_rows"] = src.count()
+        metrics["target_rows"] = spark.table(target_table).count()
+        print(metrics)
+    return metrics</code></pre>
+    <h3 id="full-load-parameters">Key parameters</h3>
+    <table>
+      <thead><tr><th>Parameter</th><th>What it does</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td><code>row_filter</code></td><td>Predicate applied before the transform: a SQL string (<code>"is_active = true"</code>), a Column (<code>F.col("is_active") &amp; (F.col("score") &gt; 0)</code>) or a callable returning a Column</td><td>Anything else raises a <code>TypeError</code> before reading data</td></tr>
+        <tr><td><code>transform_fn</code></td><td>A function from DataFrame to DataFrame; the default is the identity function</td><td>Keeps the wiring stable while business logic changes, and is testable on its own</td></tr>
+        <tr><td><code>select_cols</code></td><td>Strict projection after the transform</td><td>Raises if a listed column is missing</td></tr>
+        <tr><td><code>select_and_cast</code></td><td>Declares the target schema as <code>{name: type}</code>: existing columns are cast, missing ones created as typed NULLs</td><td>Stabilizes schemas across inconsistent sources; a silent NULL column can also hide an upstream rename, so pair it with <code>validate_required_cols</code></td></tr>
+        <tr><td><code>validate_required_cols</code></td><td>Columns that must exist in the source</td><td>Fails fast on upstream schema breaks; names are compared case-sensitively</td></tr>
+        <tr><td><code>partition_by</code></td><td>Partition columns for the written table</td><td>Changing the partitioning of an existing table on overwrite needs <code>overwrite_schema=True</code>; partition only large tables</td></tr>
+        <tr><td><code>num_repartitions</code></td><td>Repartition before writing</td><td>Controls write parallelism and file count; leave unset unless you have measured a need</td></tr>
+        <tr><td><code>overwrite_schema</code></td><td>Passes <code>overwriteSchema</code> to the writer</td><td>Lets the overwrite change columns and types; off by default here so schema changes are deliberate</td></tr>
+        <tr><td><code>print_counts</code></td><td>Counts source and target and prints them</td><td>Two full scans; for bring-up and unit tests only</td></tr>
+      </tbody>
+    </table>
+    <h3 id="full-load-semantics">Semantics</h3>
+    <ul>
+      <li><strong>Idempotent.</strong> The whole table is replaced in one Delta commit, so a retry produces the same result and readers never see a partial load.</li>
+      <li><strong>Fail fast.</strong> Missing required columns, a missing projected column and a malformed filter all raise before anything is written.</li>
+      <li><strong>Filter before transform.</strong> Rows the filter removes never reach the transform, which saves work and lets Spark push the predicate down to the file scan.</li>
+    </ul>
+    <h3 id="full-load-filter-examples">Usage: filters and projection</h3>
+<pre data-title="Gold notebook: snapshot, typed snapshot, filtered snapshot"><code class="language-python"># Gold lakehouse notebook; slv is the shortcut schema that points at Silver.
+
+# 1) Simple snapshot with an explicit column list
+full_load_overwrite(
+    spark, "slv.orders", "dbo.orders_snapshot",
+    select_cols=["order_id", "customer_id", "order_ts", "status"],
+)
+
+# 2) Enforce a target schema across inconsistent sources: cast what exists, add the rest as typed NULLs
+full_load_overwrite(
+    spark, "slv.customers", "dbo.customers_curated",
+    select_and_cast={
+        "customer_id": "bigint",
+        "email": "string",
+        "loyalty_points": "bigint",
+        "lifetime_value": "decimal(18,2)",
+        "created_at": "timestamp",
+    },
+    validate_required_cols=["customer_id", "email"],
+    overwrite_schema=True,
+)
+
+# 3) Filter only: a rolling seven-day snapshot
+full_load_overwrite(
+    spark, "slv.web_events", "dbo.web_events_7d",
+    row_filter="event_ts &gt;= date_sub(current_date(), 7)",
+    print_counts=True,      # development only
+)</code></pre>
+    <div class="callout note"><p class="callout-title">Generalized examples</p><p>The original examples used three-part catalog names and a hard-coded calendar date in the filter. Fabric lakehouse notebooks address tables by schema and table name within the default lakehouse (or a four-part name across workspaces), and a fixed date in a production filter turns a rolling window into a shrinking one, so the examples use relative date functions.</p></div>
+
+    <h2 id="generic-full-load-transform">Generic full load with transformation</h2>
+    <p>The same function covers tables that need shaping. <code>transform_fn</code> is the injection point: pass a named function for anything you want to unit test, or a lambda for a single derived column. The type hint <code>Callable[[DataFrame], DataFrame]</code> means exactly that: a function that takes a Spark DataFrame and returns one.</p>
+<pre data-title="Gold notebook: transform examples"><code class="language-python">from pyspark.sql import DataFrame
+from pyspark.sql import functions as F
+
+
+def open_orders(df: DataFrame) -&gt; DataFrame:
+    """Keep open orders and stamp the load time."""
+    return (df.filter(F.col("status") == "open")
+              .withColumn("loaded_at_utc", F.current_timestamp()))
+
+
+# 1) Strict projection after a transform: fails if the transform dropped a column
+full_load_overwrite(
+    spark, "slv.orders", "dbo.open_orders",
+    transform_fn=open_orders,
+    select_cols=["order_id", "customer_id", "order_ts", "loaded_at_utc"],
+)
+
+# 2) Filter, transform and a partitioned target (only for tables large enough to justify partitions)
+full_load_overwrite(
+    spark, "slv.web_events", "dbo.web_events_90d",
+    row_filter="event_ts &gt;= date_sub(current_date(), 90)",
+    transform_fn=lambda df: df.withColumn("event_date", F.to_date("event_ts")),
+    partition_by=["event_date"],
+    overwrite_schema=True,   # required if the partition columns differ from the existing table
+)
+
+# 3) Typed snapshot with a transform that derives a column the source lacks
+full_load_overwrite(
+    spark, "slv.customers", "dbo.customer_segments",
+    transform_fn=lambda df: df.withColumn(
+        "segment", F.when(F.col("lifetime_value") &gt;= 10000, "premium").otherwise("standard")),
+    select_and_cast={"customer_id": "bigint", "segment": "string", "lifetime_value": "decimal(18,2)"},
+)</code></pre>
+    <table>
+      <thead><tr><th>Need</th><th>Use</th></tr></thead>
+      <tbody>
+        <tr><td>Exact output columns, fail if any is missing</td><td><code>select_cols</code> after the transform</td></tr>
+        <tr><td>Exact output types, tolerate missing source columns</td><td><code>select_and_cast</code></td></tr>
+        <tr><td>Business logic you want to test</td><td>A named <code>transform_fn</code> with its own unit tests in the shared library</td></tr>
+        <tr><td>Rolling window</td><td><code>row_filter</code> with <code>current_date()</code> arithmetic</td></tr>
+        <tr><td>Changed rows only, large table</td><td>Not this function: use the <a href="incremental-merge.html">incremental MERGE utility</a></td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="silver-engine">Silver incremental MERGE: line by line</h2>
+    <p>This section explains <code>incremental_merge_scd1</code> and its helpers as shown on the <a href="incremental-merge.html#merge-utility">incremental loads page</a>. The function slices increments with a prioritized watermark list, picks a key from candidate sets, filters early, keeps the latest row per key and applies one MERGE that updates non-key columns, inserts new keys and, when configured, deletes flagged keys.</p>
+    <h3 id="silver-helpers">Helpers</h3>
+    <table>
+      <thead><tr><th>Function</th><th>What it does</th><th>Why it is written this way</th></tr></thead>
+      <tbody>
+        <tr><td><code>table_exists</code></td><td><code>spark.catalog.tableExists(name)</code></td><td>Public API, accepts schema-qualified names. The original called the internal JVM session, which can break between runtimes.</td></tr>
+        <tr><td><code>resolve_columns</code></td><td>Maps wanted names to the DataFrame's actual names, case-insensitively</td><td>Spark resolves names case-insensitively by default, but MERGE expressions and dictionaries should use the real casing.</td></tr>
+        <tr><td><code>choose_key</code></td><td>Returns the first candidate set whose columns all exist</td><td>Lets one configuration serve sources that expose a surrogate key or only a natural key. Raises with the candidates and columns if none fits.</td></tr>
+        <tr><td><code>watermark_column</code></td><td><code>coalesce()</code> of the present watermark columns, cast to timestamp</td><td>First non-null wins, so a row missing the preferred column still gets a value.</td></tr>
+        <tr><td><code>last_watermark</code></td><td>Maximum coalesced watermark in the target</td><td>Returns <code>None</code> if the target has no watermark column; the caller then needs an explicit value.</td></tr>
+        <tr><td><code>latest_per_key</code></td><td><code>row_number()</code> over key, ordered by watermark then tie-break columns, keep row 1</td><td>MERGE needs one source row per key. The original broke ties with <code>monotonically_increasing_id()</code>, which is not deterministic across runs.</td></tr>
+        <tr><td><code>apply_row_filter</code></td><td>Accepts a SQL string, a Column or a callable returning a Column</td><td>Concrete types are checked before the generic callable check, so the dispatch never depends on whether an expression object also happens to be callable. Bad input raises a <code>TypeError</code>.</td></tr>
+        <tr><td><code>align_to_target</code></td><td>Selects the target's columns that the source has, cast to the target types, in target order</td><td>The original also added typed NULL columns for target columns missing in the source, and the update clause then overwrote real values with those NULLs.</td></tr>
+        <tr><td><code>add_missing_columns</code></td><td><code>ALTER TABLE ... ADD COLUMNS</code> for new source columns</td><td>Explicit schema evolution, only when <code>evolve_schema=True</code>. The original set the session-wide auto-merge flag, which affected every later write in the session.</td></tr>
+        <tr><td><code>commit_metrics</code></td><td>Reads <code>operationMetrics</code> of the latest commit</td><td>Exact inserted, updated and deleted counts at no cost. The original estimated them with an extra count.</td></tr>
+        <tr><td><code>build_slice</code></td><td>Filter, choose key, normalize keys, add <code>_wm</code>, apply the mark</td><td>Shared by the Silver utility and Gold reconciliation, so both select rows with identical rules.</td></tr>
+      </tbody>
+    </table>
+    <h3 id="silver-control-flow">Control flow</h3>
+    <ol>
+      <li><strong>Existence.</strong> Checks the target; raises if it is missing and <code>create_if_missing</code> is off.</li>
+      <li><strong>Mark.</strong> Uses <code>watermark_value</code> if given (string or datetime), otherwise derives it from the target. Subtracts <code>lookback_minutes</code>.</li>
+      <li><strong>Slice.</strong> <code>build_slice</code> filters first so predicates can be pushed down, then keeps rows with <code>_wm</code> above the mark.</li>
+      <li><strong>One aggregate pass.</strong> Counts rows, finds the new maximum watermark and counts null keys in a single job. The original ran <code>head(1)</code> and several counts.</li>
+      <li><strong>Early exit.</strong> An empty slice returns <code>mode = "noop"</code>.</li>
+      <li><strong>Null keys.</strong> Fails, or drops them when <code>on_null_key="drop"</code>. Keys are compared with <code>=</code>, not the null-safe <code>&lt;=&gt;</code> of the original, which matched NULL keys to each other and merged unrelated rows.</li>
+      <li><strong>Latest per key, split.</strong> Keeps one row per key, then splits rows matching <code>delete_condition</code> (as keys only) from upserts. The intermediate is persisted because it is read twice, and released in <code>finally</code>.</li>
+      <li><strong>Transform.</strong> Applies <code>transform_fn</code> to upserts only.</li>
+      <li><strong>Bootstrap.</strong> If the target does not exist, writes the upserts with <code>errorifexists</code>, so a concurrent creator is detected instead of overwritten.</li>
+      <li><strong>Align.</strong> Optional schema evolution, then aligns upserts and deletes to the target schema and tags them with <code>_op</code> <code>U</code> or <code>D</code>.</li>
+      <li><strong>MERGE.</strong> One statement with a conditional delete clause, an unconditional update clause and a conditional insert clause.</li>
+      <li><strong>Metrics.</strong> Reads inserted, updated and deleted counts from the commit.</li>
+    </ol>
+<figure class="diagram">
+<svg class="dg" viewBox="0 0 860 300" role="img" aria-label="How each source row is handled by the merge: a matched row tagged D is deleted, a matched row tagged U updates the target, an unmatched row tagged U is inserted and an unmatched row tagged D is ignored">
+<defs>
+<marker id="fig-app-2-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+<marker id="fig-app-2-a-red" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar red" d="M0 0L10 5L0 10z"/></marker>
+<marker id="fig-app-2-a-green" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar green" d="M0 0L10 5L0 10z"/></marker>
+</defs>
+<rect class="box purple" x="14" y="122" width="210" height="60" rx="10"/>
+<text class="t-b" x="119" y="147.5" text-anchor="middle">Key matches a</text>
+<text class="t-s" x="119" y="164.5" text-anchor="middle">target row?</text>
+<rect class="box purple" x="324" y="30" width="190" height="60" rx="10"/>
+<text class="t-b" x="419" y="55.5" text-anchor="middle">_op = 'D'?</text>
+<text class="t-s" x="419" y="72.5" text-anchor="middle">matched clauses</text>
+<rect class="box purple" x="324" y="214" width="190" height="60" rx="10"/>
+<text class="t-b" x="419" y="239.5" text-anchor="middle">_op = 'U'?</text>
+<text class="t-s" x="419" y="256.5" text-anchor="middle">not-matched clause</text>
+<rect class="box red" x="614" y="8" width="230" height="44" rx="10"/>
+<text class="t-b" x="729" y="34" text-anchor="middle">Delete target row</text>
+<rect class="box blue" x="614" y="68" width="230" height="44" rx="10"/>
+<text class="t-b" x="729" y="94" text-anchor="middle">Update non-key columns</text>
+<rect class="box green" x="614" y="192" width="230" height="44" rx="10"/>
+<text class="t-b" x="729" y="218" text-anchor="middle">Insert new row</text>
+<rect class="box gray" x="614" y="252" width="230" height="44" rx="10"/>
+<text class="t-b" x="729" y="278" text-anchor="middle">Ignore (already gone)</text>
+<path class="ln" d="M119 122V60H324" marker-end="url(#fig-app-2-a)"/>
+<rect class="pill-bg" x="103.1" y="87.5" width="31.8" height="16"/>
+<text class="t-s" x="119" y="100" text-anchor="middle">yes</text>
+<path class="ln" d="M119 182V244H324" marker-end="url(#fig-app-2-a)"/>
+<rect class="pill-bg" x="106.1" y="205.5" width="25.9" height="16"/>
+<text class="t-s" x="119" y="218" text-anchor="middle">no</text>
+<path class="ln red" d="M514 48H564V30H614" marker-end="url(#fig-app-2-a-red)"/>
+<rect class="pill-bg" x="573.1" y="21.5" width="31.8" height="16"/>
+<text class="t-s" x="589" y="34" text-anchor="middle">yes</text>
+<path class="ln" d="M514 72H564V90H614" marker-end="url(#fig-app-2-a)"/>
+<rect class="pill-bg" x="576.1" y="81.5" width="25.9" height="16"/>
+<text class="t-s" x="589" y="94" text-anchor="middle">no</text>
+<path class="ln green" d="M514 232H564V214H614" marker-end="url(#fig-app-2-a-green)"/>
+<rect class="pill-bg" x="573.1" y="205.5" width="31.8" height="16"/>
+<text class="t-s" x="589" y="218" text-anchor="middle">yes</text>
+<path class="ln" d="M514 256H564V274H614" marker-end="url(#fig-app-2-a)"/>
+<rect class="pill-bg" x="576.1" y="265.5" width="25.9" height="16"/>
+<text class="t-s" x="589" y="278" text-anchor="middle">no</text>
+</svg>
+<figcaption><b>What the MERGE does with each source row.</b> Delta evaluates matched clauses in order and every clause but the last needs a condition. Putting the conditional delete first and the unconditional update last is what makes both reachable, and the insert condition stops a deleted key from being re-created.</figcaption>
+</figure>
+    <div class="callout warning"><p class="callout-title">Why the original delete never ran</p><p>The original built the MERGE as an unconditional update followed by an optional conditional delete. In Delta, when a MERGE has several matched clauses, only the last may omit its condition, and clauses are evaluated in order. With the update first the statement is either rejected or the delete is unreachable, depending on the version. The delete condition also referred to a column the row filter had already removed. The rewritten MERGE puts the conditional delete first.</p></div>
+    <h3 id="silver-session-settings">Session settings the original changed</h3>
+    <table>
+      <thead><tr><th>Setting</th><th>Original</th><th>Now</th></tr></thead>
+      <tbody>
+        <tr><td><code>spark.microsoft.delta.merge.lowShuffle.enabled</code></td><td>Set to true in every call</td><td>Not set; documented as on by default and configured once in the Environment if needed</td></tr>
+        <tr><td><code>spark.databricks.delta.schema.autoMerge.enabled</code></td><td>Set to true for the session</td><td>Not set; schema evolution is explicit through <code>evolve_schema</code></td></tr>
+        <tr><td><code>spark.sql.files.maxPartitionBytes</code></td><td>Set to 512m in every call</td><td>Not set; a read-split size belongs in the Environment, not inside a utility function</td></tr>
+      </tbody>
+    </table>
+    <h3 id="silver-usage-notes">Notes on the usage blocks</h3>
+    <ul>
+      <li><strong>Grain first.</strong> Put the true grain first in <code>key_candidates</code>. A fallback key that is coarser than the grain (a product and date for a table whose grain also includes the store) merges distinct rows; prefer an error.</li>
+      <li><strong>Filters and deletes.</strong> A filter such as "not deleted" belongs in Gold, or in <code>delete_condition</code>, not in <code>row_filter</code>; otherwise deleted rows never reach the MERGE.</li>
+      <li><strong>Counts.</strong> <code>count()</code> is an exact full scan. The utility no longer counts source and target; use reconciliation on a schedule instead.</li>
+    </ul>
+
+    <h2 id="gold-engine">Gold engine: line by line</h2>
+    <h3 id="gold-constants">Constants and transforms</h3>
+    <p><code>WATERMARK_COLS_DEFAULT</code> is the update-timestamp priority list shared by all Gold tables. The engine coalesces these in order and takes the first non-null value as the row's last-changed time, which lets the pipeline slice only new and changed rows and survive tables that lack the preferred column. If upstream does not set the first column reliably, the engine will miss or repeat changes; keep the list, and push the source to set the first entry consistently.</p>
+    <p>Each transform turns Silver rows into the exact Gold shape: <code>transform_fact_order_lines</code> pivots the three charge slots into four named measures and computes gross and net amounts; <code>transform_fact_orders</code> derives an integer date key. Both end in an explicit <code>select</code>, so the Gold schema is stable and ordered. The original had two near-identical transforms for two facts; the slot logic is now one helper used in a loop.</p>
+    <h3 id="gold-config">TABLE_CONFIG</h3>
+    <p>A dictionary from Gold table name to its settings: source, key candidates, transform, delete condition and the measures to reconcile. One generic function handles many tables without copied code; adding a table means adding an entry.</p>
+    <h3 id="gold-functions">The two functions</h3>
+    <table>
+      <thead><tr><th>Step</th><th><code>incremental_merge_with_qa</code></th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td>Merges the table's configuration with any overrides passed to the call.</td></tr>
+        <tr><td>2</td><td>Builds the shared arguments (filter, transform, delete condition, key normalization, tie-break) once, so the merge and the reconciliation use identical rules.</td></tr>
+        <tr><td>3</td><td>Calls the Silver utility, which slices, deduplicates, transforms and merges.</td></tr>
+        <tr><td>4</td><td>If <code>run_qa</code>, calls <code>qa_reconcile</code> and attaches the result under <code>qa</code>.</td></tr>
+      </tbody>
+    </table>
+    <table>
+      <thead><tr><th>Step</th><th><code>qa_reconcile</code></th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td>Builds the full source with <code>build_slice</code> and no mark, so every Silver row is considered.</td></tr>
+        <tr><td>2</td><td>Keeps the latest row per key, removes rows matching the delete condition and applies the transform: the expected Gold content.</td></tr>
+        <tr><td>3</td><td>Aggregates row count and the configured measure sums on the expected side and on the target in one pass each.</td></tr>
+        <tr><td>4</td><td>Compares each pair with <code>math.isclose</code>, returns <code>qa_ok</code> and the per-check details, and raises if <code>raise_on_mismatch</code>.</td></tr>
+      </tbody>
+    </table>
+    <h3 id="gold-design">Design features</h3>
+    <ul>
+      <li><strong>Incremental by design:</strong> watermark slicing and latest-per-key selection.</li>
+      <li><strong>Idempotent MERGE:</strong> safe to rerun; only changes after the mark, minus the lookback, are considered.</li>
+      <li><strong>Loose coupling:</strong> each table's shape and grain live in configuration; the engine does not know which table it is loading.</li>
+      <li><strong>Observable:</strong> merge metrics from the commit history and reconciliation results in one dictionary, ready for a run log table.</li>
+    </ul>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p>
+      <ul>
+        <li>Use <code>full_load_overwrite</code> when a snapshot needs filters, transforms or a declared schema; use the simple function when it does not.</li>
+        <li>In MERGE, put conditional matched clauses before the unconditional one, and never compare keys null-safely.</li>
+        <li>Read exact merge counts from the Delta commit instead of counting.</li>
+        <li>Keep session settings in the Environment, not inside utility functions.</li>
+      </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://docs.delta.io/latest/delta-update.html">Delta Lake: table deletes, updates and merges</a></li>
+        <li><a href="https://docs.delta.io/latest/delta-batch.html">Delta Lake: table batch reads and writes (overwriteSchema, partitioning)</a></li>
+        <li><a href="https://docs.delta.io/latest/delta-utility.html">Delta Lake: table utility commands (history, operation metrics)</a></li>
+        <li><a href="https://spark.apache.org/docs/latest/api/python/reference/pyspark.sql/api/pyspark.sql.Catalog.tableExists.html">PySpark Catalog.tableExists</a></li>
+        <li><a href="https://spark.apache.org/docs/latest/api/python/reference/pyspark.sql/api/pyspark.sql.functions.row_number.html">PySpark functions.row_number</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-engineering/low-shuffle-merge">Low shuffle merge optimization on Delta tables</a></li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

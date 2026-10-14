@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Overview · Hub and Spoke</title>
+<meta name="description" content="Orchestrate Microsoft Fabric pipelines across workspaces with a hub master pipeline and spoke pipelines: when the pattern fits, what the platform supports today and how this playbook is organized.">
+<link rel="icon" href="../../assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../assets/css/site.css">
+<script>(function(){try{var t=localStorage.getItem('fp-theme');if(!t)t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t)}catch(e){}})()</script>
+</head>
+<body data-root="../../" data-playbook="04-cross-workspace-orchestration" data-page="index.html">
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header" id="site-header"></header>
+<div class="layout" id="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Playbook navigation"></aside>
+  <main class="content" id="main">
+    <header class="page-header">
+      <p class="eyebrow">Playbook 04 · Data engineering</p>
+      <h1>Cross-Workspace Pipeline Orchestration (Hub and Spoke)</h1>
+      <p class="lede">A pattern for running end-to-end data workflows that span many Fabric workspaces. One hub workspace owns order, retries and the run log; domain or layer spokes own their data and their pipelines. This playbook covers the design, the Invoke pipeline activity that makes it work, control flow, central monitoring, CI/CD, the alternatives, and a hands-on workshop.</p>
+      <ul class="chips"><li><b>Audience</b> data engineers, platform architects</li><li><b>Level</b> advanced</li><li><b>Reading time</b> 90 min</li><li><b>Includes</b> hands-on workshop</li></ul>
+    </header>
+
+    <h2 id="problem">The problem this pattern solves</h2>
+    <p>A platform with one workspace per layer or per domain (see the <a href="../03-medallion-architecture/index.html">medallion architecture playbook</a>) gives every team its own pipelines, schedules and capacity. It also removes the one thing a monolith gave you for free: a single place that knows what must run before what.</p>
+    <p>Without a coordinating layer, teams fall back to schedules that guess. Silver is scheduled "an hour after Bronze, because Bronze usually finishes by then". The failure modes are predictable:</p>
+    <ul>
+      <li>Silver reads a half-loaded Bronze table, and nobody sees an error because every pipeline "succeeded" on its own terms.</li>
+      <li>An ingest fails overnight and the first alert is a business user asking why the dashboard is stale.</li>
+      <li>Nobody can answer "did last night's load finish?" without opening five workspaces and comparing timestamps.</li>
+      <li>One team renames a pipeline and breaks a neighbour's schedule that nobody knew depended on it.</li>
+    </ul>
+    <p>The opposite extreme, one large pipeline in one workspace, trades those problems for others: a single point of failure, an activity ceiling per pipeline, and every domain team editing the same artifact. <strong>Hub and spoke is the middle path.</strong> A dedicated hub workspace holds the master pipelines that define order and failure policy. Spokes keep ownership of their data and expose small, parameterised pipelines that the hub calls.</p>
+
+    <h2 id="how-it-works">How hub and spoke works in Fabric</h2>
+    <figure class="diagram">
+      <svg class="dg" viewBox="0 0 900 410" role="img" aria-label="A master pipeline in a hub workspace invokes pipelines in three spoke workspaces for Bronze, Silver and Gold in order, and records each outcome in a run log held in the hub">
+        <defs>
+          <marker id="fig-idx-1-a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="fig-idx-1-at" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ar teal" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="zone purple" x="20" y="20" width="360" height="370" rx="12"/>
+        <text class="t-s" x="34" y="40">Hub workspace · DEV_ORCH_HUB</text>
+        <rect class="box accent" x="50" y="60" width="300" height="90" rx="10"/>
+        <text class="t-h t-w" x="200" y="96" text-anchor="middle">Master pipeline</text>
+        <text class="t-s t-w" x="200" y="116" text-anchor="middle">PL_ORCH_HUB_SalesDaily</text>
+        <text class="t-s t-w" x="200" y="134" text-anchor="middle">order · gates · retry · alert</text>
+        <rect class="box blue" x="50" y="190" width="140" height="70" rx="10"/>
+        <text class="t-b" x="120" y="218" text-anchor="middle">Connection</text>
+        <text class="t-s" x="120" y="238" text-anchor="middle">identity: SP or WI</text>
+        <rect class="box green" x="210" y="190" width="140" height="70" rx="10"/>
+        <text class="t-b" x="280" y="218" text-anchor="middle">Run log</text>
+        <text class="t-s" x="280" y="238" text-anchor="middle">status per child run</text>
+        <path class="ln" d="M120 150V188" marker-end="url(#fig-idx-1-a)"/>
+        <path class="ln" d="M280 150V188" marker-end="url(#fig-idx-1-a)"/>
+        <text class="t-s" x="128" y="174">authorizes</text>
+        <text class="t-s" x="288" y="174">records</text>
+        <rect class="box gray" x="50" y="290" width="300" height="80" rx="10"/>
+        <text class="t-b" x="200" y="316" text-anchor="middle">What the hub does not hold</text>
+        <text class="t-s" x="200" y="336" text-anchor="middle">No transformations, no business data,</text>
+        <text class="t-s" x="200" y="352" text-anchor="middle">only order, retries and status</text>
+
+        <rect class="zone" x="520" y="20" width="360" height="110" rx="12"/>
+        <text class="t-s" x="534" y="40">Spoke A · DEV_SALES_BRZ</text>
+        <rect class="box teal" x="540" y="52" width="190" height="56" rx="8"/>
+        <text class="t-b" x="635" y="76" text-anchor="middle">PL_SALES_BRZ_Ingest</text>
+        <text class="t-s" x="635" y="94" text-anchor="middle">parameters in, status out</text>
+        <rect class="box bronze" x="760" y="52" width="100" height="56" rx="8"/>
+        <text class="t-s" x="810" y="76" text-anchor="middle">Lakehouse</text>
+        <text class="t-b" x="810" y="94" text-anchor="middle">LH_SALES_BRZ</text>
+        <path class="ln" d="M730 80H758" marker-end="url(#fig-idx-1-a)"/>
+
+        <rect class="zone" x="520" y="150" width="360" height="110" rx="12"/>
+        <text class="t-s" x="534" y="170">Spoke B · DEV_SALES_SLV</text>
+        <rect class="box teal" x="540" y="182" width="190" height="56" rx="8"/>
+        <text class="t-b" x="635" y="206" text-anchor="middle">PL_SALES_SLV_Conform</text>
+        <text class="t-s" x="635" y="224" text-anchor="middle">parameters in, status out</text>
+        <rect class="box silver" x="760" y="182" width="100" height="56" rx="8"/>
+        <text class="t-s" x="810" y="206" text-anchor="middle">Lakehouse</text>
+        <text class="t-b" x="810" y="224" text-anchor="middle">LH_SALES_SLV</text>
+        <path class="ln" d="M730 210H758" marker-end="url(#fig-idx-1-a)"/>
+
+        <rect class="zone" x="520" y="280" width="360" height="110" rx="12"/>
+        <text class="t-s" x="534" y="300">Spoke C · DEV_SALES_GLD</text>
+        <rect class="box teal" x="540" y="312" width="190" height="56" rx="8"/>
+        <text class="t-b" x="635" y="336" text-anchor="middle">PL_SALES_GLD_Model</text>
+        <text class="t-s" x="635" y="354" text-anchor="middle">parameters in, status out</text>
+        <rect class="box gold" x="760" y="312" width="100" height="56" rx="8"/>
+        <text class="t-s" x="810" y="336" text-anchor="middle">Lakehouse</text>
+        <text class="t-b" x="810" y="354" text-anchor="middle">LH_SALES_GLD</text>
+        <path class="ln" d="M730 340H758" marker-end="url(#fig-idx-1-a)"/>
+
+        <path class="ln teal thick" d="M350 105H440V80H538" marker-end="url(#fig-idx-1-at)"/>
+        <path class="ln teal thick" d="M350 105H440V210H538" marker-end="url(#fig-idx-1-at)"/>
+        <path class="ln teal thick" d="M350 105H440V340H538" marker-end="url(#fig-idx-1-at)"/>
+        <text class="t-s" x="450" y="72">1 · invoke</text>
+        <text class="t-s" x="450" y="202">2 · invoke</text>
+        <text class="t-s" x="450" y="332">3 · invoke</text>
+      </svg>
+      <figcaption><b>Hub and spoke in Fabric.</b> The master pipeline invokes each spoke pipeline in turn and waits for it to finish; the hub owns order, retries and the run log, while every spoke keeps its own data, capacity and deployment lifecycle.</figcaption>
+    </figure>
+    <dl class="kv">
+      <dt>Hub workspace</dt><dd>A dedicated workspace named <code>&lt;ENV&gt;_ORCH_HUB</code>. It holds master pipelines, shared connections, the run log and alert rules. It does not hold business data or transformation logic.</dd>
+      <dt>Spoke workspaces</dt><dd>Domain or medallion-layer workspaces (<code>DEV_SALES_BRZ</code>, <code>DEV_SALES_SLV</code>). Each holds its lakehouses or warehouses, notebooks, and small pipelines that take parameters and fail loudly.</dd>
+      <dt>The link</dt><dd>The <strong>Invoke pipeline</strong> activity with <em>Wait on completion</em> enabled, authorized by a reusable connection. It is what lets a pipeline in one workspace start and track a pipeline in another.</dd>
+      <dt>The contract</dt><dd>Parameter names, status semantics and the run-log schema. It is the only thing the hub and a spoke team must agree on, and it is the thing that couples them (see <a href="architecture.html#contract">the contract</a>).</dd>
+    </dl>
+
+    <h2 id="when">When to use it, and when not to</h2>
+    <div class="pros-cons">
+      <div class="pros"><h4>Use hub and spoke when</h4><ul>
+        <li>Three or more workspaces have ordering dependencies between their jobs.</li>
+        <li>Different teams own different spokes and need to deploy independently.</li>
+        <li>One place must answer "did the nightly load finish, and if not, where did it stop?"</li>
+        <li>Spokes run on separate capacities for isolation or chargeback.</li>
+        <li>The same orchestration must run in DEV, TST and PRD with different targets.</li>
+      </ul></div>
+      <div class="cons"><h4>Prefer something simpler when</h4><ul>
+        <li>Everything lives in one workspace with one owner: one pipeline with folders is simpler.</li>
+        <li>Jobs are independent and reactive (file arrival, upstream success): use event-driven triggers.</li>
+        <li>The whole flow is Spark in one lakehouse: a notebook DAG is cheaper than a pipeline per step.</li>
+        <li>Security forbids giving any single identity access to every spoke.</li>
+        <li>You need streaming latency: use Real-Time Intelligence, not batch orchestration.</li>
+      </ul></div>
+    </div>
+    <p>The <a href="alternatives.html">alternatives page</a> compares these options in detail with an honest decision table. Most mature platforms end up hybrid: hub-and-spoke pipelines for the nightly batch, event triggers for file arrival, notebook DAGs inside a spoke.</p>
+
+    <h2 id="platform-state">What the platform supports</h2>
+    <p>Earlier guidance for this pattern described a "preview" Invoke pipeline activity with a list of bugs and a heavy reliance on REST workarounds. The platform has moved on, and several workarounds now have first-class replacements. Use this table as the starting point, then follow the link for the detail.</p>
+    <table>
+      <thead><tr><th>Capability</th><th>What it gives a hub-and-spoke design</th><th>Status</th><th>Detail</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Invoke pipeline</strong> (new activity)</td><td>Cross-workspace invocation, child runs visible in the Monitoring hub, three connection authentication kinds</td><td><span class="badge neutral">Verify label</span></td><td><a href="invoke-pipeline.html">Invoke pipeline</a></td></tr>
+        <tr><td><strong>Invoke pipeline (Legacy)</strong></td><td>Same-workspace calls only; child runs are not monitored from the parent</td><td><span class="badge neutral">Legacy</span></td><td><a href="invoke-pipeline.html#two-activities">Two activities</a></td></tr>
+        <tr><td><strong>Workspace identity and service principal connections</strong></td><td>Orchestration that does not depend on one person's sign-in</td><td><span class="badge warn">Test first</span></td><td><a href="invoke-pipeline.html#identity">Connection and identity</a></td></tr>
+        <tr><td><strong>New Monitoring hub</strong></td><td>Upstream and downstream run relationships, rerun of failed or selected activities</td><td><span class="badge preview">Preview</span></td><td><a href="operations.html#monitoring-options">Monitoring options</a></td></tr>
+        <tr><td><strong>Workspace monitoring</strong> with a central monitoring item</td><td>Pipeline run and activity logs from many workspaces in one Eventhouse</td><td><span class="badge preview">Preview</span></td><td><a href="operations.html#monitoring-options">Monitoring options</a></td></tr>
+        <tr><td><strong>Run conditions</strong> on pipelines</td><td>A downstream pipeline waits for upstream runs, files or time windows without a central master</td><td><span class="badge preview">Preview</span></td><td><a href="control-flow.html#run-conditions">Run conditions</a></td></tr>
+        <tr><td><strong>Variable library</strong> item reference</td><td>Stage-specific workspace and item IDs without editing pipelines after deployment</td><td><span class="badge preview">Preview</span></td><td><a href="operations.html#object-ids">The item-ID problem</a></td></tr>
+        <tr><td><strong>Fabric actions</strong> activity</td><td>Call Fabric REST operations from a pipeline without hand-building Web requests</td><td><span class="badge preview">Preview</span></td><td><a href="invoke-pipeline.html#rest-fallback">REST fallback</a></td></tr>
+      </tbody>
+    </table>
+    <div class="callout learn"><p class="callout-title">Verify against Microsoft Learn</p><p>Preview labels and limits change without notice. Before committing a design to a preview feature, re-read the linked Learn article, and check the label on the activity tile in your own tenant: older screens show "Invoke Pipeline (Preview)" while the article for the activity no longer carries a preview banner. <a href="https://learn.microsoft.com/fabric/data-factory/invoke-pipeline-activity">Invoke pipeline activity</a>.</p></div>
+
+    <h2 id="prerequisites">Audience and prerequisites</h2>
+    <ul>
+      <li>A Fabric capacity (trial or paid) and permission to create at least three workspaces on it.</li>
+      <li>Working knowledge of Fabric pipelines: Copy data, Lookup, parameters and the expression language.</li>
+      <li>For the workshop: Admin on the three workspaces, and either a tenant admin who can enable the service-principal API setting or an account you can sign in with for a user connection.</li>
+      <li>For the CI/CD material: familiarity with Git integration and deployment pipelines (<a href="../05-github-integration/index.html">GitHub integration</a> and <a href="../07-deployment/index.html">deployment</a> playbooks).</li>
+    </ul>
+
+    <h2 id="outcomes">What you will be able to do</h2>
+    <ul class="checklist">
+      <li>Decide whether hub and spoke is the right orchestration pattern, and cut spokes by domain, layer or both.</li>
+      <li>Configure the Invoke pipeline activity with a durable identity, correct permissions and explicit parent context.</li>
+      <li>Build sequential, parallel, conditional and metadata-driven flows with retries, timeouts and failure policy that surface errors instead of hiding them.</li>
+      <li>Centralize run logging and alerting so one dashboard answers "did it finish?".</li>
+      <li>Promote hub and spokes across DEV, TST and PRD without hard-coded workspace or pipeline IDs.</li>
+      <li>Build and test a working two-spoke, one-hub orchestration end to end.</li>
+    </ul>
+
+    <h2 id="map">How this playbook is organized</h2>
+    <div class="cards">
+      <a class="card teal" href="architecture.html"><span class="card-num">01</span><h3>Hub-and-spoke architecture</h3><p>Roles, the hub-spoke contract, how to cut spokes, capacity and permissions.</p><div class="card-meta"><span>Design</span><span>15 min</span></div></a>
+      <a class="card teal" href="invoke-pipeline.html"><span class="card-num">02</span><h3>The Invoke pipeline activity</h3><p>Legacy versus new, identities, wait on completion, limits and the REST fallback.</p><div class="card-meta"><span>Reference</span><span>20 min</span></div></a>
+      <a class="card teal" href="control-flow.html"><span class="card-num">03</span><h3>Control flow and failure handling</h3><p>Sequence, fan-out, ForEach, retries, failure semantics and safe re-runs.</p><div class="card-meta"><span>Patterns</span><span>20 min</span></div></a>
+      <a class="card blue" href="operations.html"><span class="card-num">04</span><h3>Logging, monitoring and CI/CD</h3><p>Central run log, alerts, the item-ID problem and deploying hub plus spokes.</p><div class="card-meta"><span>Operations</span><span>20 min</span></div></a>
+      <a class="card purple" href="alternatives.html"><span class="card-num">05</span><h3>Alternatives and recommendations</h3><p>Decision table, notebook DAGs, Airflow, events, and a readiness checklist.</p><div class="card-meta"><span>Decisions</span><span>10 min</span></div></a>
+      <a class="card green" href="workshop.html"><span class="card-num">06</span><h3>Workshop</h3><p>Build two spokes and a hub, grant access, run it, and troubleshoot.</p><div class="card-meta"><span>Hands-on</span><span>60 min</span></div></a>
+    </div>
+
+    <h2 id="related">How it fits with other playbooks</h2>
+    <ul>
+      <li><a href="../03-medallion-architecture/index.html">Medallion architecture</a> decides which layers get their own workspace; this playbook decides how those workspaces run in order.</li>
+      <li><a href="../02-data-load-strategy/index.html">Data load strategy</a> defines what a spoke pipeline does (full, incremental, merge); the hub only decides when and in which order.</li>
+      <li><a href="../10-control-table-pipelines/index.html">Control-table pipelines</a> supplies the metadata that drives the ForEach fan-out described here.</li>
+      <li><a href="../09-variable-libraries/index.html">Variable libraries</a> and <a href="../07-deployment/index.html">deployment pipelines</a> solve the environment-specific ID problem in the CI/CD section.</li>
+      <li><a href="../14-deployment-checklist/index.html">Deployment checklist</a> is the release-day companion to the readiness checklist at the end of this playbook.</li>
+    </ul>
+
+    <div class="takeaways"><p class="tk-title">Key takeaways</p><ul>
+      <li>Hub and spoke gives managed decentralization: spokes own data and deployment, the hub owns order and failure policy, and the contract between them is the coupling you must govern.</li>
+      <li>The new Invoke pipeline activity, with a service principal or workspace identity connection and Wait on completion, is the default link; keep a REST fallback for edge cases.</li>
+      <li>Do not design around preview features without a fallback, and do not rely on child return values; write status to a log table instead.</li>
+      <li>Solve logging and environment IDs on day one. They are the two things that are painful to retrofit.</li>
+    </ul></div>
+
+    <section class="refs">
+      <h2 id="refs">References</h2>
+      <ul>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/invoke-pipeline-activity">Invoke pipeline activity</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/activity-overview">Activity overview</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/monitor-pipeline-runs">Choose how to monitor pipeline runs in Fabric Data Factory</a></li>
+        <li><a href="https://learn.microsoft.com/fabric/data-factory/data-factory-limitations">Data Factory limitations overview</a></li>
+        <li><a href="https://learn.microsoft.com/azure/architecture/data-guide/technology-choices/fabric-deployment-patterns">Choose a Microsoft Fabric deployment pattern</a> (Azure Architecture Center)</li>
+      </ul>
+    </section>
+  </main>
+  <aside class="page-toc" id="toc" aria-label="On this page"></aside>
+</div>
+<footer class="site-footer" id="site-footer"></footer>
+<script src="../../assets/js/site-data.js"></script>
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>
